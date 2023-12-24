@@ -1,0 +1,63 @@
+allprojects {
+    group 'me.darknet'
+    version '0.0.1-alpha'
+}
+
+subprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'maven-publish'
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
+        maven { url 'https://jitpack.io' }
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+
+        withSourcesJar()
+    }
+
+    compileJava.options.encoding = "UTF-8"
+    compileJava.options.incremental = true
+
+    compileTestJava.options.encoding = "UTF-8"
+
+    test {
+        useJUnitPlatform()
+
+        testLogging {
+            events "passed", "skipped", "failed"
+        }
+    }
+
+    dependencies {
+        // jetbrains annotations
+        implementation 'org.jetbrains:annotations:22.0.0'
+    }
+
+    publishing {
+        repositories {
+            mavenLocal()
+            maven {
+                name = 'sources-repo'
+                url = 'file:///tmp/sources-repo'
+            }
+        }
+        publications {
+            maven(MavenPublication) {
+                from components.java
+            }
+        }
+    }
+
+    plugins.withType(JavaPlugin).configureEach {
+        dependencies {
+            testImplementation platform('org.junit:junit-bom:5.9.1')
+            testImplementation 'org.junit.jupiter:junit-jupiter'
+        }
+    }
+}
