@@ -1,6 +1,7 @@
 package me.darknet.dex.codecs;
 
 import me.darknet.dex.file.DexHeader;
+import me.darknet.dex.file.DexMap;
 import me.darknet.dex.io.Codec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -63,9 +64,9 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         int mapOffset = input.readInt();
 
         DexMapCodec dexMapCodec = new DexMapCodec();
-        dexMapCodec.read(input.slice(mapOffset));
+        DexMap map = dexMapCodec.read(input.slice(mapOffset));
 
-        return new DexHeader(new String(version));
+        return new DexHeader(new String(version), map);
     }
 
     @Override
