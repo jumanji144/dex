@@ -122,35 +122,36 @@ public record ByteBufferInput(ByteBuffer buffer) implements Input {
     }
 
     @Override
-    public long readULeb128() throws IOException {
-        long value = 0;
+    public int readULeb128() throws IOException {
+        int value = 0;
         int next = 0;
         int shift = 0;
         do {
             next = readUnsignedByte();
-            value |= (long) (next & 0x7F) << shift;
+            value |= (next & 0x7F) << shift;
             shift += 7;
         } while ((next & 0x80) != 0);
         return value;
     }
 
     @Override
-    public long readULeb128p1() throws IOException {
+    public int readULeb128p1() throws IOException {
         return readULeb128() - 1;
     }
 
     @Override
-    public long readLeb128() throws IOException {
-        long value = 0;
+    public int readLeb128() throws IOException {
+        int value = 0;
         int next = 0;
         int shift = 0;
         do {
             next = readUnsignedByte();
-            value |= (long) (next & 0x7F) << shift;
+            value |= (next & 0x7F) << shift;
             shift += 7;
         } while ((next & 0x80) != 0);
+
         if (((shift < 64) && (next & 0x40) != 0)) {
-            value |= -(1L << shift);
+            value |= -(1 << shift);
         }
         return value;
     }
