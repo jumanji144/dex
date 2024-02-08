@@ -18,11 +18,11 @@ public record EncodedAnnotation(TypeItem type, List<AnnotationElement> elements)
 
         @Override
         public EncodedAnnotation read(Input input, DexMapAccess context) throws IOException {
-            TypeItem type = context.types().get(input.readUnsignedShort());
-            int size = input.readInt();
+            TypeItem type = context.types().get(input.readULeb128());
+            int size = input.readULeb128();
             List<AnnotationElement> elements = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
-                StringItem name = context.strings().get(input.readUnsignedShort());
+                StringItem name = context.strings().get(input.readULeb128());
                 Value value = Value.CODEC.read(input, context);
                 elements.add(new AnnotationElement(name, value));
             }

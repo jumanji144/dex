@@ -1,0 +1,56 @@
+package me.darknet.dex.file.items;
+
+import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.file.DexMapAccess;
+import me.darknet.dex.file.annotation.FieldAnnotation;
+import me.darknet.dex.file.annotation.MethodAnnotation;
+import me.darknet.dex.file.annotation.ParameterAnnotation;
+import me.darknet.dex.io.Input;
+import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.Nullable;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotations,
+                                       List<FieldAnnotation> fieldAnnotations,
+                                       List<MethodAnnotation> methodAnnotations,
+                                       List<ParameterAnnotation> parameterAnnotations) implements Item {
+
+    public static final ItemCodec<AnnotationsDirectoryItem> CODEC = new ItemCodec<>() {
+
+        @Override
+        public AnnotationsDirectoryItem read0(Input input, DexMapAccess context) throws IOException {
+            int classAnnotationsOffset = (int) input.readUnsignedInt();
+            int fieldAnnotationsSize = (int) input.readUnsignedInt();
+            int methodAnnotationsSize = (int) input.readUnsignedInt();
+            int parameterAnnotationsSize = (int) input.readUnsignedInt();
+            AnnotationSetItem classAnnotations = classAnnotationsOffset == 0 ? null : AnnotationSetItem.CODEC.read(input.slice(classAnnotationsOffset), context);
+            List<FieldAnnotation> fieldAnnotations = new ArrayList<>(fieldAnnotationsSize);
+            for (int i = 0; i < fieldAnnotationsSize; i++) {
+                fieldAnnotations.add(FieldAnnotation.CODEC.read(input, context));
+            }
+            List<MethodAnnotation> methodAnnotations = new ArrayList<>(methodAnnotationsSize);
+            for (int i = 0; i < methodAnnotationsSize; i++) {
+                methodAnnotations.add(MethodAnnotation.CODEC.read(input, context));
+            }
+            List<ParameterAnnotation> parameterAnnotations = new ArrayList<>(parameterAnnotationsSize);
+            for (int i = 0; i < parameterAnnotationsSize; i++) {
+                parameterAnnotations.add(ParameterAnnotation.CODEC.read(input, context));
+            }
+            return new AnnotationsDirectoryItem(classAnnotations, fieldAnnotations, methodAnnotations, parameterAnnotations);
+        }
+
+        @Override
+        public void write0(AnnotationsDirectoryItem value, Output output, DexMapAccess context) throws IOException {
+
+        }
+
+        @Override
+        public int alignment() {
+            return 4;
+        }
+    };
+
+}
