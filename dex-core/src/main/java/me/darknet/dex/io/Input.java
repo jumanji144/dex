@@ -23,11 +23,11 @@ public interface Input extends DataInput, Seekable, Slicable {
 
     byte[] readBytes(int length) throws IOException;
 
-    long readULeb128() throws IOException;
+    int readULeb128() throws IOException;
 
-    long readULeb128p1() throws IOException;
+    int readULeb128p1() throws IOException;
 
-    long readLeb128() throws IOException;
+    int readLeb128() throws IOException;
 
     long readUnsignedInt() throws IOException;
 

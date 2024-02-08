@@ -13,18 +13,16 @@ public interface Output extends DataOutput, Seekable {
 
     Output position(int position);
 
+    Output seek(int offset);
+
     void writeBytes(byte[] bytes) throws IOException;
 
     void writeBytes(byte[] bytes, int offset, int length) throws IOException;
 
-    void writeULeb128(long value) throws IOException;
+    void writeLeb128(int value) throws IOException;
 
-    void writeULeb128p1(long value) throws IOException;
+    void writeULeb128(int value) throws IOException;
 
-    void writeLeb128(long value) throws IOException;
-
-    static Output wrap(ByteBuffer buffer) {
-        return new ByteBufferOutput(buffer);
-    }
+    void writeULeb128p1(int value) throws IOException;
 
 }
