@@ -20,7 +20,15 @@ public interface DexMapAccess {
 
     List<ClassDefItem> classes();
 
+    List<CallSiteItem> callSites();
+
+    List<MethodHandleItem> methodHandles();
+
     List<TypeListItem> typeLists();
+
+    List<AnnotationSetRefList> annotationSetRefLists();
+
+    List<AnnotationSetItem> annotationSets();
 
     List<ClassDataItem> classDatas();
 
@@ -29,5 +37,11 @@ public interface DexMapAccess {
     List<StringDataItem> stringDatas();
 
     List<DebugInfoItem> debugInfos();
+
+    List<AnnotationItem> annotations();
+
+    List<EncodedArrayItem> encodedArrays();
+
+    List<AnnotationsDirectoryItem> annotationsDirectories();
 
 }
