@@ -15,11 +15,11 @@ public record DebugInfoItem(int lineStart, StringItem[] parameterNames, List<Deb
     public static final ItemCodec<DebugInfoItem> CODEC = new ItemCodec<>() {
         @Override
         public DebugInfoItem read0(Input input, DexMapAccess context) throws IOException {
-            int lineStart = (int) input.readULeb128();
-            int parametersSize = (int) input.readULeb128();
+            int lineStart = input.readULeb128();
+            int parametersSize = input.readULeb128();
             StringItem[] parameterNames = new StringItem[parametersSize];
             for (int i = 0; i < parametersSize; i++) {
-                int nameIndex = (int) input.readULeb128p1();
+                int nameIndex = input.readULeb128p1();
                 if(nameIndex == -1) continue;
                 parameterNames[i] = context.strings().get(nameIndex);
             }
