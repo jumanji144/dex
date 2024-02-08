@@ -20,6 +20,11 @@ public record StringItem(StringDataItem item) implements Item {
         public void write0(StringItem value, Output output, DexMapAccess context) throws IOException {
             // TODO
         }
+
+        @Override
+        public int alignment() {
+            return 4;
+        }
     };
 
 }

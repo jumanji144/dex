@@ -20,5 +20,10 @@ public record TypeItem(StringItem descriptor) implements Item {
         public void write0(TypeItem value, Output output, DexMapAccess context) throws IOException {
             output.writeInt(context.strings().indexOf(value.descriptor()));
         }
+
+        @Override
+        public int alignment() {
+            return 4;
+        }
     };
 }

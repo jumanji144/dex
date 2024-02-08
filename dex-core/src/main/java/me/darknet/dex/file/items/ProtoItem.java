@@ -30,6 +30,11 @@ public record ProtoItem(StringItem shortyDescriptor, TypeItem returnType, List<T
         public void write0(ProtoItem value, Output output, DexMapAccess context) throws IOException {
             // TODO
         }
+
+        @Override
+        public int alignment() {
+            return 4;
+        }
     };
 
 }

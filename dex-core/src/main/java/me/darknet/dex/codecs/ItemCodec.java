@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMapAccess> {
 
-    record CacheEntry(Item item, int position) {}
     private static final Map<Integer, CacheEntry> ITEM_CACHE = new HashMap<>();
 
     public abstract I read0(Input input, DexMapAccess context) throws IOException;
@@ -45,16 +44,8 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
         write0(value, output, context);
     }
 
-    static ItemCodec<Item> EMPTY = new ItemCodec<>() {
-        @Override
-        public Item read0(Input input, DexMapAccess context) {
-            return null;
-        }
+    record CacheEntry(Item item, int position) {}
 
-        @Override
-        public void write0(Item value, Output output, DexMapAccess context) {
-
-        }
-    };
+    public record Context(DexMapAccess map, Output data) {} // TODO: use this
 
 }
