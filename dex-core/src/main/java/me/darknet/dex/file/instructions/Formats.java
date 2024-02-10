@@ -72,7 +72,7 @@ public class Formats implements Opcodes {
                 int value = field.getInt(null);
                 OP_NAMES[value] = field.getName().toLowerCase();
             } catch (IllegalAccessException e) {
-                e.printStackTrace();
+                throw new ExceptionInInitializerError(e);
             }
         }
     }

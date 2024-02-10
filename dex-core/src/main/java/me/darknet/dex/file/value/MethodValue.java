@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.MethodItem;
 import me.darknet.dex.io.Input;
@@ -16,9 +17,9 @@ public record MethodValue(MethodItem method) implements Value {
         }
 
         @Override
-        public void write(MethodValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(MethodValue value, Output output, WriteContext context) throws IOException {
             output.writeByte(((size() - 1) << 5) | value.type());
-            output.writeInt(context.methods().indexOf(value.method));
+            output.writeInt(context.index().methods().indexOf(value.method));
         }
 
         @Override

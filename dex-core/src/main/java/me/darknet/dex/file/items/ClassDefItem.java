@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -53,7 +54,7 @@ public record ClassDefItem(TypeItem type, int access, TypeItem superType, List<T
         }
 
         @Override
-        public void write0(ClassDefItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(ClassDefItem value, Output output, WriteContext context) throws IOException {
 
         }
     };

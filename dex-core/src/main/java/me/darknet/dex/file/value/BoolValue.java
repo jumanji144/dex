@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -17,7 +18,7 @@ public record BoolValue(boolean value) implements Value {
         }
 
         @Override
-        public void write(BoolValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(BoolValue value, Output output, WriteContext context) throws IOException {
             output.writeByte((value.value ? 1 : 0) << 5 | value.type());
         }
 

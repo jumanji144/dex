@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -17,8 +18,8 @@ public record TypeItem(StringItem descriptor) implements Item {
         }
 
         @Override
-        public void write0(TypeItem value, Output output, DexMapAccess context) throws IOException {
-            output.writeInt(context.strings().indexOf(value.descriptor()));
+        public void write0(TypeItem value, Output output, WriteContext context) throws IOException {
+            output.writeInt(context.index().strings().indexOf(value.descriptor()));
         }
 
         @Override

@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -29,10 +30,10 @@ public record TypeListItem(List<TypeItem> types) implements Item {
         }
 
         @Override
-        public void write0(TypeListItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(TypeListItem value, Output output, WriteContext context) throws IOException {
             output.writeInt(value.types.size());
             for (TypeItem type : value.types) {
-                output.writeShort(context.types().indexOf(type));
+                output.writeShort(context.index().types().indexOf(type));
             }
         }
     };

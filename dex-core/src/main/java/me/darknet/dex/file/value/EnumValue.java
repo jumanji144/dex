@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.FieldItem;
 import me.darknet.dex.io.Input;
@@ -16,9 +17,9 @@ public record EnumValue(FieldItem constant) implements Value {
         }
 
         @Override
-        public void write(EnumValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(EnumValue value, Output output, WriteContext context) throws IOException {
             output.writeByte(((size() - 1) << 5) | value.type());
-            output.writeInt(context.fields().indexOf(value.constant));
+            output.writeInt(context.index().fields().indexOf(value.constant));
         }
 
         @Override

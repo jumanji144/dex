@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -15,7 +16,7 @@ public record ByteValue(byte value) implements Value {
         }
 
         @Override
-        public void write(ByteValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(ByteValue value, Output output, WriteContext context) throws IOException {
             output.writeByte(0); // header
             output.writeByte(value.value);
         }

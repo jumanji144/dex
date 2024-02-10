@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.value.Value;
 import me.darknet.dex.io.Input;
@@ -24,7 +25,7 @@ public record EncodedArrayItem(List<Value> values) implements Item {
         }
 
         @Override
-        public void write0(EncodedArrayItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(EncodedArrayItem value, Output output, WriteContext context) throws IOException {
             output.writeULeb128(value.values.size());
             for (Value entry : value.values()) {
                 Value.CODEC.write(entry, output, context);

@@ -1,5 +1,6 @@
 package me.darknet.dex.file.code;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.ContextCodec;
 import me.darknet.dex.io.Input;
@@ -11,7 +12,7 @@ import java.util.List;
 
 public record EncodedTryCatchHandler(List<EncodedTypeAddrPair> handlers, int catchAllAddr) {
 
-    public static final ContextCodec<EncodedTryCatchHandler, DexMapAccess> CODEC = new ContextCodec<>() {
+    public static final ContextCodec<EncodedTryCatchHandler, DexMapAccess, WriteContext> CODEC = new ContextCodec<>() {
         @Override
         public EncodedTryCatchHandler read(Input input, DexMapAccess context) throws IOException {
             int catchesSize = input.readLeb128();
@@ -27,10 +28,10 @@ public record EncodedTryCatchHandler(List<EncodedTypeAddrPair> handlers, int cat
         }
 
         @Override
-        public void write(EncodedTryCatchHandler value, Output output, DexMapAccess context) throws IOException {
+        public void write(EncodedTryCatchHandler value, Output output, WriteContext context) throws IOException {
             output.writeLeb128(value.handlers().size());
             for (EncodedTypeAddrPair pair : value.handlers()) {
-                output.writeULeb128(context.types().indexOf(pair.exceptionType()));
+                output.writeULeb128(context.index().types().indexOf(pair.exceptionType()));
                 output.writeULeb128(pair.addr());
             }
             if (value.catchAllAddr() != 0) {

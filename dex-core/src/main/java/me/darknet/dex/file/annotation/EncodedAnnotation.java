@@ -1,5 +1,6 @@
 package me.darknet.dex.file.annotation;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.StringItem;
 import me.darknet.dex.file.items.TypeItem;
@@ -14,7 +15,7 @@ import java.util.List;
 
 public record EncodedAnnotation(TypeItem type, List<AnnotationElement> elements) {
 
-    public static final ContextCodec<EncodedAnnotation, DexMapAccess> CODEC = new ContextCodec<>() {
+    public static final ContextCodec<EncodedAnnotation, DexMapAccess, WriteContext> CODEC = new ContextCodec<>() {
 
         @Override
         public EncodedAnnotation read(Input input, DexMapAccess context) throws IOException {
@@ -30,11 +31,11 @@ public record EncodedAnnotation(TypeItem type, List<AnnotationElement> elements)
         }
 
         @Override
-        public void write(EncodedAnnotation value, Output output, DexMapAccess context) throws IOException {
-            output.writeShort(context.types().indexOf(value.type));
+        public void write(EncodedAnnotation value, Output output, WriteContext context) throws IOException {
+            output.writeShort(context.index().types().indexOf(value.type));
             output.writeInt(value.elements.size());
             for (AnnotationElement element : value.elements) {
-                output.writeShort(context.strings().indexOf(element.name()));
+                output.writeShort(context.index().strings().indexOf(element.name()));
                 Value.CODEC.write(element.value(), output, context);
             }
         }

@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -16,7 +17,7 @@ public record LongValue(long value) implements Value {
         }
 
         @Override
-        public void write(LongValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(LongValue value, Output output, WriteContext context) throws IOException {
             output.writeLong(value.value);
         }
 

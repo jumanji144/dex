@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.TypeItem;
 import me.darknet.dex.io.Input;
@@ -16,9 +17,9 @@ public record TypeValue(TypeItem item) implements Value {
         }
 
         @Override
-        public void write(TypeValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(TypeValue value, Output output, WriteContext context) throws IOException {
             output.writeByte(((size() - 1) << 5) | value.type());
-            output.writeInt(context.types().indexOf(value.item));
+            output.writeInt(context.index().types().indexOf(value.item));
         }
 
         @Override

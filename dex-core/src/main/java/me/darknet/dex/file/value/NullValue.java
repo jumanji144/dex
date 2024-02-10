@@ -1,5 +1,6 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -18,7 +19,7 @@ public record NullValue() implements Value {
         }
 
         @Override
-        public void write(NullValue value, Output output, DexMapAccess context) throws IOException {
+        public void write(NullValue value, Output output, WriteContext context) throws IOException {
             output.writeByte(value.type()); // 0 << 5 | 0x1c
         }
     };

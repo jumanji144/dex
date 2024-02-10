@@ -1,5 +1,7 @@
 package me.darknet.dex.file.annotation;
 
+import me.darknet.dex.codecs.DexCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.AnnotationSetItem;
 import me.darknet.dex.file.items.MethodItem;
@@ -11,7 +13,7 @@ import java.io.IOException;
 
 public record MethodAnnotation(MethodItem method, AnnotationSetItem annotations) {
 
-    public static final ContextCodec<MethodAnnotation, DexMapAccess> CODEC = new ContextCodec<>() {
+    public static final DexCodec<MethodAnnotation> CODEC = new DexCodec<>() {
         @Override
         public MethodAnnotation read(Input input, DexMapAccess context) throws IOException {
             MethodItem field = context.methods().get(input.readInt());
@@ -21,8 +23,8 @@ public record MethodAnnotation(MethodItem method, AnnotationSetItem annotations)
         }
 
         @Override
-        public void write(MethodAnnotation value, Output output, DexMapAccess context) throws IOException {
-            output.writeInt(context.methods().indexOf(value.method()));
+        public void write(MethodAnnotation value, Output output, WriteContext context) throws IOException {
+            output.writeInt(context.index().methods().indexOf(value.method()));
             AnnotationSetItem.CODEC.write(value.annotations(), output, context);
         }
     };

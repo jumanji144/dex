@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.annotation.FieldAnnotation;
 import me.darknet.dex.file.annotation.MethodAnnotation;
@@ -43,7 +44,7 @@ public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotati
         }
 
         @Override
-        public void write0(AnnotationsDirectoryItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(AnnotationsDirectoryItem value, Output output, WriteContext context) throws IOException {
 
         }
 

@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.debug.DebugInstruction;
 import me.darknet.dex.io.Input;
@@ -35,11 +36,11 @@ public record DebugInfoItem(int lineStart, StringItem[] parameterNames, List<Deb
         }
 
         @Override
-        public void write0(DebugInfoItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(DebugInfoItem value, Output output, WriteContext context) throws IOException {
             output.writeULeb128(value.lineStart);
             output.writeULeb128(value.parameterNames.length);
             for (StringItem parameterName : value.parameterNames) {
-                output.writeULeb128p1(context.strings().indexOf(parameterName));
+                output.writeULeb128p1(context.index().strings().indexOf(parameterName));
             }
         }
     };

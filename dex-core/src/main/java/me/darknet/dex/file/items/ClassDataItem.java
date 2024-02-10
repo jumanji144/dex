@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.EncodedField;
 import me.darknet.dex.file.EncodedMethod;
@@ -67,8 +68,8 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
         }
 
         @Override
-        public void write0(ClassDataItem value, Output output, DexMapAccess context) throws IOException {
-            // TODO
+        public void write0(ClassDataItem value, Output output, WriteContext context) throws IOException {
+
         }
     };
 

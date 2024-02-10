@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.annotation.EncodedAnnotation;
 import me.darknet.dex.io.Input;
@@ -19,7 +20,7 @@ public record AnnotationItem(byte visibility, EncodedAnnotation annotation) impl
         }
 
         @Override
-        public void write0(AnnotationItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(AnnotationItem value, Output output, WriteContext context) throws IOException {
             output.writeByte(value.visibility());
             EncodedAnnotation.CODEC.write(value.annotation(), output, context);
         }

@@ -1,5 +1,7 @@
 package me.darknet.dex.file.value;
 
+import me.darknet.dex.codecs.DexCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.ContextCodec;
 import me.darknet.dex.io.Input;
@@ -11,7 +13,7 @@ import java.util.Map;
 
 public interface Value {
 
-    interface ValueCodec<T extends Value> extends ContextCodec<T, DexMapAccess> {
+    interface ValueCodec<T extends Value> extends DexCodec<T> {
         default int size() {
             return 1;
         }
@@ -31,7 +33,7 @@ public interface Value {
 
     int type();
 
-    ContextCodec<Value, DexMapAccess> CODEC = new ContextCodec<>() {
+    DexCodec<Value> CODEC = new DexCodec<>() {
 
         private Input zeroExtend(Input input, int size, int targetSize) throws IOException {
             ByteBuffer buffer = ByteBuffer.allocate(targetSize).order(input.order());
@@ -52,7 +54,7 @@ public interface Value {
         }
 
         @Override
-        public void write(Value value, Output output, DexMapAccess context) throws IOException {
+        public void write(Value value, Output output, WriteContext context) throws IOException {
             int type = value.type();
             ValueCodec codec = CODECS.get(type);
             codec.write(value, output, context);

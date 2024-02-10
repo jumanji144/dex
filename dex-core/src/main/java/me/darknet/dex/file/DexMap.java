@@ -18,4 +18,9 @@ public record DexMap(List<StringItem> strings, List<TypeItem> types, List<ProtoI
     public List<Item> all() {
         return Collections.emptyList();
     }
+
+    @Override
+    public String toString() {
+        return "DexMap[]";
+    }
 }

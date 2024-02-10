@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.value.MethodHandleValue;
 import me.darknet.dex.file.value.MethodTypeValue;
@@ -19,7 +20,7 @@ public record CallSiteDataItem(MethodHandleValue handle, StringValue name, Metho
     public static final ItemCodec<CallSiteDataItem> CODEC = new ItemCodec<>() {
         @Override
         public CallSiteDataItem read0(Input input, DexMapAccess context) throws IOException {
-            int size = (int) input.readULeb128();
+            int size = input.readULeb128();
             List<Value> values = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
                 values.add(Value.CODEC.read(input, context));
@@ -33,7 +34,7 @@ public record CallSiteDataItem(MethodHandleValue handle, StringValue name, Metho
         }
 
         @Override
-        public void write0(CallSiteDataItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(CallSiteDataItem value, Output output, WriteContext context) throws IOException {
             output.writeULeb128(value.arguments.size() + 3);
             Value.CODEC.write(value.handle, output, context);
             Value.CODEC.write(value.name, output, context);

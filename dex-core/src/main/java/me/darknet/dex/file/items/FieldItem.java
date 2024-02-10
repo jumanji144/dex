@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -20,10 +21,10 @@ public record FieldItem(TypeItem owner, TypeItem type, StringItem name) implemen
         }
 
         @Override
-        public void write0(FieldItem value, Output output, DexMapAccess context) throws IOException {
-            output.writeShort(context.types().indexOf(value.owner()));
-            output.writeShort(context.types().indexOf(value.type()));
-            output.writeInt(context.strings().indexOf(value.name()));
+        public void write0(FieldItem value, Output output, WriteContext context) throws IOException {
+            output.writeShort(context.index().types().indexOf(value.owner()));
+            output.writeShort(context.index().types().indexOf(value.type()));
+            output.writeInt(context.index().strings().indexOf(value.name()));
         }
     };
 

@@ -6,11 +6,20 @@ import me.darknet.dex.file.items.*;
 import me.darknet.dex.io.Codec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import me.darknet.dex.io.Sections;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 public class DexMapCodec implements Codec<DexMap>, ItemTypes {
+
+    private Sections sections;
+    private Map<Object, Long> offsets;
+
+    public Sections sections() {
+        return sections;
+    }
 
     private final static Map<Integer, ItemCodec<?>> CODECS = Map.ofEntries(
             Map.entry(1, StringItem.CODEC), Map.entry(2, TypeItem.CODEC),
@@ -47,13 +56,8 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
 
     @Override
     public void write(DexMap value, Output output) throws IOException {
-        // TODO: to write we prepare a byte buffer and pass in 2 buffers, one is the normal output buffer,
-        //  and another is the data buffer, such data items can write their data to the data buffer. at
-        //  this point we should be in the header at the `map_off` position, we seek our output to 0x70 (the end of the
-        //  header buffer, and pass that buffer as the normal section to the items (where all the defs live).
-        //  and then another data buffer that the items get access to write to the data section. after we are done
-        //  writing the items, we write the map list to the data buffer and then seek back to the `map_off` position
-        //  in the header and write the map list position into it. the header can then query some of the offsets
-        //  created by this write function to write the offsets to the sections.
+        this.sections = new Sections(output);
+        this.offsets = new HashMap<>();
+        WriteContext context = new WriteContext(value, this.offsets);
     }
 }

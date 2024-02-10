@@ -1,6 +1,7 @@
 package me.darknet.dex.file.items;
 
 import me.darknet.dex.codecs.ItemCodec;
+import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.code.EncodedTryCatchHandler;
 import me.darknet.dex.file.code.TryItem;
@@ -90,7 +91,7 @@ public record CodeItem(int registers, int in, int out, DebugInfoItem debug, List
         }
 
         @Override
-        public void write0(CodeItem value, Output output, DexMapAccess context) throws IOException {
+        public void write0(CodeItem value, Output output, WriteContext context) throws IOException {
             // TODO
         }
     };

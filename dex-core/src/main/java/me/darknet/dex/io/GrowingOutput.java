@@ -4,13 +4,15 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 public class GrowingOutput implements Output {
 
     // copied from jdk/src/java.base/share/classes/jdk/internal/misc/Unsafe.java
-    private static final boolean BIG_ENDIAN = false;
+    private static final boolean BIG_ENDIAN = true;
 
     private static char convEndian(boolean big, char n)   { return big == BIG_ENDIAN ? n : Character.reverseBytes(n); }
     private static short convEndian(boolean big, short n) { return big == BIG_ENDIAN ? n : Short.reverseBytes(n)    ; }
@@ -27,7 +29,12 @@ public class GrowingOutput implements Output {
 
     private void ensureCapacity(int size) {
         if (position + size > bytes.length) { // simple growth strategy
-            byte[] newBytes = new byte[bytes.length * 2];
+            // compute new length
+            int length = bytes.length;
+            while (position + size > length) {
+                length *= 2;
+            }
+            byte[] newBytes = new byte[length];
             System.arraycopy(bytes, 0, newBytes, 0, bytes.length);
             bytes = newBytes;
         }
@@ -60,6 +67,34 @@ public class GrowingOutput implements Output {
         ensureCapacity(position + offset);
         this.position += offset;
         return this;
+    }
+
+    @Override
+    public Output newOutput() {
+        GrowingOutput output = new GrowingOutput();
+        output.order(order());
+        return output;
+    }
+
+    public ByteBuffer buffer() {
+        return ByteBuffer.wrap(bytes, 0, position).order(bigEndian ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+    }
+
+    @Override
+    public void write(Output output) throws IOException {
+        if(output instanceof GrowingOutput go) {
+            write(go.bytes, 0, go.position);
+            return;
+        }
+        write(output.buffer());
+    }
+
+    private void write(ByteBuffer buffer) {
+        // write all bytes from 0 to the current position
+        ensureCapacity(buffer.limit());
+        buffer.get(bytes, 0, buffer.limit());
+        position += buffer.limit();
+
     }
 
     @Override
@@ -111,6 +146,8 @@ public class GrowingOutput implements Output {
 
     @Override
     public void write(@NotNull byte[] b, int off, int len) throws IOException {
+        if(len == 0)
+            return;
         ensureCapacity(len);
         System.arraycopy(b, off, bytes, position, len);
         position += len;
@@ -194,5 +231,10 @@ public class GrowingOutput implements Output {
         // according to the dalvik executable format
         writeLeb128(s.length());
         write(s.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Override
+    public void pipe(OutputStream output) throws IOException {
+        output.write(bytes, 0, position);
     }
 }

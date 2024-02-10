@@ -9,15 +9,14 @@ import me.darknet.dex.io.Output;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
-public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMapAccess> {
+public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMapAccess, WriteContext> {
 
     private static final Map<Integer, CacheEntry> ITEM_CACHE = new HashMap<>();
 
     public abstract I read0(Input input, DexMapAccess context) throws IOException;
 
-    public abstract void write0(I value, Output output, DexMapAccess context) throws IOException;
+    public abstract void write0(I value, Output output, WriteContext context) throws IOException;
 
     public int alignment() {
         return 1;
@@ -40,12 +39,14 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
     }
 
     @Override
-    public void write(I value, Output output, DexMapAccess context) throws IOException {
+    public void write(I value, Output output, WriteContext context) throws IOException {
+        // align
+        int position = output.position();
+        position = (position + alignment() - 1) & -alignment();
+        output.position(position);
         write0(value, output, context);
     }
 
     record CacheEntry(Item item, int position) {}
-
-    public record Context(DexMapAccess map, Output data) {} // TODO: use this
 
 }
