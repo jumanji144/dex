@@ -9,6 +9,7 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -69,7 +70,44 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
 
         @Override
         public void write0(ClassDataItem value, Output output, WriteContext context) throws IOException {
+            output.writeULeb128(value.staticFields.size());
+            output.writeULeb128(value.instanceFields.size());
+            output.writeULeb128(value.directMethods.size());
+            output.writeULeb128(value.virtualMethods.size());
 
+            int lastFieldIndex = 0;
+            for (EncodedField field : value.staticFields) {
+                int fieldIndexDiff = context.index().fields().indexOf(field.field());
+                output.writeULeb128(fieldIndexDiff - lastFieldIndex);
+                output.writeULeb128(field.access());
+                lastFieldIndex = fieldIndexDiff;
+            }
+
+            lastFieldIndex = 0;
+            for (EncodedField field : value.instanceFields) {
+                int fieldIndexDiff = context.index().fields().indexOf(field.field());
+                output.writeULeb128(fieldIndexDiff - lastFieldIndex);
+                output.writeULeb128(field.access());
+                lastFieldIndex = fieldIndexDiff;
+            }
+
+            int lastMethodIndex = 0;
+            for (EncodedMethod method : value.directMethods) {
+                int methodIndexDiff = context.index().methods().indexOf(method.method());
+                output.writeULeb128(methodIndexDiff - lastMethodIndex);
+                output.writeULeb128(method.access());
+                output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
+                lastMethodIndex = methodIndexDiff;
+            }
+
+            lastMethodIndex = 0;
+            for (EncodedMethod method : value.virtualMethods) {
+                int methodIndexDiff = context.index().methods().indexOf(method.method());
+                output.writeULeb128(methodIndexDiff - lastMethodIndex);
+                output.writeULeb128(method.access());
+                output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
+                lastMethodIndex = methodIndexDiff;
+            }
         }
     };
 

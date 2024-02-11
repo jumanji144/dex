@@ -30,7 +30,13 @@ public record AnnotationSetRefList(List<@Nullable AnnotationSetItem> items) impl
 
         @Override
         public void write0(AnnotationSetRefList value, Output output, WriteContext context) throws IOException {
-
+            output.writeInt(value.items().size());
+            for (AnnotationSetItem item : value.items()) {
+                if (item == null)
+                    output.writeInt(0);
+                else
+                    output.writeInt(context.offset(item));
+            }
         }
 
         @Override

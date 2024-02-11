@@ -44,4 +44,6 @@ public interface DexMapAccess {
 
     List<AnnotationsDirectoryItem> annotationsDirectories();
 
+    int size();
+
 }

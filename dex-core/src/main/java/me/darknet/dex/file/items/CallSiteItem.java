@@ -19,7 +19,7 @@ public record CallSiteItem(CallSiteDataItem data) implements Item {
 
         @Override
         public void write0(CallSiteItem value, Output output, WriteContext context) throws IOException {
-            // TODO
+            output.writeInt(context.offset(value.data()));
         }
     };
 

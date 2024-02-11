@@ -42,6 +42,9 @@ public record DebugInfoItem(int lineStart, StringItem[] parameterNames, List<Deb
             for (StringItem parameterName : value.parameterNames) {
                 output.writeULeb128p1(context.index().strings().indexOf(parameterName));
             }
+            for (DebugInstruction instruction : value.bytecode) {
+                DebugInstruction.CODEC.write(instruction, output, context);
+            }
         }
     };
 

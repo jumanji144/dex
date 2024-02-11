@@ -19,7 +19,7 @@ public record StringItem(StringDataItem item) implements Item {
 
         @Override
         public void write0(StringItem value, Output output, WriteContext context) throws IOException {
-            // TODO
+            output.writeInt(context.offset(value.item()));
         }
 
         @Override

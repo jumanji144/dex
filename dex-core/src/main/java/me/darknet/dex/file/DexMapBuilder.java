@@ -28,6 +28,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     private final List<AnnotationItem> annotations = new ArrayList<>();
     private final List<EncodedArrayItem> encodedArrays = new ArrayList<>();
     private final List<AnnotationsDirectoryItem> annotationsDirectories = new ArrayList<>();
+    private int size;
 
     public DexMapBuilder add(Item item) {
         if(item instanceof StringItem stringItem) {
@@ -67,6 +68,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         } else if(item instanceof AnnotationsDirectoryItem annotationsDirectoryItem) {
             annotationsDirectories.add(annotationsDirectoryItem);
         }
+        size++;
         return this;
     }
 
@@ -146,11 +148,15 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return Collections.emptyList();
     }
 
+    public int size() {
+        return size;
+    }
+
     @Override
     public DexMap build() {
         return new DexMap(strings, types, protos, fields, methods, classes, callSites, methodHandles, typeLists,
                 annotationSetRefLists, annotationSets, classDatas, codes, stringDatas, debugInfos, annotations,
-                encodedArrays, annotationsDirectories);
+                encodedArrays, annotationsDirectories, size);
     }
 
 }

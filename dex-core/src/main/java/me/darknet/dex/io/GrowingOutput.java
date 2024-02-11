@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class GrowingOutput implements Output {
@@ -21,6 +22,7 @@ public class GrowingOutput implements Output {
 
     private byte[] bytes = new byte[32]; // 32 initial size
     private int position = 0;
+    private int offset;
     private boolean bigEndian;
 
     public GrowingOutput() {
@@ -138,14 +140,14 @@ public class GrowingOutput implements Output {
     }
 
     @Override
-    public void write(@NotNull byte[] b) throws IOException {
+    public void write(byte @NotNull [] b) throws IOException {
         ensureCapacity(b.length);
         System.arraycopy(b, 0, bytes, position, b.length);
         position += b.length;
     }
 
     @Override
-    public void write(@NotNull byte[] b, int off, int len) throws IOException {
+    public void write(byte @NotNull [] b, int off, int len) throws IOException {
         if(len == 0)
             return;
         ensureCapacity(len);
@@ -229,8 +231,9 @@ public class GrowingOutput implements Output {
     @Override
     public void writeUTF(@NotNull String s) throws IOException {
         // according to the dalvik executable format
-        writeLeb128(s.length());
-        write(s.getBytes(StandardCharsets.UTF_8));
+        writeULeb128(s.length());
+        writeBytes(s);
+        write(0);
     }
 
     @Override

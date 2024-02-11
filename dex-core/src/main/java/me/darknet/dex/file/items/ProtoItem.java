@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
-public record ProtoItem(StringItem shortyDescriptor, TypeItem returnType, List<TypeItem> parameters) implements Item {
+public record ProtoItem(StringItem shortyDescriptor, TypeItem returnType, TypeListItem parameters) implements Item {
 
     public static final ItemCodec<ProtoItem> CODEC = new ItemCodec<>() {
         @Override
@@ -20,16 +20,23 @@ public record ProtoItem(StringItem shortyDescriptor, TypeItem returnType, List<T
             int parametersOffset = input.readInt();
             if (parametersOffset == 0) {
                 return new ProtoItem(context.strings().get(shortyDescriptorIndex), context.types().get(returnTypeIndex),
-                        Collections.emptyList());
+                        TypeListItem.EMPTY);
             }
 
-            List<TypeItem> parameters = TypeListItem.CODEC.read(input.slice(parametersOffset), context).types();
+            TypeListItem parameters = TypeListItem.CODEC.read(input.slice(parametersOffset), context);
             return new ProtoItem(context.strings().get(shortyDescriptorIndex), context.types().get(returnTypeIndex), parameters);
         }
 
         @Override
         public void write0(ProtoItem value, Output output, WriteContext context) throws IOException {
-            // TODO
+            output.writeInt(context.index().strings().indexOf(value.shortyDescriptor()));
+            output.writeInt(context.index().types().indexOf(value.returnType()));
+            if (value.parameters().types().isEmpty()) {
+                output.writeInt(0);
+                return;
+            }
+
+            output.writeInt(context.offset(value.parameters()));
         }
 
         @Override

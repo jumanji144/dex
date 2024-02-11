@@ -12,6 +12,8 @@ import java.util.List;
 
 public record TypeListItem(List<TypeItem> types) implements Item {
 
+    public static TypeListItem EMPTY = new TypeListItem(List.of());
+
     public static final ItemCodec<TypeListItem> CODEC = new ItemCodec<>() {
 
         @Override

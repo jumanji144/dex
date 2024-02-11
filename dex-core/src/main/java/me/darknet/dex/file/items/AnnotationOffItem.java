@@ -19,7 +19,7 @@ public record AnnotationOffItem(AnnotationItem item) implements Item {
 
         @Override
         public void write0(AnnotationOffItem value, Output output, WriteContext context) throws IOException {
-            // TODO
+            output.writeInt(context.offset(value.item()));
         }
     };
 

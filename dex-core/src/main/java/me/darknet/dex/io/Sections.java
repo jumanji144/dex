@@ -12,8 +12,7 @@ public record Sections(Output stringIds, Output typeIds, Output protoIds, Output
                 output.newOutput(), output.newOutput(), output.newOutput());
     }
 
-    public Output combine() throws IOException {
-        Output output = stringIds.newOutput();
+    public void write(Output output) throws IOException {
         output.write(stringIds);
         output.write(typeIds);
         output.write(protoIds);
@@ -25,7 +24,6 @@ public record Sections(Output stringIds, Output typeIds, Output protoIds, Output
         output.write(data);
         output.write(map);
         output.write(link);
-        return output;
     }
 
     public int size() {

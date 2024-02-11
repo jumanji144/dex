@@ -13,6 +13,7 @@ import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.zip.Adler32;
 
 public class DexHeaderCodec implements Codec<DexHeader> {
@@ -73,11 +74,9 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         return new DexHeader(new String(version), linkData, map);
     }
 
-    private int writeSectionInfo(Output output, Output section, int offset) throws IOException {
-        int size = section.position();
+    private void writeSectionInfo(Output output, int offset, int size) throws IOException {
         output.writeInt(size);
         output.writeInt(offset);
-        return size;
     }
 
     private byte[] computeSignature(ByteBuffer buffer) {
@@ -100,52 +99,52 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         dexMapCodec.write(value.map(), output);
 
         Sections sections = dexMapCodec.sections(); // chunked up version of data
+        Map<Object, Integer> offsets = dexMapCodec.offsets(); // offsets of sections
         int linkPosition = sections.size();
 
         sections.link().write(value.link());
 
-        // now that we have this we must work our way up to the header
-        Output part1 = output.newOutput();
-        part1.writeInt(0x70 + sections.size()); // file size
-        part1.writeInt(0x70); // header size
-        part1.writeInt(part1.order() == ByteOrder.BIG_ENDIAN ? ENDIAN_CONSTANT : REVERSE_ENDIAN_CONSTANT);
-        part1.writeInt(value.link().length);
-        part1.writeInt(linkPosition);
+        Output header = output.newOutput();
 
-        int mapPosition = sections.size() - sections.map().position();
-        part1.writeInt(0x70 + mapPosition); // map offset
+        header.writeBytes(DEX_FILE_MAGIC);
+        header.writeBytes(value.version().getBytes());
+        // skip checksum and signature
+        header.seek(4 + 20);
+
+        // now that we have this we must work our way up to the header
+        header.writeInt(0x70 + sections.size()); // file size
+        header.writeInt(0x70); // header size
+        header.writeInt(header.order() == ByteOrder.BIG_ENDIAN ? REVERSE_ENDIAN_CONSTANT : ENDIAN_CONSTANT);
+        header.writeInt(value.link().length);
+        header.writeInt(linkPosition);
+
+        header.writeInt(offsets.get(sections.map()));
 
         // section data
-        int offset = 0x70; // this is where data section begins
-        offset += writeSectionInfo(part1, sections.stringIds(), offset);
-        offset += writeSectionInfo(part1, sections.typeIds(), offset);
-        offset += writeSectionInfo(part1, sections.protoIds(), offset);
-        offset += writeSectionInfo(part1, sections.fieldIds(), offset);
-        offset += writeSectionInfo(part1, sections.methodIds(), offset);
-        offset += writeSectionInfo(part1, sections.classDefs(), offset);
-        writeSectionInfo(part1, sections.data(), offset);
+        var map = value.map();
 
-        // now we combine the data
-        Output combined = sections.combine();
+        writeSectionInfo(header, offsets.get(sections.stringIds()), map.strings().size());
+        writeSectionInfo(header, offsets.get(sections.typeIds()), map.types().size());
+        writeSectionInfo(header, offsets.get(sections.protoIds()), map.protos().size());
+        writeSectionInfo(header, offsets.get(sections.fieldIds()), map.fields().size());
+        writeSectionInfo(header, offsets.get(sections.methodIds()), map.methods().size());
+        writeSectionInfo(header, offsets.get(sections.classDefs()), map.classes().size());
+        writeSectionInfo(header, offsets.get(sections.data()), sections.data().position());
 
-        part1.write(combined);
+        sections.write(header);
 
-        byte[] signature = computeSignature(part1.buffer());
+        // now we compute signature and checksum
+        ByteBuffer headerBuffer = header.buffer();
+        byte[] signature = computeSignature(headerBuffer.slice(8 + 4 + 20, headerBuffer.limit() - 8 - 4 - 20));
+        headerBuffer.position(8 + 4); // skip magic and version and checksum
+        headerBuffer.put(signature);
 
-        // now we create a new header with the signature
-        Output part2 = output.newOutput();
-        part2.writeBytes(signature);
-        part2.write(part1);
-
-        // now we compute the adler32 of that header
         Adler32 adler32 = new Adler32();
-        adler32.update(part2.buffer());
+        adler32.update(headerBuffer.slice(8 + 4, headerBuffer.limit() - 8 - 4));
         long checksum = adler32.getValue();
+        headerBuffer.position(8);
+        headerBuffer.putInt((int) checksum);
 
-        // now we write the final header
-        output.writeBytes(DEX_FILE_MAGIC);
-        output.writeBytes(value.version().getBytes());
-        output.writeInt((int) checksum);
-        output.write(part2);
+        output.write(header);
     }
 }

@@ -5,17 +5,18 @@ import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
-public record ClassDefItem(TypeItem type, int access, TypeItem superType, List<TypeItem> interfaces,
-                           StringItem sourceFile, AnnotationsDirectoryItem directory, ClassDataItem classData,
-                           EncodedArrayItem staticValues)
+public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superType, TypeListItem interfaces,
+                           @Nullable StringItem sourceFile, @Nullable AnnotationsDirectoryItem directory,
+                           ClassDataItem classData, @Nullable EncodedArrayItem staticValues)
         implements Item {
 
-    public static ItemCodec<ClassDefItem> CODEC = new ItemCodec<ClassDefItem>() {
+    public static ItemCodec<ClassDefItem> CODEC = new ItemCodec<>() {
 
         @Override
         public int alignment() {
@@ -30,9 +31,9 @@ public record ClassDefItem(TypeItem type, int access, TypeItem superType, List<T
             TypeItem superType = superIndex == -1 ? null : context.types().get(superIndex);
             int interfacesOffset = input.readInt();
 
-            List<TypeItem> interfaces = interfacesOffset == 0
-                    ? Collections.emptyList()
-                    : TypeListItem.CODEC.read(input.slice(interfacesOffset), context).types();
+            TypeListItem interfaces = interfacesOffset == 0
+                    ? TypeListItem.EMPTY
+                    : TypeListItem.CODEC.read(input.slice(interfacesOffset), context);
 
             int sourceFileIndex = input.readInt();
             StringItem sourceFile = sourceFileIndex == -1 ? null : context.strings().get(sourceFileIndex);
@@ -55,7 +56,14 @@ public record ClassDefItem(TypeItem type, int access, TypeItem superType, List<T
 
         @Override
         public void write0(ClassDefItem value, Output output, WriteContext context) throws IOException {
-
+            output.writeInt(context.index().types().indexOf(value.type()));
+            output.writeInt(value.access());
+            output.writeInt(value.superType() == null ? -1 : context.index().types().indexOf(value.superType()));
+            output.writeInt(value.interfaces().types().isEmpty() ? 0 : context.offset(value.interfaces()));
+            output.writeInt(value.sourceFile() == null ? -1 : context.index().strings().indexOf(value.sourceFile()));
+            output.writeInt(value.directory() == null ? 0 : context.offset(value.directory()));
+            output.writeInt(context.offset(value.classData()));
+            output.writeInt(value.staticValues() == null ? 0 : context.offset(value.staticValues()));
         }
     };
 

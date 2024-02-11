@@ -45,7 +45,22 @@ public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotati
 
         @Override
         public void write0(AnnotationsDirectoryItem value, Output output, WriteContext context) throws IOException {
-
+            output.writeInt(value.classAnnotations() == null ? 0 : context.offset(value.classAnnotations()));
+            output.writeInt(value.fieldAnnotations().size());
+            output.writeInt(value.methodAnnotations().size());
+            output.writeInt(value.parameterAnnotations().size());
+            if (value.classAnnotations() != null) {
+                AnnotationSetItem.CODEC.write(value.classAnnotations(), output, context);
+            }
+            for (FieldAnnotation fieldAnnotation : value.fieldAnnotations()) {
+                FieldAnnotation.CODEC.write(fieldAnnotation, output, context);
+            }
+            for (MethodAnnotation methodAnnotation : value.methodAnnotations()) {
+                MethodAnnotation.CODEC.write(methodAnnotation, output, context);
+            }
+            for (ParameterAnnotation parameterAnnotation : value.parameterAnnotations()) {
+                ParameterAnnotation.CODEC.write(parameterAnnotation, output, context);
+            }
         }
 
         @Override

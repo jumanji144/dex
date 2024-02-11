@@ -22,6 +22,10 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
         return 1;
     }
 
+    public static void clearCache() {
+        ITEM_CACHE.clear();
+    }
+
     @Override
     public I read(Input input, DexMapAccess context) throws IOException {
         int position = input.position();
@@ -35,6 +39,7 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
         // align
         result = (result + alignment() - 1) & -alignment();
         ITEM_CACHE.put(position, new CacheEntry(item, result));
+        input.position(result);
         return item;
     }
 
