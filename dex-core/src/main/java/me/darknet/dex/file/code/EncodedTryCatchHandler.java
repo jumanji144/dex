@@ -29,7 +29,7 @@ public record EncodedTryCatchHandler(List<EncodedTypeAddrPair> handlers, int cat
 
         @Override
         public void write(EncodedTryCatchHandler value, Output output, WriteContext context) throws IOException {
-            output.writeLeb128(value.handlers().size());
+            output.writeLeb128(value.catchAllAddr() != 0 ? -value.handlers().size() : value.handlers().size());
             for (EncodedTypeAddrPair pair : value.handlers()) {
                 output.writeULeb128(context.index().types().indexOf(pair.exceptionType()));
                 output.writeULeb128(pair.addr());
