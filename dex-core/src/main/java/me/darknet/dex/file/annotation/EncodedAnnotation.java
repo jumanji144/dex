@@ -32,10 +32,10 @@ public record EncodedAnnotation(TypeItem type, List<AnnotationElement> elements)
 
         @Override
         public void write(EncodedAnnotation value, Output output, WriteContext context) throws IOException {
-            output.writeShort(context.index().types().indexOf(value.type));
-            output.writeInt(value.elements.size());
-            for (AnnotationElement element : value.elements) {
-                output.writeShort(context.index().strings().indexOf(element.name()));
+            output.writeULeb128(context.index().types().indexOf(value.type()));
+            output.writeULeb128(value.elements().size());
+            for (AnnotationElement element : value.elements()) {
+                output.writeULeb128(context.index().strings().indexOf(element.name()));
                 Value.CODEC.write(element.value(), output, context);
             }
         }
