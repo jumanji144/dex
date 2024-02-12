@@ -60,7 +60,7 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
                 Map<Integer, EncodedTryCatchHandler> handlerMap = new HashMap<>();
 
                 int triesPosition = input.position();
-                int handlersPosition = tries * (4 + 2 + 2) + input.position();
+                int handlersPosition = triesPosition + tries * (4 + 2 + 2);
 
                 input.position(handlersPosition);
 
@@ -68,8 +68,9 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
 
                 // read handlers first
                 for (int i = 0; i < handlersSize; i++) {
+                    int handlerPosition = input.position();
                     EncodedTryCatchHandler handler = EncodedTryCatchHandler.CODEC.read(input, context);
-                    handlerMap.put(input.position() - handlersPosition, handler);
+                    handlerMap.put(handlerPosition - handlersPosition, handler);
                     handlers.add(handler);
                 }
 
@@ -110,11 +111,34 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
                 return;
             }
 
-            if ((value.instructions().size() & 1) == 1) {
+            if ((value.insns() & 1) == 1) {
                 output.writeShort(0); // padding
             }
 
+            int triesPosition = output.position();
+            int handlersPosition = triesPosition + value.tries().size() * (4 + 2 + 2);
 
+            output.position(handlersPosition);
+            output.writeULeb128(value.handlers().size());
+
+            Map<EncodedTryCatchHandler, Integer> handlerOffsets = new HashMap<>();
+
+            for (EncodedTryCatchHandler handler : value.handlers()) {
+                handlerOffsets.put(handler, output.position());
+                EncodedTryCatchHandler.CODEC.write(handler, output, context);
+            }
+
+            int endPosition = output.position();
+
+            output.position(triesPosition);
+
+            for (TryItem tryItem : value.tries()) {
+                output.writeInt(tryItem.startAddr());
+                output.writeShort(tryItem.count());
+                output.writeShort(handlerOffsets.get(tryItem.handler()));
+            }
+
+            output.position(endPosition);
         }
     };
 
