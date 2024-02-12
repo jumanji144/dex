@@ -26,7 +26,7 @@ public record ParameterAnnotation(MethodItem method, AnnotationSetRefList annota
         @Override
         public void write(ParameterAnnotation value, Output output, WriteContext context) throws IOException {
             output.writeInt(context.index().methods().indexOf(value.method()));
-            AnnotationSetRefList.CODEC.write(value.annotations(), output, context);
+            output.writeInt(context.offset(value.annotations()));
         }
     };
     

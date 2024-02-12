@@ -25,7 +25,7 @@ public record MethodAnnotation(MethodItem method, AnnotationSetItem annotations)
         @Override
         public void write(MethodAnnotation value, Output output, WriteContext context) throws IOException {
             output.writeInt(context.index().methods().indexOf(value.method()));
-            AnnotationSetItem.CODEC.write(value.annotations(), output, context);
+            output.writeInt(context.offset(value.annotations()));
         }
     };
     

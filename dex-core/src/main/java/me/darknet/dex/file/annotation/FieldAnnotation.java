@@ -24,7 +24,7 @@ public record FieldAnnotation(FieldItem field, AnnotationSetItem annotations) {
         @Override
         public void write(FieldAnnotation value, Output output, WriteContext context) throws IOException {
             output.writeInt(context.index().fields().indexOf(value.field()));
-            AnnotationSetItem.CODEC.write(value.annotations(), output, context);
+            output.writeInt(context.offset(value.annotations()));
         }
     };
 
