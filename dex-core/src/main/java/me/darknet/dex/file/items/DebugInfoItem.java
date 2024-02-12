@@ -45,6 +45,7 @@ public record DebugInfoItem(int lineStart, StringItem[] parameterNames, List<Deb
             for (DebugInstruction instruction : value.bytecode) {
                 DebugInstruction.CODEC.write(instruction, output, context);
             }
+            output.writeByte(0);
         }
     };
 
