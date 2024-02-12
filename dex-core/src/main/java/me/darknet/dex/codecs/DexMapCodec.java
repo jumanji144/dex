@@ -184,12 +184,6 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         putOffset(sections.map(), offsets, offset);
     }
 
-    private void align(Output output, int alignment) throws IOException {
-        int position = output.position();
-        position = (position + alignment - 1) & -alignment;
-        output.position(position);
-    }
-
     private void writeBasic(DexMap value, WriteContext context) throws IOException {
         // we place the typelists first to avoid having to write extra alignment bytes later
         for (TypeListItem typeList : value.typeLists()) {
