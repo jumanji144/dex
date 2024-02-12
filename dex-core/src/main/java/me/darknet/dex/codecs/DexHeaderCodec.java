@@ -41,10 +41,11 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         input.skipBytes(4 + 20 + 4 + 4); // skip checksum, signature, file_size, header_size
 
         // to read endianness
+        input.order(ByteOrder.LITTLE_ENDIAN); // read it as little endian
         int endianTag = input.readInt();
         input.order(switch (endianTag) {
-            case ENDIAN_CONSTANT -> ByteOrder.BIG_ENDIAN;
-            case REVERSE_ENDIAN_CONSTANT -> ByteOrder.LITTLE_ENDIAN;
+            case ENDIAN_CONSTANT -> ByteOrder.LITTLE_ENDIAN;
+            case REVERSE_ENDIAN_CONSTANT -> ByteOrder.BIG_ENDIAN;
             default -> throw new IOException("Invalid endian tag");
         });
 
