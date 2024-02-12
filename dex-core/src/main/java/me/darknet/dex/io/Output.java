@@ -38,4 +38,8 @@ public interface Output extends DataOutput, Seekable {
 
     void writeULeb128p1(int value) throws IOException;
 
+    static Output wrap() {
+        return new GrowingOutput();
+    }
+
 }

@@ -22,7 +22,6 @@ public class GrowingOutput implements Output {
 
     private byte[] bytes = new byte[32]; // 32 initial size
     private int position = 0;
-    private int offset;
     private boolean bigEndian;
 
     public GrowingOutput() {
