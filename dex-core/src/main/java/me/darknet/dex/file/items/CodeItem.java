@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem debug, List<Format> instructions,
-                       int insns, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
+                       int units, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
 
     public static final ItemCodec<CodeItem> CODEC = new ItemCodec<>() {
 
@@ -102,7 +102,7 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
             output.writeShort(value.tries().size());
             output.writeInt(value.debug() == null ? 0 : context.offset(value.debug()));
 
-            output.writeInt(value.insns());
+            output.writeInt(value.units());
             for (Format instruction : value.instructions()) {
                 Format.CODEC.write(instruction, output);
             }
@@ -111,7 +111,7 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
                 return;
             }
 
-            if ((value.insns() & 1) == 1) {
+            if ((value.units() & 1) == 1) {
                 output.writeShort(0); // padding
             }
 
@@ -124,7 +124,7 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
             Map<EncodedTryCatchHandler, Integer> handlerOffsets = new HashMap<>();
 
             for (EncodedTryCatchHandler handler : value.handlers()) {
-                handlerOffsets.put(handler, output.position());
+                handlerOffsets.put(handler, output.position() - handlersPosition);
                 EncodedTryCatchHandler.CODEC.write(handler, output, context);
             }
 
