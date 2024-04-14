@@ -6,6 +6,7 @@ import org.junit.jupiter.api.function.ThrowingSupplier;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -31,7 +32,8 @@ public class RoundTripTest {
         codec.write(header, output);
 
         // write to file
-        Files.write(Paths.get("classes.dex"), output.buffer().array());
+        FileOutputStream fos = new FileOutputStream("classes.dex");
+        output.pipe(fos);
 
         input = Input.wrap(output.buffer());
         header = codec.read(input);
