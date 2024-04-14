@@ -67,7 +67,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     }
 
     private <T extends Item> void write(T item, ItemCodec<T> codec, Output output, WriteContext context) throws IOException {
-        // align to allignment
+        // align to alignment
         int position = output.position();
         position = (position + codec.alignment() - 1) & -codec.alignment();
         output.position(position);
