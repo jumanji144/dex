@@ -1,6 +1,5 @@
 package me.darknet.dex.codecs;
 
-import me.darknet.dex.collections.Multimap;
 import me.darknet.dex.file.DexMapAccess;
 
 import java.util.Map;
