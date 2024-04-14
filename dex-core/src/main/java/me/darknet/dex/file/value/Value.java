@@ -49,6 +49,9 @@ public interface Value {
             int value_type = value & 0x1f;
             int value_arg = value >> 5;
             ValueCodec<?> codec = CODECS.get(value_type);
+            if (codec == null) {
+                throw new IOException("Unknown value type: " + value_type);
+            }
             Input passed = codec.size() == 0 ? input : zeroExtend(input, value_arg+1, codec.size());
             return codec.read(passed, context);
         }
