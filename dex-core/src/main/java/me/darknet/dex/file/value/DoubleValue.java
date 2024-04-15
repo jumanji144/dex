@@ -30,6 +30,6 @@ public record DoubleValue(double value) implements Value {
 
     @Override
     public int type() {
-        return 0x06;
+        return 0x11;
     }
 }

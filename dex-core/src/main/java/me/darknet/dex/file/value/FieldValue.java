@@ -30,6 +30,6 @@ public record FieldValue(FieldItem item) implements Value {
 
     @Override
     public int type() {
-        return 0x1b;
+        return 0x19;
     }
 }

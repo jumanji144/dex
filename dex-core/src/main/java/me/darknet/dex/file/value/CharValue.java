@@ -30,6 +30,6 @@ public record CharValue(char value) implements Value {
 
     @Override
     public int type() {
-        return 0x02;
+        return 0x03;
     }
 }

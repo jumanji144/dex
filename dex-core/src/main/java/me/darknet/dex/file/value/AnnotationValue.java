@@ -25,7 +25,7 @@ public record AnnotationValue(EncodedAnnotation annotation) implements Value {
 
     @Override
     public int type() {
-        return 0x1c;
+        return 0x1d;
     }
 
 }

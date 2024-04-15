@@ -30,6 +30,6 @@ public record FloatValue(float value) implements Value {
 
     @Override
     public int type() {
-        return 0x04;
+        return 0x10;
     }
 }
