@@ -9,6 +9,7 @@ import me.darknet.dex.io.Output;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Map;
 
 public interface Value {
@@ -36,7 +37,8 @@ public interface Value {
     DexCodec<Value> CODEC = new DexCodec<>() {
 
         private Input zeroExtend(Input input, int size, int targetSize) throws IOException {
-            ByteBuffer buffer = ByteBuffer.allocate(targetSize).order(input.order());
+            // read buffer is always little endian
+            ByteBuffer buffer = ByteBuffer.allocate(targetSize).order(ByteOrder.LITTLE_ENDIAN);
             buffer.put(input.readBytes(size));
             buffer.position(0);
             return Input.wrap(buffer);
