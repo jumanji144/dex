@@ -1,13 +1,12 @@
 package me.darknet.dex.io;
 
-import java.io.DataInput;
+import org.jetbrains.annotations.NotNull;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.CharBuffer;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
 
 public record ByteBufferInput(ByteBuffer buffer) implements Input {
 
@@ -27,7 +26,7 @@ public record ByteBufferInput(ByteBuffer buffer) implements Input {
 
     private ByteBuffer check(int length) throws IOException {
         if (buffer.remaining() < length) {
-            throw new IOException("Not enough bytes left in buffer");
+            throw new IOException("Not enough bytes left in buffer: " + buffer.remaining() + " < " + length);
         }
         return buffer;
     }
@@ -105,13 +104,29 @@ public record ByteBufferInput(ByteBuffer buffer) implements Input {
     }
 
     @Override
-    public String readUTF() throws IOException {
+    public @NotNull String readUTF() throws IOException {
         long utf16Size = readULeb128();
-        // read until null byte
-        NullTerminatedCharsetDecoder decoder = new NullTerminatedCharsetDecoder(StandardCharsets.UTF_8);
-        CharBuffer chars = CharBuffer.allocate((int) utf16Size);
-        decoder.decode(check((int) utf16Size), chars, true);
-        return chars.toString();
+        CharBuffer charBuffer = CharBuffer.allocate((int) utf16Size);
+
+        // read mutf8
+        while (charBuffer.hasRemaining()) {
+            int c = readUnsignedByte();
+            if ((c & 0x80) == 0) {
+                charBuffer.put((char) c);
+            } else if ((c & 0xE0) == 0xC0) {
+                charBuffer.put((char) (((c & 0x1F) << 6) | (readUnsignedByte() & 0x3F)));
+            } else if ((c & 0xF0) == 0xE0) {
+                charBuffer.put((char) (((c & 0x0F) << 12) | ((readUnsignedByte() & 0x3F) << 6) | (readUnsignedByte() & 0x3F)));
+            } else {
+                throw new IOException("Invalid mutf8");
+            }
+        }
+
+        readByte(); // null terminator
+
+        charBuffer.flip();
+
+        return charBuffer.toString();
     }
 
     @Override
