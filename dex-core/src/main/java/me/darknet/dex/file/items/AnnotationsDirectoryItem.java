@@ -49,9 +49,6 @@ public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotati
             output.writeInt(value.fieldAnnotations().size());
             output.writeInt(value.methodAnnotations().size());
             output.writeInt(value.parameterAnnotations().size());
-            if (value.classAnnotations() != null) {
-                AnnotationSetItem.CODEC.write(value.classAnnotations(), output, context);
-            }
             for (FieldAnnotation fieldAnnotation : value.fieldAnnotations()) {
                 FieldAnnotation.CODEC.write(fieldAnnotation, output, context);
             }
