@@ -26,6 +26,6 @@ public record NullValue() implements Value {
 
     @Override
     public int type() {
-        return 0x1c;
+        return 0x1e;
     }
 }

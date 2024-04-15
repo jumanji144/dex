@@ -15,7 +15,7 @@ public record ArrayValue(List<Value> values) implements Value {
 
         @Override
         public ArrayValue read(Input input, DexMapAccess context) throws IOException {
-            int size = (int) input.readULeb128();
+            int size = input.readULeb128();
             List<Value> values = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
                 values.add(Value.CODEC.read(input, context));
