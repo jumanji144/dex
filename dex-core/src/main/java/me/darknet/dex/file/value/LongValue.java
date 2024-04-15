@@ -18,6 +18,7 @@ public record LongValue(long value) implements Value {
 
         @Override
         public void write(LongValue value, Output output, WriteContext context) throws IOException {
+            output.writeByte(((size() - 1) << 5) | value.type());
             output.writeLong(value.value);
         }
 
