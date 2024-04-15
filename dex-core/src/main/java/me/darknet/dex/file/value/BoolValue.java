@@ -13,7 +13,7 @@ public record BoolValue(boolean value) implements Value {
 
         @Override
         public BoolValue read(Input input, DexMapAccess context) throws IOException {
-            int header = input.position(-1).readByte();
+            int header = input.peek(-1) & 0xff;
             return new BoolValue((header & 0x20) != 0);
         }
 

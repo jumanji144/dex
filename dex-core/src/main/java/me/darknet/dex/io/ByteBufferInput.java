@@ -204,6 +204,11 @@ public record ByteBufferInput(ByteBuffer buffer) implements Input {
     }
 
     @Override
+    public int peek(int offset) throws IOException {
+        return buffer.get(buffer.position() + offset);
+    }
+
+    @Override
     public int size() {
         return buffer.limit();
     }

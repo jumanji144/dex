@@ -19,6 +19,8 @@ public interface Input extends DataInput, Seekable, Slicable {
 
     Input slice(int offset);
 
+    int peek(int offset) throws IOException;
+
     int size();
 
     byte[] readBytes(int length) throws IOException;
