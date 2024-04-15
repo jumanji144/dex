@@ -37,4 +37,8 @@ public record AnnotationSetItem(List<AnnotationOffItem> entries) implements Item
         }
     };
 
+    @Override
+    public int hashCode() {
+        return entries.hashCode();
+    }
 }

@@ -13,6 +13,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotations,
                                        List<FieldAnnotation> fieldAnnotations,
@@ -66,4 +67,8 @@ public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotati
         }
     };
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(classAnnotations, fieldAnnotations, methodAnnotations, parameterAnnotations);
+    }
 }

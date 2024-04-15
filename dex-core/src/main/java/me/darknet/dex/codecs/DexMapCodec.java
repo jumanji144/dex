@@ -1,5 +1,6 @@
 package me.darknet.dex.codecs;
 
+import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.items.*;
@@ -11,7 +12,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class DexMapCodec implements Codec<DexMap>, ItemTypes {
@@ -19,6 +19,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     private Sections sections;
     private Map<Object, Integer> offsets;
     private int dataOffset;
+    private static final ItemCodec<?>[] CODECS;
 
     public Sections sections() {
         return sections;
@@ -31,18 +32,6 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     public int dataOffset() {
         return dataOffset;
     }
-
-    private final static Map<Integer, ItemCodec<?>> CODECS = Map.ofEntries(
-            Map.entry(1, StringItem.CODEC), Map.entry(2, TypeItem.CODEC),
-            Map.entry(3, ProtoItem.CODEC), Map.entry(4, FieldItem.CODEC),
-            Map.entry(5, MethodItem.CODEC), Map.entry(6, ClassDefItem.CODEC),
-            Map.entry(7, CallSiteItem.CODEC), Map.entry(8, MethodHandleItem.CODEC),
-            Map.entry(0x1001, TypeListItem.CODEC), Map.entry(0x1002, AnnotationSetRefList.CODEC),
-            Map.entry(0x1003, AnnotationSetItem.CODEC), Map.entry(0x2000, ClassDataItem.CODEC),
-            Map.entry(0x2001, CodeItem.CODEC), Map.entry(0x2002, StringDataItem.CODEC),
-            Map.entry(0x2003, DebugInfoItem.CODEC), Map.entry(0x2004, AnnotationItem.CODEC),
-            Map.entry(0x2005, EncodedArrayItem.CODEC), Map.entry(0x2006, AnnotationsDirectoryItem.CODEC)
-    );
 
     @Override
     public DexMap read(Input input) throws IOException {
@@ -59,7 +48,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
             }
             Input slice = input.slice(offset);
             for (long j = 0; j < amount; j++) {
-                Item item = CODECS.get(type).read(slice, builder);
+                Item item = CODECS[index(type)].read(slice, builder);
                 builder.add(item);
             }
         }
@@ -83,7 +72,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         output.writeInt(offset);
     }
 
-    private <T> void writeMapEntry(Output output, int type, List<T> objects) throws IOException {
+    private <T> void writeMapEntry(Output output, int type, ConstantPool<T> objects) throws IOException {
         if(!objects.isEmpty()) {
             writeMapEntry(output, type, objects.size(), offsets.get(objects.get(0)) + dataOffset);
         }
@@ -279,5 +268,32 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         this.dataOffset = offset;
 
         return new WriteContext(value, this.offsets, this.dataOffset);
+    }
+
+    private static int index(int type) {
+        return (type & 15) + 8 * (type >>> 12);
+    }
+
+    static {
+        ItemCodec<?>[] codecs = new ItemCodec[index(0x2006) + 1];
+        codecs[index(1)] = StringItem.CODEC;
+        codecs[index(2)] = TypeItem.CODEC;
+        codecs[index(3)] = ProtoItem.CODEC;
+        codecs[index(4)] = FieldItem.CODEC;
+        codecs[index(5)] = MethodItem.CODEC;
+        codecs[index(6)] = ClassDefItem.CODEC;
+        codecs[index(7)] = CallSiteItem.CODEC;
+        codecs[index(8)] = MethodHandleItem.CODEC;
+        codecs[index(0x1001)] = TypeListItem.CODEC;
+        codecs[index(0x1002)] = AnnotationSetRefList.CODEC;
+        codecs[index(0x1003)] = AnnotationSetItem.CODEC;
+        codecs[index(0x2000)] = ClassDataItem.CODEC;
+        codecs[index(0x2001)] = CodeItem.CODEC;
+        codecs[index(0x2002)] = StringDataItem.CODEC;
+        codecs[index(0x2003)] = DebugInfoItem.CODEC;
+        codecs[index(0x2004)] = AnnotationItem.CODEC;
+        codecs[index(0x2005)] = EncodedArrayItem.CODEC;
+        codecs[index(0x2006)] = AnnotationsDirectoryItem.CODEC;
+        CODECS = codecs;
     }
 }

@@ -33,4 +33,8 @@ public record EncodedArrayItem(List<Value> values) implements Item {
         }
     };
 
+    @Override
+    public int hashCode() {
+        return values.hashCode();
+    }
 }

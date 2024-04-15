@@ -23,4 +23,8 @@ public record AnnotationOffItem(AnnotationItem item) implements Item {
         }
     };
 
+    @Override
+    public int hashCode() {
+        return item.hashCode();
+    }
 }

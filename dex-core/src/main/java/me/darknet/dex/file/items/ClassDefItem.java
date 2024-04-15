@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superType, TypeListItem interfaces,
                            @Nullable StringItem sourceFile, @Nullable AnnotationsDirectoryItem directory,
@@ -69,4 +70,8 @@ public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superTy
         }
     };
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(type, access, superType, interfaces, sourceFile, directory, classData, staticValues);
+    }
 }

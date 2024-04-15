@@ -21,6 +21,11 @@ public record AnnotationValue(EncodedAnnotation annotation) implements Value {
             output.writeByte(value.type()); // 0 << 5 | 0x1c
             EncodedAnnotation.CODEC.write(value.annotation, output, context);
         }
+
+        @Override
+        public int size() {
+            return 0;
+        }
     };
 
     @Override

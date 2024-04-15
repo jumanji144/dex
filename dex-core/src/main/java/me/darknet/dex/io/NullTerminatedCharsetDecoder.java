@@ -31,13 +31,14 @@ public class NullTerminatedCharsetDecoder extends CharsetDecoder {
 
     @Override
     protected CoderResult decodeLoop(ByteBuffer in, CharBuffer out) {
+        CharsetDecoder decoder = charset().newDecoder();
         while (in.hasRemaining()) {
-            byte b = in.get();
+            byte b = in.get(in.position());
             if (b == 0) {
                 out.flip();
                 return CoderResult.UNDERFLOW;
             }
-            out.put((char) b);
+            CoderResult result = decoder.decode(in, out, false);
         }
         out.flip();
         return CoderResult.UNDERFLOW;

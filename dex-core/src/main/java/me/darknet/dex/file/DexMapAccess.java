@@ -1,48 +1,50 @@
 package me.darknet.dex.file;
 
+import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.items.*;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 public interface DexMapAccess {
 
-    List<Item> all();
+    Stream<Item> all();
 
-    List<StringItem> strings();
+    ConstantPool<StringItem> strings();
 
-    List<TypeItem> types();
+    ConstantPool<TypeItem> types();
 
-    List<ProtoItem> protos();
+    ConstantPool<ProtoItem> protos();
 
-    List<FieldItem> fields();
+    ConstantPool<FieldItem> fields();
 
-    List<MethodItem> methods();
+    ConstantPool<MethodItem> methods();
 
-    List<ClassDefItem> classes();
+    ConstantPool<ClassDefItem> classes();
 
-    List<CallSiteItem> callSites();
+    ConstantPool<CallSiteItem> callSites();
 
-    List<MethodHandleItem> methodHandles();
+    ConstantPool<MethodHandleItem> methodHandles();
 
-    List<TypeListItem> typeLists();
+    ConstantPool<TypeListItem> typeLists();
 
-    List<AnnotationSetRefList> annotationSetRefLists();
+    ConstantPool<AnnotationSetRefList> annotationSetRefLists();
 
-    List<AnnotationSetItem> annotationSets();
+    ConstantPool<AnnotationSetItem> annotationSets();
 
-    List<ClassDataItem> classDatas();
+    ConstantPool<ClassDataItem> classDatas();
 
-    List<CodeItem> codes();
+    ConstantPool<CodeItem> codes();
 
-    List<StringDataItem> stringDatas();
+    ConstantPool<StringDataItem> stringDatas();
 
-    List<DebugInfoItem> debugInfos();
+    ConstantPool<DebugInfoItem> debugInfos();
 
-    List<AnnotationItem> annotations();
+    ConstantPool<AnnotationItem> annotations();
 
-    List<EncodedArrayItem> encodedArrays();
+    ConstantPool<EncodedArrayItem> encodedArrays();
 
-    List<AnnotationsDirectoryItem> annotationsDirectories();
+    ConstantPool<AnnotationsDirectoryItem> annotationsDirectories();
 
     int size();
 

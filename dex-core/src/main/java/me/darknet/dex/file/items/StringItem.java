@@ -28,4 +28,8 @@ public record StringItem(StringDataItem item) implements Item {
         }
     };
 
+    @Override
+    public int hashCode() {
+        return 31 * item.hashCode();
+    }
 }

@@ -7,6 +7,7 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.util.Objects;
 
 public record FieldItem(TypeItem owner, TypeItem type, StringItem name) implements Item {
 
@@ -28,4 +29,8 @@ public record FieldItem(TypeItem owner, TypeItem type, StringItem name) implemen
         }
     };
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(owner, type, name);
+    }
 }

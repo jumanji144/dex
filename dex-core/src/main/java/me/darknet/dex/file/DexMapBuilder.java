@@ -1,33 +1,35 @@
 package me.darknet.dex.file;
 
 import me.darknet.dex.builder.Builder;
+import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.items.ClassDefItem;
 import me.darknet.dex.file.items.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
 public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
 
-    private final List<StringItem> strings = new ArrayList<>();
-    private final List<TypeItem> types = new ArrayList<>();
-    private final List<ProtoItem> protos = new ArrayList<>();
-    private final List<FieldItem> fields = new ArrayList<>();
-    private final List<MethodItem> methods = new ArrayList<>();
-    private final List<ClassDefItem> classes = new ArrayList<>();
-    private final List<CallSiteItem> callSites = new ArrayList<>();
-    private final List<MethodHandleItem> methodHandles = new ArrayList<>();
-    private final List<TypeListItem> typeLists = new ArrayList<>();
-    private final List<AnnotationSetRefList> annotationSetRefLists = new ArrayList<>();
-    private final List<AnnotationSetItem> annotationSets = new ArrayList<>();
-    private final List<ClassDataItem> classDatas = new ArrayList<>();
-    private final List<CodeItem> codes = new ArrayList<>();
-    private final List<StringDataItem> stringDatas = new ArrayList<>();
-    private final List<DebugInfoItem> debugInfos = new ArrayList<>();
-    private final List<AnnotationItem> annotations = new ArrayList<>();
-    private final List<EncodedArrayItem> encodedArrays = new ArrayList<>();
-    private final List<AnnotationsDirectoryItem> annotationsDirectories = new ArrayList<>();
+    private final ConstantPool<StringItem> strings = new ConstantPool<>();
+    private final ConstantPool<TypeItem> types = new ConstantPool<>();
+    private final ConstantPool<ProtoItem> protos = new ConstantPool<>();
+    private final ConstantPool<FieldItem> fields = new ConstantPool<>();
+    private final ConstantPool<MethodItem> methods = new ConstantPool<>();
+    private final ConstantPool<ClassDefItem> classes = new ConstantPool<>();
+    private final ConstantPool<CallSiteItem> callSites = new ConstantPool<>();
+    private final ConstantPool<MethodHandleItem> methodHandles = new ConstantPool<>();
+    private final ConstantPool<TypeListItem> typeLists = new ConstantPool<>();
+    private final ConstantPool<AnnotationSetRefList> annotationSetRefLists = new ConstantPool<>();
+    private final ConstantPool<AnnotationSetItem> annotationSets = new ConstantPool<>();
+    private final ConstantPool<ClassDataItem> classDatas = new ConstantPool<>();
+    private final ConstantPool<CodeItem> codes = new ConstantPool<>();
+    private final ConstantPool<StringDataItem> stringDatas = new ConstantPool<>();
+    private final ConstantPool<DebugInfoItem> debugInfos = new ConstantPool<>();
+    private final ConstantPool<AnnotationItem> annotations = new ConstantPool<>();
+    private final ConstantPool<EncodedArrayItem> encodedArrays = new ConstantPool<>();
+    private final ConstantPool<AnnotationsDirectoryItem> annotationsDirectories = new ConstantPool<>();
     private int size;
 
     public DexMapBuilder add(Item item) {
@@ -72,80 +74,80 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return this;
     }
 
-    public List<StringItem> strings() {
+    public ConstantPool<StringItem> strings() {
         return strings;
     }
 
-    public List<TypeItem> types() {
+    public ConstantPool<TypeItem> types() {
         return types;
     }
 
-    public List<ProtoItem> protos() {
+    public ConstantPool<ProtoItem> protos() {
         return protos;
     }
 
-    public List<FieldItem> fields() {
+    public ConstantPool<FieldItem> fields() {
         return fields;
     }
 
-    public List<MethodItem> methods() {
+    public ConstantPool<MethodItem> methods() {
         return methods;
     }
 
-    public List<ClassDefItem> classes() {
+    public ConstantPool<ClassDefItem> classes() {
         return classes;
     }
 
-    public List<CallSiteItem> callSites() {
+    public ConstantPool<CallSiteItem> callSites() {
         return callSites;
     }
 
-    public List<MethodHandleItem> methodHandles() {
+    public ConstantPool<MethodHandleItem> methodHandles() {
         return methodHandles;
     }
 
-    public List<TypeListItem> typeLists() {
+    public ConstantPool<TypeListItem> typeLists() {
         return typeLists;
     }
 
-    public List<AnnotationSetRefList> annotationSetRefLists() {
+    public ConstantPool<AnnotationSetRefList> annotationSetRefLists() {
         return annotationSetRefLists;
     }
 
-    public List<AnnotationSetItem> annotationSets() {
+    public ConstantPool<AnnotationSetItem> annotationSets() {
         return annotationSets;
     }
 
-    public List<ClassDataItem> classDatas() {
+    public ConstantPool<ClassDataItem> classDatas() {
         return classDatas;
     }
 
-    public List<CodeItem> codes() {
+    public ConstantPool<CodeItem> codes() {
         return codes;
     }
 
-    public List<StringDataItem> stringDatas() {
+    public ConstantPool<StringDataItem> stringDatas() {
         return stringDatas;
     }
 
-    public List<DebugInfoItem> debugInfos() {
+    public ConstantPool<DebugInfoItem> debugInfos() {
         return debugInfos;
     }
 
-    public List<AnnotationItem> annotations() {
+    public ConstantPool<AnnotationItem> annotations() {
         return annotations;
     }
 
-    public List<EncodedArrayItem> encodedArrays() {
+    public ConstantPool<EncodedArrayItem> encodedArrays() {
         return encodedArrays;
     }
 
-    public List<AnnotationsDirectoryItem> annotationsDirectories() {
+    public ConstantPool<AnnotationsDirectoryItem> annotationsDirectories() {
         return annotationsDirectories;
     }
 
-    public List<Item> all() {
-        return Collections.emptyList();
+    public Stream<Item> all() {
+        return Stream.of();
     }
 
     public int size() {

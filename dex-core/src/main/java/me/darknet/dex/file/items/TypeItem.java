@@ -27,4 +27,9 @@ public record TypeItem(StringItem descriptor) implements Item {
             return 4;
         }
     };
+
+    @Override
+    public int hashCode() {
+        return 31 * descriptor.hashCode();
+    }
 }

@@ -8,6 +8,7 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.util.Objects;
 
 public record AnnotationItem(byte visibility, EncodedAnnotation annotation) implements Item {
 
@@ -25,5 +26,4 @@ public record AnnotationItem(byte visibility, EncodedAnnotation annotation) impl
             EncodedAnnotation.CODEC.write(value.annotation(), output, context);
         }
     };
-
 }

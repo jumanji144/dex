@@ -40,4 +40,8 @@ public record TypeListItem(List<TypeItem> types) implements Item {
         }
     };
 
+    @Override
+    public int hashCode() {
+        return types.hashCode();
+    }
 }
