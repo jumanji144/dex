@@ -9,7 +9,6 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
-import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.List;
 
