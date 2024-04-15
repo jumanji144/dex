@@ -258,7 +258,8 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
 
         for (ClassDefItem classDef : value.classes()) {
-            write(classDef.classData(), ClassDataItem.CODEC, sections.data(), context);
+            if (classDef.classData() != null)
+                write(classDef.classData(), ClassDataItem.CODEC, sections.data(), context);
             write(classDef, ClassDefItem.CODEC, sections.classDefs(), context);
         }
     }

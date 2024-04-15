@@ -13,7 +13,7 @@ import java.util.List;
 
 public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superType, TypeListItem interfaces,
                            @Nullable StringItem sourceFile, @Nullable AnnotationsDirectoryItem directory,
-                           ClassDataItem classData, @Nullable EncodedArrayItem staticValues)
+                           @Nullable ClassDataItem classData, @Nullable EncodedArrayItem staticValues)
         implements Item {
 
     public static ItemCodec<ClassDefItem> CODEC = new ItemCodec<>() {
@@ -43,7 +43,9 @@ public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superTy
                     ? null
                     : AnnotationsDirectoryItem.CODEC.read(input.slice(annotationsOffset), context);
             int classDataOffset = input.readInt();
-            ClassDataItem classData = ClassDataItem.CODEC.read(input.slice(classDataOffset), context);
+            ClassDataItem classData = classDataOffset == 0
+                    ? null
+                    : ClassDataItem.CODEC.read(input.slice(classDataOffset), context);
 
             int staticValuesOffset = input.readInt();
             EncodedArrayItem staticValues = staticValuesOffset == 0
@@ -62,7 +64,7 @@ public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superTy
             output.writeInt(value.interfaces().types().isEmpty() ? 0 : context.offset(value.interfaces()));
             output.writeInt(value.sourceFile() == null ? -1 : context.index().strings().indexOf(value.sourceFile()));
             output.writeInt(value.directory() == null ? 0 : context.offset(value.directory()));
-            output.writeInt(context.offset(value.classData()));
+            output.writeInt(value.classData() == null ? 0 : context.offset(value.classData()));
             output.writeInt(value.staticValues() == null ? 0 : context.offset(value.staticValues()));
         }
     };
