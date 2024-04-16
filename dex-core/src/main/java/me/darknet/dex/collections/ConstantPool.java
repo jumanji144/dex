@@ -42,4 +42,11 @@ public class ConstantPool<T> implements Iterable<T>, RandomAccess {
         return itemsView.iterator();
     }
 
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        ConstantPool<?> that = (ConstantPool<?>) obj;
+        return itemsView.equals(that.itemsView);
+    }
 }
