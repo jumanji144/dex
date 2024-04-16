@@ -5,6 +5,8 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Objects;
 
 public record FormatPackedSwitch(int first, int[] targets) implements Format {
     @Override
@@ -36,4 +38,17 @@ public record FormatPackedSwitch(int first, int[] targets) implements Format {
             }
         }
     };
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        FormatPackedSwitch that = (FormatPackedSwitch) o;
+        return first == that.first && Objects.deepEquals(targets, that.targets);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(first, Arrays.hashCode(targets));
+    }
 }

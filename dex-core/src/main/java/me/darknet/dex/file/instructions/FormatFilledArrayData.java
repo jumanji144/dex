@@ -4,6 +4,8 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Objects;
 
 public record FormatFilledArrayData(int width, byte[] data) implements Format {
 
@@ -39,4 +41,16 @@ public record FormatFilledArrayData(int width, byte[] data) implements Format {
         }
     };
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        FormatFilledArrayData that = (FormatFilledArrayData) o;
+        return width == that.width && Objects.deepEquals(data, that.data);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(width, Arrays.hashCode(data));
+    }
 }

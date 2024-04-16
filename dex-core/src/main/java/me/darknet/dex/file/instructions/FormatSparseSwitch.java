@@ -4,6 +4,8 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Objects;
 
 public record FormatSparseSwitch(int[] keys, int[] targets) implements Format {
     @Override
@@ -40,4 +42,17 @@ public record FormatSparseSwitch(int[] keys, int[] targets) implements Format {
             }
         }
     };
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        FormatSparseSwitch that = (FormatSparseSwitch) o;
+        return Objects.deepEquals(keys, that.keys) && Objects.deepEquals(targets, that.targets);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(Arrays.hashCode(keys), Arrays.hashCode(targets));
+    }
 }
