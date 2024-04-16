@@ -29,22 +29,16 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
             List<EncodedMethod> directMethods = new ArrayList<>(directMethodsSize);
             List<EncodedMethod> virtualMethods = new ArrayList<>(virtualMethodsSize);
 
-            int lastFieldIndex = 0;
-            for (int i = 0; i < staticFieldsSize; i++) {
-                int fieldIndexDiff = input.readULeb128();
-                int accessFlags = input.readULeb128();
-                lastFieldIndex += fieldIndexDiff;
-                staticFields.add(new EncodedField(context.fields().get(lastFieldIndex), accessFlags));
-            }
+            readFields(input, context, staticFieldsSize, staticFields);
+            readFields(input, context, instanceFieldsSize, instanceFields);
 
-            lastFieldIndex = 0;
-            for (int i = 0; i < instanceFieldsSize; i++) {
-                int fieldIndexDiff = input.readULeb128();
-                int accessFlags = input.readULeb128();
-                lastFieldIndex += fieldIndexDiff;
-                instanceFields.add(new EncodedField(context.fields().get(lastFieldIndex), accessFlags));
-            }
+            readMethods(input, context, directMethodsSize, directMethods);
+            readMethods(input, context, virtualMethodsSize, virtualMethods);
 
+            return new ClassDataItem(staticFields, instanceFields, directMethods, virtualMethods);
+        }
+
+        private static void readMethods(Input input, DexMapAccess context, int directMethodsSize, List<EncodedMethod> directMethods) throws IOException {
             int lastMethodIndex = 0;
             for (int i = 0; i < directMethodsSize; i++) {
                 int methodIndexDiff = input.readULeb128();
@@ -54,18 +48,16 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
                 CodeItem code = codeOffset == 0 ? null : CodeItem.CODEC.read(input.slice(codeOffset), context);
                 directMethods.add(new EncodedMethod(context.methods().get(lastMethodIndex), accessFlags, code));
             }
+        }
 
-            lastMethodIndex = 0;
-            for (int i = 0; i < virtualMethodsSize; i++) {
-                int methodIndexDiff = input.readULeb128();
+        private static void readFields(Input input, DexMapAccess context, int fieldsSize, List<EncodedField> fields) throws IOException {
+            int lastFieldIndex = 0;
+            for (int i = 0; i < fieldsSize; i++) {
+                int fieldIndexDiff = input.readULeb128();
                 int accessFlags = input.readULeb128();
-                int codeOffset = input.readULeb128();
-                lastMethodIndex += methodIndexDiff;
-                CodeItem code = codeOffset == 0 ? null : CodeItem.CODEC.read(input.slice(codeOffset), context);
-                virtualMethods.add(new EncodedMethod(context.methods().get(lastMethodIndex), accessFlags, code));
+                lastFieldIndex += fieldIndexDiff;
+                fields.add(new EncodedField(context.fields().get(lastFieldIndex), accessFlags));
             }
-
-            return new ClassDataItem(staticFields, instanceFields, directMethods, virtualMethods);
         }
 
         @Override
@@ -75,43 +67,33 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
             output.writeULeb128(value.directMethods.size());
             output.writeULeb128(value.virtualMethods.size());
 
-            int lastFieldIndex = 0;
-            for (EncodedField field : value.staticFields) {
-                lastFieldIndex = writeField(output, context, lastFieldIndex, field);
-            }
+            writeFields(output, context, value.staticFields);
+            writeFields(output, context, value.instanceFields);
 
-            lastFieldIndex = 0;
-            for (EncodedField field : value.instanceFields) {
-                lastFieldIndex = writeField(output, context, lastFieldIndex, field);
-            }
-
-            int lastMethodIndex = 0;
-            for (EncodedMethod method : value.directMethods) {
-                lastMethodIndex = writeMethod(output, context, lastMethodIndex, method);
-            }
-
-            lastMethodIndex = 0;
-            for (EncodedMethod method : value.virtualMethods) {
-                lastMethodIndex = writeMethod(output, context, lastMethodIndex, method);
-            }
+            writeMethods(output, context, value.directMethods);
+            writeMethods(output, context, value.virtualMethods);
         }
     };
 
-    private static int writeMethod(Output output, WriteContext context, int lastMethodIndex, EncodedMethod method) throws IOException {
-        int methodIndexDiff = context.index().methods().indexOf(method.method());
-        output.writeULeb128(methodIndexDiff - lastMethodIndex);
-        output.writeULeb128(method.access());
-        output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
-        lastMethodIndex = methodIndexDiff;
-        return lastMethodIndex;
+    private static void writeMethods(Output output, WriteContext context, List<EncodedMethod> methods) throws IOException {
+        int lastMethodIndex = 0;
+        for (EncodedMethod method : methods) {
+            int methodIndexDiff = context.index().methods().indexOf(method.method());
+            output.writeULeb128(methodIndexDiff - lastMethodIndex);
+            output.writeULeb128(method.access());
+            output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
+            lastMethodIndex = methodIndexDiff;
+        }
     }
 
-    private static int writeField(Output output, WriteContext context, int lastFieldIndex, EncodedField field) throws IOException {
-        int fieldIndexDiff = context.index().fields().indexOf(field.field());
-        output.writeULeb128(fieldIndexDiff - lastFieldIndex);
-        output.writeULeb128(field.access());
-        lastFieldIndex = fieldIndexDiff;
-        return lastFieldIndex;
+    private static void writeFields(Output output, WriteContext context, List<EncodedField> fields) throws IOException {
+        int lastFieldIndex = 0;
+        for (EncodedField field : fields) {
+            int fieldIndexDiff = context.index().fields().indexOf(field.field());
+            output.writeULeb128(fieldIndexDiff - lastFieldIndex);
+            output.writeULeb128(field.access());
+            lastFieldIndex = fieldIndexDiff;
+        }
     }
 
     @Override
