@@ -11,6 +11,7 @@ import me.darknet.dex.io.Output;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> instanceFields,
                             List<EncodedMethod> directMethods, List<EncodedMethod> virtualMethods) implements Item {
@@ -110,4 +111,8 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
         }
     };
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(staticFields, instanceFields, directMethods, virtualMethods);
+    }
 }

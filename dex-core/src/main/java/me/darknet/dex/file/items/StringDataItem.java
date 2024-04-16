@@ -7,6 +7,7 @@ import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
 import java.io.IOException;
+import java.util.Objects;
 
 public record StringDataItem(String string) implements Item {
 
@@ -24,6 +25,6 @@ public record StringDataItem(String string) implements Item {
 
     @Override
     public int hashCode() {
-        return 31 * string.hashCode();
+        return string.hashCode();
     }
 }

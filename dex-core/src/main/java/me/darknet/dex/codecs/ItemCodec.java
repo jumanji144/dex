@@ -12,7 +12,7 @@ import java.util.Map;
 
 public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMapAccess, WriteContext> {
 
-    private static final Map<Integer, CacheEntry> ITEM_CACHE = new HashMap<>(1 << 16);
+    private static Map<Integer, CacheEntry> ITEM_CACHE = new HashMap<>(1 << 16);
 
     public abstract I read0(Input input, DexMapAccess context) throws IOException;
 
@@ -23,7 +23,7 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
     }
 
     public static void clearCache() {
-        ITEM_CACHE.clear();
+        ITEM_CACHE = new HashMap<>(1 << 16);
     }
 
     @Override

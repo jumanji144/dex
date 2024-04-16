@@ -10,6 +10,7 @@ import me.darknet.dex.io.Output;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public record EncodedArrayItem(List<Value> values) implements Item {
 
@@ -35,6 +36,6 @@ public record EncodedArrayItem(List<Value> values) implements Item {
 
     @Override
     public int hashCode() {
-        return values.hashCode();
+        return Objects.hashCode(values);
     }
 }
