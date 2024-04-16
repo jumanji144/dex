@@ -77,39 +77,42 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
 
             int lastFieldIndex = 0;
             for (EncodedField field : value.staticFields) {
-                int fieldIndexDiff = context.index().fields().indexOf(field.field());
-                output.writeULeb128(fieldIndexDiff - lastFieldIndex);
-                output.writeULeb128(field.access());
-                lastFieldIndex = fieldIndexDiff;
+                lastFieldIndex = writeField(output, context, lastFieldIndex, field);
             }
 
             lastFieldIndex = 0;
             for (EncodedField field : value.instanceFields) {
-                int fieldIndexDiff = context.index().fields().indexOf(field.field());
-                output.writeULeb128(fieldIndexDiff - lastFieldIndex);
-                output.writeULeb128(field.access());
-                lastFieldIndex = fieldIndexDiff;
+                lastFieldIndex = writeField(output, context, lastFieldIndex, field);
             }
 
             int lastMethodIndex = 0;
             for (EncodedMethod method : value.directMethods) {
-                int methodIndexDiff = context.index().methods().indexOf(method.method());
-                output.writeULeb128(methodIndexDiff - lastMethodIndex);
-                output.writeULeb128(method.access());
-                output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
-                lastMethodIndex = methodIndexDiff;
+                lastMethodIndex = writeMethod(output, context, lastMethodIndex, method);
             }
 
             lastMethodIndex = 0;
             for (EncodedMethod method : value.virtualMethods) {
-                int methodIndexDiff = context.index().methods().indexOf(method.method());
-                output.writeULeb128(methodIndexDiff - lastMethodIndex);
-                output.writeULeb128(method.access());
-                output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
-                lastMethodIndex = methodIndexDiff;
+                lastMethodIndex = writeMethod(output, context, lastMethodIndex, method);
             }
         }
     };
+
+    private static int writeMethod(Output output, WriteContext context, int lastMethodIndex, EncodedMethod method) throws IOException {
+        int methodIndexDiff = context.index().methods().indexOf(method.method());
+        output.writeULeb128(methodIndexDiff - lastMethodIndex);
+        output.writeULeb128(method.access());
+        output.writeULeb128(method.code() == null ? 0 : context.offset(method.code()));
+        lastMethodIndex = methodIndexDiff;
+        return lastMethodIndex;
+    }
+
+    private static int writeField(Output output, WriteContext context, int lastFieldIndex, EncodedField field) throws IOException {
+        int fieldIndexDiff = context.index().fields().indexOf(field.field());
+        output.writeULeb128(fieldIndexDiff - lastFieldIndex);
+        output.writeULeb128(field.access());
+        lastFieldIndex = fieldIndexDiff;
+        return lastFieldIndex;
+    }
 
     @Override
     public int hashCode() {
