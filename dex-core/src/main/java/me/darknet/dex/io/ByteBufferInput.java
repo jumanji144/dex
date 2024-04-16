@@ -117,8 +117,12 @@ public record ByteBufferInput(ByteBuffer buffer) implements Input {
                 charBuffer.put((char) (((c & 0x1F) << 6) | (readUnsignedByte() & 0x3F)));
             } else if ((c & 0xF0) == 0xE0) {
                 charBuffer.put((char) (((c & 0x0F) << 12) | ((readUnsignedByte() & 0x3F) << 6) | (readUnsignedByte() & 0x3F)));
+            } else if ((c & 0xF8) == 0xF0) {
+                int codepoint = ((c & 0x07) << 18) | ((readUnsignedByte() & 0x3F) << 12) | ((readUnsignedByte() & 0x3F) << 6) | (readUnsignedByte() & 0x3F);
+                charBuffer.put(Character.highSurrogate(codepoint));
+                charBuffer.put(Character.lowSurrogate(codepoint));
             } else {
-                throw new IOException("Invalid mutf8");
+                throw new IOException("Invalid mutf8 byte: " + c);
             }
         }
 
