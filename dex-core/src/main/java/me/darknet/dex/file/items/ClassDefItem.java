@@ -8,8 +8,6 @@ import me.darknet.dex.io.Output;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
 
 public record ClassDefItem(TypeItem type, int access, @Nullable TypeItem superType, TypeListItem interfaces,

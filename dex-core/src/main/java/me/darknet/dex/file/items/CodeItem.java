@@ -11,12 +11,9 @@ import me.darknet.dex.io.Output;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem debug, List<Format> instructions,
+public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem debug, List<Format> instructions,
                        int units, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
 
     public static final ItemCodec<CodeItem> CODEC = new ItemCodec<>() {
@@ -142,4 +139,16 @@ public record CodeItem(int registers, int in, int out, @Nullable  DebugInfoItem 
         }
     };
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        CodeItem codeItem = (CodeItem) o;
+        return in == codeItem.in && out == codeItem.out && units == codeItem.units && registers == codeItem.registers && Objects.equals(debug, codeItem.debug) && Objects.equals(tries, codeItem.tries) && Objects.equals(instructions, codeItem.instructions) && Objects.equals(handlers, codeItem.handlers);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(registers, in, out, debug, instructions, units, tries, handlers);
+    }
 }

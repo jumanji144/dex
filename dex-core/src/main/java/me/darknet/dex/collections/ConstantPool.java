@@ -28,6 +28,29 @@ public class ConstantPool<T> implements Iterable<T>, RandomAccess {
         return items.size();
     }
 
+    public boolean contains(T cst) {
+        return pool.containsKey(cst);
+    }
+
+    public boolean containsAll(Collection<T> csts) {
+        return pool.keySet().containsAll(csts);
+    }
+
+    public void remove(T cst) {
+        pool.remove(cst);
+        items.remove(cst);
+    }
+
+    public void removeAll(Collection<T> csts) {
+        pool.keySet().removeAll(csts);
+        items.removeAll(csts);
+    }
+
+    public void clear() {
+        pool.clear();
+        items.clear();
+    }
+
     public int indexOf(T cst) {
         return pool.getOrDefault(cst, -1);
     }

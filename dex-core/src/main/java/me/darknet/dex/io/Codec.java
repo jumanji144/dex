@@ -6,8 +6,7 @@ import java.io.IOException;
 
 /**
  * Codec to serialize and deserialize values.
- * @param <R> The read type.
- * @param <W> The write type.
+ * @param <T> the type of the value
  */
 public interface Codec<T> {
 
