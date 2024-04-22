@@ -3,7 +3,6 @@ package me.darknet.dex.file.value;
 import me.darknet.dex.codecs.DexCodec;
 import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
-import me.darknet.dex.io.ContextCodec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 
@@ -12,7 +11,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Map;
 
-public interface Value {
+public sealed interface Value permits ByteValue, ShortValue, CharValue, IntValue, LongValue, FloatValue, DoubleValue,
+        MethodTypeValue, MethodHandleValue, StringValue, TypeValue, FieldValue, MethodValue, EnumValue, ArrayValue,
+        AnnotationValue, NullValue, BoolValue {
 
     interface ValueCodec<T extends Value> extends DexCodec<T> {
         default int size() {
