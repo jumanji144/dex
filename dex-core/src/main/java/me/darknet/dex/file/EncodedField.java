@@ -4,7 +4,7 @@ import me.darknet.dex.file.items.FieldItem;
 
 import java.util.Objects;
 
-public record EncodedField(FieldItem field, int access) {
+public record EncodedField(FieldItem field, int access) implements EncodedMember {
 
     @Override
     public int hashCode() {

@@ -5,7 +5,7 @@ import me.darknet.dex.file.items.MethodItem;
 
 import java.util.Objects;
 
-public record EncodedMethod(MethodItem method, int access, CodeItem code) {
+public record EncodedMethod(MethodItem method, int access, CodeItem code) implements EncodedMember {
 
     @Override
     public int hashCode() {
