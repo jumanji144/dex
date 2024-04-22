@@ -14,7 +14,7 @@ import java.io.IOException;
 import java.util.*;
 
 public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem debug, List<Format> instructions,
-                       int units, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
+                       List<Integer> offsets, int units, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
 
     public static final ItemCodec<CodeItem> CODEC = new ItemCodec<>() {
 
@@ -36,8 +36,11 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
 
             int instructionsSize = input.readInt();
             int targetPosition = input.position() + (instructionsSize * 2);
-            List<Format> instructions = new ArrayList<>();
+            int instructionsStart = input.position();
+            List<Format> instructions = new ArrayList<>(instructionsSize);
+            List<Integer> offsets = new ArrayList<>(instructionsSize);
             do {
+                offsets.add(input.position() - instructionsStart);
                 instructions.add(Format.CODEC.read(input));
             } while (input.position() < targetPosition);
 
@@ -88,7 +91,7 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
                 input.position(endPosition);
             }
 
-            return new CodeItem(registers, in, out, debug, instructions, instructionsSize, triesItems, handlers);
+            return new CodeItem(registers, in, out, debug, instructions, offsets, instructionsSize, triesItems, handlers);
         }
 
         @Override
