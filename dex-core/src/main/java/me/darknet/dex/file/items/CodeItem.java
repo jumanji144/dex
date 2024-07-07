@@ -14,7 +14,7 @@ import java.io.IOException;
 import java.util.*;
 
 public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem debug, List<Format> instructions,
-                       List<Integer> offsets, int units, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
+                       List<Integer> offsets, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
 
     public static final ItemCodec<CodeItem> CODEC = new ItemCodec<>() {
 
@@ -91,7 +91,7 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
                 input.position(endPosition);
             }
 
-            return new CodeItem(registers, in, out, debug, instructions, offsets, instructionsSize, triesItems, handlers);
+            return new CodeItem(registers, in, out, debug, instructions, offsets, triesItems, handlers);
         }
 
         @Override
@@ -102,16 +102,21 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
             output.writeShort(value.tries().size());
             output.writeInt(value.debug() == null ? 0 : context.offset(value.debug()));
 
-            output.writeInt(value.units());
+            Output instructionBuffer = output.newOutput();
             for (Format instruction : value.instructions()) {
-                Format.CODEC.write(instruction, output);
+                Format.CODEC.write(instruction, instructionBuffer);
             }
+
+            int units = instructionBuffer.position() / 2;
+
+            output.writeInt(units);
+            output.write(instructionBuffer);
 
             if (value.tries().isEmpty()) {
                 return;
             }
 
-            if ((value.units() & 1) == 1) {
+            if ((units & 1) == 1) {
                 output.writeShort(0); // padding
             }
 
@@ -147,11 +152,11 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         CodeItem codeItem = (CodeItem) o;
-        return in == codeItem.in && out == codeItem.out && units == codeItem.units && registers == codeItem.registers && Objects.equals(debug, codeItem.debug) && Objects.equals(tries, codeItem.tries) && Objects.equals(instructions, codeItem.instructions) && Objects.equals(handlers, codeItem.handlers);
+        return in == codeItem.in && out == codeItem.out && registers == codeItem.registers && Objects.equals(debug, codeItem.debug) && Objects.equals(tries, codeItem.tries) && Objects.equals(instructions, codeItem.instructions) && Objects.equals(handlers, codeItem.handlers);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(registers, in, out, debug, instructions, units, tries, handlers);
+        return Objects.hash(registers, in, out, debug, instructions, tries, handlers);
     }
 }
