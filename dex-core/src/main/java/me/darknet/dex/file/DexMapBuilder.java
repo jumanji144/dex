@@ -4,9 +4,11 @@ import me.darknet.dex.builder.Builder;
 import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.items.ClassDefItem;
 import me.darknet.dex.file.items.*;
+import me.darknet.dex.tree.type.InstanceType;
+import me.darknet.dex.tree.type.MethodType;
+import me.darknet.dex.tree.type.Type;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -30,47 +32,30 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     private final ConstantPool<AnnotationItem> annotations = new ConstantPool<>();
     private final ConstantPool<EncodedArrayItem> encodedArrays = new ConstantPool<>();
     private final ConstantPool<AnnotationsDirectoryItem> annotationsDirectories = new ConstantPool<>();
-    private int size;
 
     public DexMapBuilder add(Item item) {
-        if(item instanceof StringItem stringItem) {
-            strings.add(stringItem);
-        } else if(item instanceof TypeItem typeItem) {
-            types.add(typeItem);
-        } else if(item instanceof ProtoItem protoItem) {
-            protos.add(protoItem);
-        } else if(item instanceof FieldItem fieldItem) {
-            fields.add(fieldItem);
-        } else if(item instanceof MethodItem methodItem) {
-            methods.add(methodItem);
-        } else if(item instanceof ClassDefItem classDefItem) {
-            classes.add(classDefItem);
-        } else if (item instanceof CallSiteItem callSiteItem) {
-            callSites.add(callSiteItem);
-        } else if (item instanceof MethodHandleItem mhItem) {
-            methodHandles.add(mhItem);
-        } else if(item instanceof TypeListItem typeListItem) {
-            typeLists.add(typeListItem);
-        } else if(item instanceof AnnotationSetRefList annotationSetRefList) {
-            annotationSetRefLists.add(annotationSetRefList);
-        } else if(item instanceof AnnotationSetItem annotationSetItem) {
-            annotationSets.add(annotationSetItem);
-        } else if(item instanceof ClassDataItem classDataItem) {
-            classDatas.add(classDataItem);
-        } else if(item instanceof CodeItem codeItem) {
-            codes.add(codeItem);
-        } else if(item instanceof StringDataItem stringDataItem) {
-            stringDatas.add(stringDataItem);
-        } else if(item instanceof DebugInfoItem debugInfoItem) {
-            debugInfos.add(debugInfoItem);
-        } else if(item instanceof AnnotationItem annotationItem) {
-            annotations.add(annotationItem);
-        } else if(item instanceof EncodedArrayItem encodedArrayItem) {
-            encodedArrays.add(encodedArrayItem);
-        } else if(item instanceof AnnotationsDirectoryItem annotationsDirectoryItem) {
-            annotationsDirectories.add(annotationsDirectoryItem);
+        switch (item) {
+            case StringItem stringItem -> strings.add(stringItem);
+            case TypeItem typeItem -> types.add(typeItem);
+            case ProtoItem protoItem -> protos.add(protoItem);
+            case FieldItem fieldItem -> fields.add(fieldItem);
+            case MethodItem methodItem -> methods.add(methodItem);
+            case ClassDefItem classDefItem -> classes.add(classDefItem);
+            case CallSiteItem callSiteItem -> callSites.add(callSiteItem);
+            case MethodHandleItem mhItem -> methodHandles.add(mhItem);
+            case TypeListItem typeListItem -> typeLists.add(typeListItem);
+            case AnnotationSetRefList annotationSetRefList -> annotationSetRefLists.add(annotationSetRefList);
+            case AnnotationSetItem annotationSetItem -> annotationSets.add(annotationSetItem);
+            case ClassDataItem classDataItem -> classDatas.add(classDataItem);
+            case CodeItem codeItem -> codes.add(codeItem);
+            case StringDataItem stringDataItem -> stringDatas.add(stringDataItem);
+            case DebugInfoItem debugInfoItem -> debugInfos.add(debugInfoItem);
+            case AnnotationItem annotationItem -> annotations.add(annotationItem);
+            case EncodedArrayItem encodedArrayItem -> encodedArrays.add(encodedArrayItem);
+            case AnnotationsDirectoryItem annotationsDirectoryItem -> annotationsDirectories.add(annotationsDirectoryItem);
+            case null, default -> {
+            }
         }
-        size++;
         return this;
     }
 
@@ -151,14 +136,90 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     }
 
     public int size() {
-        return size;
+        return 0;
+    }
+
+    // tree helpers
+
+    public TypeItem type(Type value) {
+        TypeItem typeItem = new TypeItem(string(value.descriptor()));
+        types.add(typeItem);
+        return typeItem;
+    }
+
+    public int addType(Type value) {
+        return types.add(type(value));
+    }
+
+    public TypeListItem typeList(List<? extends Type> types) {
+        List<TypeItem> items = new ArrayList<>(types.size());
+        for (Type type : types) {
+            items.add(type(type));
+        }
+        TypeListItem item = new TypeListItem(items);
+        typeLists.add(item);
+        return item;
+    }
+
+    public StringItem string(String value) {
+        StringDataItem data = new StringDataItem(value);
+        StringItem item = new StringItem(data);
+        stringDatas.add(data);
+        strings.add(item);
+        return item;
+    }
+
+    public int addString(String value) {
+        StringDataItem data = new StringDataItem(value);
+        StringItem item = new StringItem(data);
+        stringDatas.add(data);
+        return strings.add(item);
+    }
+
+    public ProtoItem proto(MethodType type) {
+        TypeItem returnType = type(type.returnType());
+        TypeListItem parameters = typeList(type.parameterTypes());
+        StringItem shorty = string(type.descriptor());
+        ProtoItem proto = new ProtoItem(shorty, returnType, parameters);
+        protos.add(proto);
+        return proto;
+    }
+
+    public int addProto(MethodType type) {
+        return protos.add(proto(type));
+    }
+
+    public MethodItem method(InstanceType owner, String name, MethodType type) {
+        TypeItem ownerType = type(owner);
+        ProtoItem proto = proto(type);
+        StringItem nameItem = string(name);
+        MethodItem method = new MethodItem(ownerType, proto, nameItem);
+        methods.add(method);
+        return method;
+    }
+
+    public int addMethod(InstanceType owner, String name, MethodType type) {
+        return methods.add(method(owner, name, type));
+    }
+
+    public FieldItem field(InstanceType owner, String name, Type type) {
+        TypeItem ownerType = type(owner);
+        TypeItem fieldType = type(type);
+        StringItem nameItem = string(name);
+        FieldItem field = new FieldItem(ownerType, fieldType, nameItem);
+        fields.add(field);
+        return field;
+    }
+
+    public int addField(InstanceType owner, String name, Type type) {
+        return fields.add(field(owner, name, type));
     }
 
     @Override
     public DexMap build() {
         return new DexMap(strings, types, protos, fields, methods, classes, callSites, methodHandles, typeLists,
                 annotationSetRefLists, annotationSets, classDatas, codes, stringDatas, debugInfos, annotations,
-                encodedArrays, annotationsDirectories, size);
+                encodedArrays, annotationsDirectories);
     }
 
 }
