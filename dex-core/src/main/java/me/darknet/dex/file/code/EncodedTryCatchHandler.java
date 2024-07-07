@@ -23,18 +23,18 @@ public record EncodedTryCatchHandler(List<EncodedTypeAddrPair> handlers, int cat
                 int addr = input.readULeb128();
                 pairs.add(new EncodedTypeAddrPair(context.types().get(typeIndex), addr));
             }
-            int catchAllAddr = catchesSize <= 0 ? input.readULeb128() : 0;
+            int catchAllAddr = catchesSize <= 0 ? input.readULeb128() : -1;
             return new EncodedTryCatchHandler(pairs, catchAllAddr);
         }
 
         @Override
         public void write(EncodedTryCatchHandler value, Output output, WriteContext context) throws IOException {
-            output.writeLeb128(value.catchAllAddr() != 0 ? -value.handlers().size() : value.handlers().size());
+            output.writeLeb128(value.catchAllAddr() != -1 ? -value.handlers().size() : value.handlers().size());
             for (EncodedTypeAddrPair pair : value.handlers()) {
                 output.writeULeb128(context.index().types().indexOf(pair.exceptionType()));
                 output.writeULeb128(pair.addr());
             }
-            if (value.catchAllAddr() != 0) {
+            if (value.catchAllAddr() != -1) {
                 output.writeULeb128(value.catchAllAddr());
             }
         }
