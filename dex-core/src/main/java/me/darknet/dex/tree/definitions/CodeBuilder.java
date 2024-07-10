@@ -26,7 +26,7 @@ public class CodeBuilder implements Builder<Code> {
     }
 
     public CodeBuilder static_operation(int kind, int value, InstanceType owner, String name, ClassType type) {
-        return add(new StaticOperation(kind, value, owner, name, type));
+        return add(new StaticFieldInstruction(kind, value, owner, name, type));
     }
 
     public CodeBuilder invoke(int kind, InstanceType owner, String name, MethodType type, int... arguments) {
