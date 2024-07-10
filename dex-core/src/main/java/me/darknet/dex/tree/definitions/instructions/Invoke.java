@@ -9,5 +9,6 @@ public interface Invoke {
     int STATIC = Opcodes.INVOKE_STATIC;
     int INTERFACE = Opcodes.INVOKE_INTERFACE;
     int SUPER = Opcodes.INVOKE_SUPER;
+    int POLYMORPHIC = Opcodes.INVOKE_POLYMORPHIC;
 
 }

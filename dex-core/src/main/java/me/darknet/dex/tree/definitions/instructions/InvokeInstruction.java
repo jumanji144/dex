@@ -2,10 +2,9 @@ package me.darknet.dex.tree.definitions.instructions;
 
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
-import me.darknet.dex.file.instructions.Format;
-import me.darknet.dex.file.instructions.FormatAAopBBBBCCCC;
-import me.darknet.dex.file.instructions.FormatAGopBBBBFEDC;
+import me.darknet.dex.file.instructions.*;
 import me.darknet.dex.file.items.MethodItem;
+import me.darknet.dex.file.items.ProtoItem;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Types;
@@ -14,7 +13,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class InvokeInstruction implements Instruction, Invoke {
 
-    @MagicConstant(intValues = {VIRTUAL, DIRECT, STATIC, INTERFACE, SUPER})
+    @MagicConstant(intValues = {VIRTUAL, DIRECT, STATIC, INTERFACE, SUPER, POLYMORPHIC})
     private final int kind;
     private final InstanceType owner;
     private final String name;
@@ -144,6 +143,25 @@ public final class InvokeInstruction implements Instruction, Invoke {
                     MethodType type = Types.methodType(method.proto());
                     yield new InvokeInstruction(op, owner, name, type, a, c);
                 }
+                case FormatAGopBBBBFEDCHHHH(int op, int a, int b, int c, int d, int e, int f, int g, int h) -> {
+                    MethodItem method = context.map().methods().get(b);
+                    ProtoItem proto = context.map().protos().get(h);
+                    InstanceType owner = Types.instanceType(method.owner());
+                    String name = method.name().string();
+                    MethodType type = Types.methodType(proto);
+
+                    int[] arguments = new int[a];
+                    System.arraycopy(new int[] {c, d, e, f, g}, 0, arguments, 0, a);
+                    yield new InvokeInstruction(op, owner, name, type, arguments);
+                }
+                case FormatAAopBBBBCCCCHHHH(int op, int a, int b, int c, int h) -> {
+                    MethodItem method = context.map().methods().get(b);
+                    ProtoItem proto = context.map().protos().get(h);
+                    InstanceType owner = Types.instanceType(method.owner());
+                    String name = method.name().string();
+                    MethodType type = Types.methodType(proto);
+                    yield new InvokeInstruction(op, owner, name, type, a, c);
+                }
                 default -> throw new IllegalArgumentException("Unmappable format: " + input);
             };
         }
@@ -151,6 +169,16 @@ public final class InvokeInstruction implements Instruction, Invoke {
         @Override
         public Format unmap(InvokeInstruction output, Context<DexMapBuilder> context) {
             int method = context.map().addMethod(output.owner, output.name, output.type);
+            if (output.kind == POLYMORPHIC) {
+                int proto = context.map().addProto(output.type);
+                if (output.arguments == null) {
+                    return new FormatAAopBBBBCCCCHHHH(output.kind, output.size, method, output.first, proto);
+                }
+                int[] arguments = new int[5];
+                System.arraycopy(output.arguments, 0, arguments, 0, output.size);
+                return new FormatAGopBBBBFEDCHHHH(output.kind, output.size, method,
+                        arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], proto);
+            }
             if (output.arguments == null) {
                 return new FormatAAopBBBBCCCC(output.kind, output.size, method, output.first);
             }
