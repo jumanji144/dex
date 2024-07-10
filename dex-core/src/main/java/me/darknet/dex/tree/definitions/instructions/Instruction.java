@@ -1,6 +1,5 @@
 package me.darknet.dex.tree.definitions.instructions;
 
-import me.darknet.dex.collections.BiMap;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.DexMapBuilder;
@@ -9,7 +8,6 @@ import me.darknet.dex.file.items.CodeItem;
 import me.darknet.dex.tree.codec.ContextMappingCodec;
 
 import java.util.Map;
-import java.util.function.BiFunction;
 
 public interface Instruction extends Opcodes {
 

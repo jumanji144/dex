@@ -40,7 +40,7 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
             List<Format> instructions = new ArrayList<>(instructionsSize);
             List<Integer> offsets = new ArrayList<>(instructionsSize);
             do {
-                offsets.add(input.position() - instructionsStart);
+                offsets.add((input.position() - instructionsStart) / 2); // offset in 16-bit units
                 instructions.add(Format.CODEC.read(input));
             } while (input.position() < targetPosition);
 
