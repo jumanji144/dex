@@ -4,6 +4,13 @@ import me.darknet.dex.builder.Builder;
 import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.items.ClassDefItem;
 import me.darknet.dex.file.items.*;
+import me.darknet.dex.file.value.MethodHandleValue;
+import me.darknet.dex.file.value.MethodTypeValue;
+import me.darknet.dex.file.value.StringValue;
+import me.darknet.dex.file.value.Value;
+import me.darknet.dex.tree.codec.definition.ConstantCodec;
+import me.darknet.dex.tree.definitions.constant.Constant;
+import me.darknet.dex.tree.definitions.constant.Handle;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Type;
@@ -213,6 +220,36 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
 
     public int addField(InstanceType owner, String name, Type type) {
         return fields.add(field(owner, name, type));
+    }
+
+    public MethodHandleItem methodHandle(Handle handle) {
+        MethodHandleItem item = Handle.CODEC.unmap(handle, this);
+        methodHandles.add(item);
+        return item;
+    }
+
+    public CallSiteItem callSite(Handle handle, String name, MethodType type, List<Constant> constants) {
+        MethodHandleItem methodHandle = methodHandle(handle);
+        StringItem nameItem = string(name);
+        ProtoItem proto = proto(type);
+
+        List<Value> values = new ArrayList<>(constants.size());
+        for (Constant constant : constants) {
+            values.add(Constant.CODEC.unmap(constant, this));
+        }
+
+        CallSiteDataItem data = new CallSiteDataItem(
+                new MethodHandleValue(methodHandle), new StringValue(nameItem), new MethodTypeValue(proto),
+                values);
+
+        CallSiteItem item = new CallSiteItem(data);
+        callSites.add(item);
+
+        return item;
+    }
+
+    public int addCallSite(Handle handle, String name, MethodType type, List<Constant> constants) {
+        return callSites.add(callSite(handle, name, type, constants));
     }
 
     @Override

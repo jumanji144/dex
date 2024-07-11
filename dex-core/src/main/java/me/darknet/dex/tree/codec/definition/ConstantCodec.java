@@ -40,22 +40,7 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
             case FloatValue(float value) -> new FloatConstant(value);
             case MethodTypeValue(ProtoItem protoItem) -> new TypeConstant(Types.methodType(protoItem));
             case MethodHandleValue(MethodHandleItem item) -> {
-                Handle handle = switch (item.type()) {
-                    case Handle.KIND_STATIC_PUT, Handle.KIND_STATIC_GET,
-                         Handle.KIND_INSTANCE_PUT, Handle.KIND_INSTANCE_GET -> {
-                        FieldItem field = context.fields().get(item.index());
-                        yield new Handle(item.type(), Types.instanceType(field.owner()), field.name().string(),
-                                Types.classType(field.type()));
-                    }
-                    case Handle.KIND_INVOKE_STATIC, Handle.KIND_INVOKE_INSTANCE,
-                         Handle.KIND_INVOKE_CONSTRUCTOR, Handle.KIND_INVOKE_DIRECT,
-                         Handle.KIND_INVOKE_INTERFACE -> {
-                        MethodItem method = context.methods().get(item.index());
-                        yield new Handle(item.type(), Types.instanceType(method.owner()), method.name().string(),
-                                Types.methodType(method.proto()));
-                    }
-                    default -> throw new IllegalStateException("Unexpected value: " + item.type());
-                };
+                Handle handle = Handle.CODEC.map(item, context);
                 yield new HandleConstant(handle);
             }
             case StringValue(StringItem string) -> new StringConstant(string.string());

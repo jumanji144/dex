@@ -59,7 +59,10 @@ public class Instructions implements Opcodes {
                 SPUT, SPUT_WIDE, SPUT_OBJECT, SPUT_BOOLEAN, SPUT_BYTE, SPUT_CHAR, SPUT_SHORT);
         register(InstanceFieldInstruction.CODEC, IGET, IGET_WIDE, IGET_OBJECT, IGET_BOOLEAN, IGET_BYTE, IGET_CHAR, IGET_SHORT,
                 IPUT, IPUT_WIDE, IPUT_OBJECT, IPUT_BOOLEAN, IPUT_BYTE, IPUT_CHAR, IPUT_SHORT);
-        register(InvokeInstruction.CODEC, INVOKE_VIRTUAL, INVOKE_SUPER, INVOKE_DIRECT, INVOKE_STATIC, INVOKE_INTERFACE);
+        register(InvokeInstruction.CODEC, INVOKE_VIRTUAL, INVOKE_SUPER, INVOKE_DIRECT, INVOKE_STATIC, INVOKE_INTERFACE,
+                INVOKE_VIRTUAL_RANGE, INVOKE_SUPER_RANGE, INVOKE_DIRECT_RANGE, INVOKE_STATIC_RANGE, INVOKE_INTERFACE_RANGE,
+                INVOKE_POLYMORPHIC, INVOKE_POLYMORPHIC_RANGE);
+        register(InvokeCustomInstruction.CODEC, INVOKE_CUSTOM, INVOKE_CUSTOM_RANGE);
     }
 
     private static void register(Instruction.InstructionCodec<?, ?> codec, int... opcodes) {
