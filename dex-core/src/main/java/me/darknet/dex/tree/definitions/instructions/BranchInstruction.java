@@ -22,12 +22,12 @@ public record BranchInstruction(int test, int a, int b, Label label) implements 
         @Override
         public BranchInstruction map(FormatBAopCCCC input, Context<DexMap> context) {
             return new BranchInstruction(input.op() - Opcodes.IF_EQ, input.a(), input.b(),
-                    context.label(input, input.c()));
+                    context.label(input, (short) input.c()));
         }
 
         @Override
         public FormatBAopCCCC unmap(BranchInstruction output, Context<DexMapBuilder> context) {
-            return new FormatBAopCCCC(output.opcode(), output.a(), output.b(), output.label.offset());
+            return new FormatBAopCCCC(output.opcode(), output.a(), output.b(), (short) output.label.offset());
         }
     };
 }

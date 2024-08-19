@@ -31,8 +31,8 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
         @Override
         public GotoInstruction map(Format input, Context<DexMap> context) {
             return switch (input) {
-                case FormatAAop(int op, int a) -> new GotoInstruction(op, context.label(input, a));
-                case Format00opAAAA(int op, int a) -> new GotoInstruction(op, context.label(input, a));
+                case FormatAAop(int op, int a) -> new GotoInstruction(op, context.label(input, (byte) a));
+                case Format00opAAAA(int op, int a) -> new GotoInstruction(op, context.label(input, (short) a));
                 case Format00opAAAA32(int op, int a) -> new GotoInstruction(op, context.label(input, a));
                 default -> throw new IllegalArgumentException("Invalid format: " + input);
             };

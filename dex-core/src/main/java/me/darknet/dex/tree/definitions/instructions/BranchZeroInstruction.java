@@ -24,7 +24,7 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
 
         @Override
         public FormatAAopBBBB unmap(BranchZeroInstruction output) {
-            return new FormatAAopBBBB(output.opcode(), output.a(), output.label.offset());
+            return new FormatAAopBBBB(output.opcode(), output.a(), (short) output.label.offset());
         }
     };
 }
