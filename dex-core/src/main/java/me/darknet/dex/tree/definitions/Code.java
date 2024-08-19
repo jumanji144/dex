@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.items.CodeItem;
+import me.darknet.dex.file.items.DebugInfoItem;
 import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.definitions.instructions.Instruction;
 import me.darknet.dex.tree.definitions.instructions.Label;
@@ -73,7 +74,15 @@ public class Code {
 
         @Override
         public CodeItem unmap(Code output, DexMapBuilder context) {
-            return null;
+            List<Format> instructions = new ArrayList<>();
+            Instruction.Context<DexMapBuilder> ctx = new Instruction.Context<>(null, context,
+                    new HashMap<>(16), new HashMap<>(16), new HashMap<>(16), new HashMap<>(16));
+            for (Instruction instruction : output.instructions()) {
+                instructions.add(Instruction.CODEC.unmap(instruction, ctx));
+            }
+            DebugInfoItem debugInfo = null;
+            return new CodeItem(output.in(), output.out(), output.registers(), debugInfo, instructions, List.of(),
+                    List.of(), List.of());
         }
     };
 

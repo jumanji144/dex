@@ -1,12 +1,10 @@
 package me.darknet.dex.tree.definitions;
 
 import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.EncodedMethod;
 import me.darknet.dex.file.annotation.MethodAnnotation;
-import me.darknet.dex.file.items.AnnotationSetItem;
-import me.darknet.dex.file.items.AnnotationsDirectoryItem;
-import me.darknet.dex.file.items.Item;
-import me.darknet.dex.file.items.ProtoItem;
+import me.darknet.dex.file.items.*;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Types;
@@ -40,9 +38,11 @@ public final class MethodMember extends Member<MethodType> {
 
             MethodMember member = new MethodMember(type, access, name);
 
-            Code code = Code.CODEC.map(encoded.code(), context);
+            if (encoded.code() != null) {
+                Code code = Code.CODEC.map(encoded.code(), context);
 
-            member.code(code);
+                member.code(code);
+            }
 
             AnnotationSetItem set = annotations.methodAnnotations().get(encoded.method());
             if (set != null)
@@ -52,8 +52,16 @@ public final class MethodMember extends Member<MethodType> {
         }
 
         @Override
-        public EncodedMethod unmap(MethodMember member, AnnotationMap annotations, DexMap context) {
-            return null;
+        public EncodedMethod unmap(MethodMember member, AnnotationMap annotations, DexMapBuilder context) {
+            MethodItem method = context.method(member.owner(), member.name(), member.type());
+
+            CodeItem code = context.code(member.code());
+
+            AnnotationSetItem set = context.annotationSet(member.annotations());
+
+            annotations.methodAnnotations().put(method, set);
+
+            return new EncodedMethod(method, member.access(), code);
         }
     };
 

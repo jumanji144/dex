@@ -19,7 +19,7 @@ public record Annotation(byte visibility, AnnotationPart annotation) {
 
         @Override
         public AnnotationItem unmap(Annotation output, DexMapBuilder context) {
-            return TreeCodec.super.unmap(output, context);
+            return new AnnotationItem(output.visibility(), AnnotationPart.CODEC.unmap(output.annotation(), context));
         }
     };
 

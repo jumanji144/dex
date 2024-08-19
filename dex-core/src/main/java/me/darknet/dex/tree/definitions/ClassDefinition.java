@@ -72,10 +72,12 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
     }
 
     public void putField(FieldMember field) {
+        field.owner(this.type);
         fields.put(field.identifier(), field);
     }
 
     public void putMethod(MethodMember method) {
+        method.owner(this.type);
         methods.put(method.identifier(), method);
     }
 

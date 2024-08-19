@@ -9,11 +9,15 @@ import me.darknet.dex.file.value.MethodTypeValue;
 import me.darknet.dex.file.value.StringValue;
 import me.darknet.dex.file.value.Value;
 import me.darknet.dex.tree.codec.definition.ConstantCodec;
+import me.darknet.dex.tree.definitions.Code;
+import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.constant.Constant;
 import me.darknet.dex.tree.definitions.constant.Handle;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Type;
+import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -154,11 +158,20 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return typeItem;
     }
 
+    public TypeItem type(String descriptor) {
+        TypeItem typeItem = new TypeItem(string(descriptor));
+        types.add(typeItem);
+        return typeItem;
+    }
+
     public int addType(Type value) {
         return types.add(type(value));
     }
 
     public TypeListItem typeList(List<? extends Type> types) {
+        if (types.isEmpty()) {
+            return TypeListItem.EMPTY;
+        }
         List<TypeItem> items = new ArrayList<>(types.size());
         for (Type type : types) {
             items.add(type(type));
@@ -186,7 +199,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     public ProtoItem proto(MethodType type) {
         TypeItem returnType = type(type.returnType());
         TypeListItem parameters = typeList(type.parameterTypes());
-        StringItem shorty = string(type.descriptor());
+        StringItem shorty = string(Types.shortyDescriptor(type));
         ProtoItem proto = new ProtoItem(shorty, returnType, parameters);
         protos.add(proto);
         return proto;
@@ -245,6 +258,35 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         CallSiteItem item = new CallSiteItem(data);
         callSites.add(item);
 
+        return item;
+    }
+
+    public AnnotationItem annotation(Annotation annotation) {
+        AnnotationItem item = Annotation.CODEC.unmap(annotation, this);
+        annotations.add(item);
+        return item;
+    }
+
+    public @Nullable AnnotationSetItem annotationSet(List<Annotation> annotations) {
+        if (annotations.isEmpty()) {
+            return null;
+        }
+        List<AnnotationOffItem> items = new ArrayList<>(annotations.size());
+        for (Annotation annotation : annotations) {
+            AnnotationItem item = annotation(annotation);
+            items.add(new AnnotationOffItem(item));
+        }
+        AnnotationSetItem item = new AnnotationSetItem(items);
+        annotationSets.add(item);
+        return item;
+    }
+
+    public @Nullable CodeItem code(Code code) {
+        if (code == null) {
+            return null;
+        }
+        CodeItem item = Code.CODEC.unmap(code, this);
+        codes.add(item);
         return item;
     }
 

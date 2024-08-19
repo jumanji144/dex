@@ -9,7 +9,7 @@ import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.definitions.MemberIdentifier;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.constant.*;
-import me.darknet.dex.tree.type.Types;
+import me.darknet.dex.tree.type.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -64,7 +64,58 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
 
     @Override
     public Value unmap(Constant output, DexMapBuilder context) {
-        return null;
+        return switch (output) {
+            case AnnotationConstant(AnnotationPart annotation) ->
+                new AnnotationValue(AnnotationPart.CODEC.unmap(annotation, context));
+            case ArrayConstant(List<Constant> constants) -> {
+                List<Value> values = new ArrayList<>(constants.size());
+                for (Constant constant : constants) {
+                    values.add(unmap(constant, context));
+                }
+                yield new ArrayValue(values);
+            }
+            case BoolConstant value -> new BoolValue(value.value());
+            case ByteConstant value -> new ByteValue(value.value());
+            case CharConstant value -> new CharValue(value.value());
+            case DoubleConstant value -> new DoubleValue(value.value());
+            case EnumConstant(InstanceType owner, MemberIdentifier identifier) -> {
+                FieldItem item = new FieldItem(context.type(owner), context.type(identifier.descriptor()),
+                        context.string(identifier.name()));
+                context.add(item);
+                yield new EnumValue(item);
+            }
+            case FloatConstant value -> new FloatValue(value.value());
+            case HandleConstant(Handle handle) -> {
+                MethodHandleItem item = Handle.CODEC.unmap(handle, context);
+                context.add(item);
+                yield new MethodHandleValue(item);
+            }
+            case StringConstant value -> {
+                StringItem item = context.string(value.value());
+                yield new StringValue(item);
+            }
+            case TypeConstant(InstanceType type) -> {
+                TypeItem item = context.type(type);
+                yield new TypeValue(item);
+            }
+            case MemberConstant(InstanceType owner, MemberIdentifier identifier) -> {
+                Type type = TypeParser.parse(identifier.descriptor());
+                if (type instanceof MethodType mt) {
+                    MethodItem item = context.method(owner, identifier.name(), mt);
+                    context.add(item);
+                    yield new MethodValue(item);
+                } else {
+                    FieldItem item = context.field(owner, identifier.name(), type);
+                    context.add(item);
+                    yield new FieldValue(item);
+                }
+            }
+            case LongConstant value -> new LongValue(value.value());
+            case IntConstant value -> new IntValue(value.value());
+            case ShortConstant value -> new ShortValue(value.value());
+            case NullConstant ignored -> NullValue.INSTANCE;
+            default -> throw new IllegalStateException("Unexpected value: " + output);
+        };
     }
 
 }

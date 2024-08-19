@@ -10,17 +10,17 @@ import me.darknet.dex.file.annotation.ParameterAnnotation;
 import me.darknet.dex.file.items.*;
 import me.darknet.dex.file.value.Value;
 import me.darknet.dex.tree.codec.TreeCodec;
+import me.darknet.dex.tree.definitions.AccessFlags;
 import me.darknet.dex.tree.definitions.ClassDefinition;
 import me.darknet.dex.tree.definitions.FieldMember;
 import me.darknet.dex.tree.definitions.MethodMember;
+import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
 import me.darknet.dex.tree.definitions.constant.*;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Types;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 
 public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDefItem> {
 
@@ -53,9 +53,18 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
                 annotations.parameterAnnotations().put(parameterAnnotation.method(),
                         parameterAnnotation.annotations().items());
             }
+
+            // map class annotations
+            if (directory.classAnnotations() != null) {
+                for (AnnotationOffItem entry : directory.classAnnotations().entries()) {
+                    definition.annotations().add(Annotation.CODEC.map(entry.item(), context));
+                }
+            }
+
         }
 
-        List<Value> backingValues = input.staticValues() == null ? Collections.emptyList() : input.staticValues().values();
+        List<Value> backingValues = input.staticValues() == null ? Collections.emptyList()
+                : input.staticValues().values();
         int valueIndex = 0;
         for (EncodedField staticField : data.staticFields()) {
             FieldMember field = FieldMember.CODEC.map(staticField, annotations, context);
@@ -90,7 +99,86 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
     @Override
     public ClassDefItem unmap(ClassDefinition output, DexMapBuilder context) {
-        return null;
+        TypeItem type = context.type(output.type());
+
+        TypeItem superType = output.superClass() == null ? null : context.type(output.superClass());
+        TypeListItem interfaces = context.typeList(output.interfaces());
+
+        StringItem sourceFile = output.sourceFile() == null ? null : context.string(output.sourceFile());
+
+        AnnotationSetItem classAnnotations = null;
+        if (!output.annotations().isEmpty()) {
+            classAnnotations = context.annotationSet(output.annotations());
+        }
+
+        AnnotationMap annotations = new AnnotationMap(
+                new HashMap<>(16), new HashMap<>(16), new HashMap<>(16));
+
+        List<EncodedField> staticFields = new ArrayList<>();
+        List<EncodedField> instanceFields = new ArrayList<>();
+
+        List<EncodedMethod> directMethods = new ArrayList<>();
+        List<EncodedMethod> virtualMethods = new ArrayList<>();
+
+        List<Value> staticValues = new ArrayList<>();
+
+        for (FieldMember value : output.fields().values()) {
+            EncodedField field = FieldMember.CODEC.unmap(value, annotations, context);
+            if (value.staticValue() != null) {
+                Value staticValue = Constant.CODEC.unmap(value.staticValue(), context);
+                staticValues.add(staticValue);
+            }
+            if ((value.access() & AccessFlags.ACC_STATIC) != 0) {
+                staticFields.add(field);
+            } else {
+                instanceFields.add(field);
+            }
+        }
+
+        for (MethodMember value : output.methods().values()) {
+            EncodedMethod method = MethodMember.CODEC.unmap(value, annotations, context);
+            if ((value.access() & AccessFlags.ACC_STATIC) != 0) {
+                directMethods.add(method);
+            } else {
+                virtualMethods.add(method);
+            }
+        }
+
+        ClassDataItem data = null;
+        if (!staticFields.isEmpty() || !instanceFields.isEmpty() || !directMethods.isEmpty()
+                || !virtualMethods.isEmpty())
+            data = new ClassDataItem(staticFields, instanceFields, directMethods, virtualMethods);
+
+        if (data != null)
+            context.classDatas().add(data);
+
+        EncodedArrayItem staticValuesItem = staticValues.isEmpty() ? null : new EncodedArrayItem(staticValues);
+        if (staticValuesItem != null)
+            context.encodedArrays().add(staticValuesItem);
+
+        List<FieldAnnotation> fieldAnnotations = new ArrayList<>();
+        List<MethodAnnotation> methodAnnotations = new ArrayList<>();
+        List<ParameterAnnotation> parameterAnnotations = new ArrayList<>();
+
+        for (var entry : annotations.fieldAnnotations().entrySet()) {
+            fieldAnnotations.add(new FieldAnnotation(entry.getKey(), entry.getValue()));
+        }
+
+        for (var entry : annotations.methodAnnotations().entrySet()) {
+            methodAnnotations.add(new MethodAnnotation(entry.getKey(), entry.getValue()));
+        }
+
+        for (var entry : annotations.parameterAnnotations().entrySet()) {
+            AnnotationSetRefList list = new AnnotationSetRefList(entry.getValue());
+            context.annotationSetRefLists().add(list);
+            parameterAnnotations.add(new ParameterAnnotation(entry.getKey(), list));
+        }
+
+        AnnotationsDirectoryItem directory = new AnnotationsDirectoryItem(classAnnotations,
+                fieldAnnotations, methodAnnotations, parameterAnnotations);
+
+        return new ClassDefItem(type, output.access(), superType, interfaces, sourceFile, directory,
+                data, staticValuesItem);
     }
 
 }

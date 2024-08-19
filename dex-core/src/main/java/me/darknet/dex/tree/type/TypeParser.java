@@ -102,4 +102,16 @@ public final class TypeParser {
         }
         return ct;
     }
+
+    public static TypeParser from(String s) {
+        return new TypeParser(s);
+    }
+
+    public static Type parse(String s) {
+        return from(s).required();
+    }
+
+    public static ClassType parseClassType(String s) {
+        return from(s).requireClassType();
+    }
 }
