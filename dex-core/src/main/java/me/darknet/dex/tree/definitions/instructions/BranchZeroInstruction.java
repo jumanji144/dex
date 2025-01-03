@@ -3,6 +3,7 @@ package me.darknet.dex.tree.definitions.instructions;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.Opcodes;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
 
 public record BranchZeroInstruction(int kind, int a, Label label) implements Instruction {
@@ -18,7 +19,7 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
 
     public static final InstructionCodec<BranchZeroInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
-        public BranchZeroInstruction map(FormatAAopBBBB input, Context<DexMap> context) {
+        public BranchZeroInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> context) {
             return new BranchZeroInstruction(input.op() - Opcodes.IF_EQZ, input.a(), context.label(input, input.b()));
         }
 
@@ -27,4 +28,9 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
             return new FormatAAopBBBB(output.opcode(), output.a(), (short) output.label.offset());
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

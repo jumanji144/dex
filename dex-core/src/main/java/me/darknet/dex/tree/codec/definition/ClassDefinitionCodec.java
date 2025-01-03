@@ -1,5 +1,6 @@
 package me.darknet.dex.tree.codec.definition;
 
+import me.darknet.dex.collections.ImmutableCollections;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.EncodedField;
@@ -63,7 +64,8 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         }
 
-        List<Value> backingValues = input.staticValues() == null ? Collections.emptyList()
+        List<Value> backingValues = input.staticValues() == null
+                ? ImmutableCollections.emptyList(data.staticFields().size())
                 : input.staticValues().values();
         int valueIndex = 0;
         for (EncodedField staticField : data.staticFields()) {
@@ -161,10 +163,12 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         List<ParameterAnnotation> parameterAnnotations = new ArrayList<>();
 
         for (var entry : annotations.fieldAnnotations().entrySet()) {
+            context.annotationSets().add(entry.getValue());
             fieldAnnotations.add(new FieldAnnotation(entry.getKey(), entry.getValue()));
         }
 
         for (var entry : annotations.methodAnnotations().entrySet()) {
+            context.annotationSets().add(entry.getValue());
             methodAnnotations.add(new MethodAnnotation(entry.getKey(), entry.getValue()));
         }
 
@@ -174,8 +178,14 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             parameterAnnotations.add(new ParameterAnnotation(entry.getKey(), list));
         }
 
-        AnnotationsDirectoryItem directory = new AnnotationsDirectoryItem(classAnnotations,
-                fieldAnnotations, methodAnnotations, parameterAnnotations);
+        AnnotationsDirectoryItem directory = null;
+
+        if (!fieldAnnotations.isEmpty() || !methodAnnotations.isEmpty() || !parameterAnnotations.isEmpty()) {
+            directory = new AnnotationsDirectoryItem(classAnnotations, fieldAnnotations, methodAnnotations, parameterAnnotations);
+        }
+
+        if (directory != null)
+            context.annotationsDirectories().add(directory);
 
         return new ClassDefItem(type, output.access(), superType, interfaces, sourceFile, directory,
                 data, staticValuesItem);

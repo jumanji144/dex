@@ -41,5 +41,4 @@ public interface Output extends DataOutput, Seekable {
     static Output wrap() {
         return new GrowingOutput();
     }
-
 }

@@ -45,5 +45,14 @@ public record MoveWideInstruction(int opcode, int to, int from) implements Instr
             };
         }
     };
-    
+
+    @Override
+    public int byteSize() {
+        return switch (opcode) {
+            case MOVE_WIDE -> 1;
+            case MOVE_WIDE_FROM16 -> 2;
+            case MOVE_WIDE_16 -> 3;
+            default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
+        };
+    }
 }

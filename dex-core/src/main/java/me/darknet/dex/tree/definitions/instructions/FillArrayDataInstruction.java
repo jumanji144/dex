@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopBBBB32;
 import me.darknet.dex.file.instructions.FormatFilledArrayData;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 
 public record FillArrayDataInstruction(int array, byte[] data, int elementSize) implements Instruction {
     @Override
@@ -18,17 +19,22 @@ public record FillArrayDataInstruction(int array, byte[] data, int elementSize) 
 
     public static final InstructionCodec<FillArrayDataInstruction, FormatAAopBBBB32> CODEC = new InstructionCodec<>() {
         @Override
-        public FillArrayDataInstruction map(FormatAAopBBBB32 input, Context<DexMap> context) {
+        public FillArrayDataInstruction map(FormatAAopBBBB32 input, InstructionContext<DexMap> context) {
             FormatFilledArrayData payload = context.arrayPayload(input, input.b());
             return new FillArrayDataInstruction(input.a(), payload.data(), payload.width());
         }
 
         @Override
-        public FormatAAopBBBB32 unmap(FillArrayDataInstruction output, Context<DexMapBuilder> context) {
+        public FormatAAopBBBB32 unmap(FillArrayDataInstruction output, InstructionContext<DexMapBuilder> context) {
             FormatFilledArrayData payload = new FormatFilledArrayData(output.elementSize, output.data);
             int offset = context.arrayPayloads().get(payload);
 
             return new FormatAAopBBBB32(FILL_ARRAY_DATA, output.array, offset);
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

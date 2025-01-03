@@ -46,4 +46,8 @@ public record FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int 
 
     };
 
+    @Override
+    public int size() {
+        return 3;
+    }
 }

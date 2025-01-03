@@ -3,7 +3,7 @@ package me.darknet.dex.tree.definitions.instructions;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
-import me.darknet.dex.file.items.TypeItem;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
 
@@ -21,17 +21,19 @@ public record CheckCastInstruction(int register, ClassType type) implements Inst
 
     public static final InstructionCodec<CheckCastInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
-        public CheckCastInstruction map(FormatAAopBBBB input, Context<DexMap> ctx) {
-            if (input instanceof FormatAAopBBBB(int op, int a, int b)) {
-                return new CheckCastInstruction(a, Types.classType(ctx.map().types().get(b)));
-            }
-            throw new IllegalArgumentException("Unmappable format: " + input);
+        public CheckCastInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> ctx) {
+            return new CheckCastInstruction(input.a(), Types.classType(ctx.map().types().get(input.b())));
         }
 
         @Override
-        public FormatAAopBBBB unmap(CheckCastInstruction output, Context<DexMapBuilder> ctx) {
+        public FormatAAopBBBB unmap(CheckCastInstruction output, InstructionContext<DexMapBuilder> ctx) {
             int type = ctx.map().addType(output.type());
             return new FormatAAopBBBB(CHECK_CAST, output.register(), type);
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

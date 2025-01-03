@@ -1,4 +1,4 @@
-package me.darknet.dex.tree.definitions;
+package me.darknet.dex.tree.definitions.code;
 
 import me.darknet.dex.builder.Builder;
 import me.darknet.dex.tree.definitions.instructions.*;

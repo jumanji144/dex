@@ -1,15 +1,8 @@
 package me.darknet.dex.tree.definitions;
 
-import me.darknet.dex.file.DexMap;
-import me.darknet.dex.file.DexMapBuilder;
-import me.darknet.dex.file.EncodedField;
-import me.darknet.dex.file.EncodedMethod;
-import me.darknet.dex.file.items.*;
-import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.codec.definition.ClassDefinitionCodec;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.type.InstanceType;
-import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;

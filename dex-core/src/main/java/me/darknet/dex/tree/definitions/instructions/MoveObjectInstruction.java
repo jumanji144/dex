@@ -45,5 +45,14 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
             };
         }
     };
-    
+
+    @Override
+    public int byteSize() {
+        return switch (opcode) {
+            case MOVE_OBJECT -> 1;
+            case MOVE_OBJECT_FROM16 -> 2;
+            case MOVE_OBJECT_16 -> 3;
+            default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
+        };
+    }
 }

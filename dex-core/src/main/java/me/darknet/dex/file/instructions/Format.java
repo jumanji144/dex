@@ -13,6 +13,13 @@ public interface Format extends Opcodes {
 
     int op();
 
+    /**
+     * @return the size of this format in units (shorts)
+     */
+    default int size() {
+        return 1;
+    }
+
     Codec<Format> CODEC = new Codec<>() {
 
         @Override

@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopBBBB32;
 import me.darknet.dex.file.instructions.FormatSparseSwitch;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,7 +23,7 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
 
     public static final InstructionCodec<SparseSwitchInstruction, FormatAAopBBBB32> CODEC = new InstructionCodec<>() {
         @Override
-        public SparseSwitchInstruction map(FormatAAopBBBB32 input, Context<DexMap> context) {
+        public SparseSwitchInstruction map(FormatAAopBBBB32 input, InstructionContext<DexMap> context) {
             FormatSparseSwitch payload = context.sparseSwitchPayload(input, input.b());
             Map<Integer, Label> targets = new HashMap<>(payload.targets().length);
             for (int i = 0; i < payload.targets().length; i++) {
@@ -33,7 +34,7 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
         }
 
         @Override
-        public FormatAAopBBBB32 unmap(SparseSwitchInstruction output, Context<DexMapBuilder> context) {
+        public FormatAAopBBBB32 unmap(SparseSwitchInstruction output, InstructionContext<DexMapBuilder> context) {
             int[] keys = new int[output.targets.size()];
             int[] targets = new int[output.targets.size()];
             int i = 0;
@@ -50,4 +51,9 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
             return new FormatAAopBBBB32(SPARSE_SWITCH, 0, offset);
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 4;
+    }
 }

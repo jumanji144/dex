@@ -37,4 +37,8 @@ public record FormatAAopBBBBCCCCHHHH(int op, int a, int b, int c, int h) impleme
         }
     };
 
+    @Override
+    public int size() {
+        return 4;
+    }
 }

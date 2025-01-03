@@ -33,4 +33,9 @@ public record FormatBAopCCCC(int op, int a, int b, int c) implements Format {
         }
 
     };
+
+    @Override
+    public int size() {
+        return 2;
+    }
 }

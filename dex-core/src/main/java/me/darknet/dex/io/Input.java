@@ -45,4 +45,8 @@ public interface Input extends DataInput, Seekable, Slicable {
         return new ByteBufferInput(buffer);
     }
 
+    static Input wrap(Output output) {
+        return new ByteBufferInput(output.buffer());
+    }
+
 }

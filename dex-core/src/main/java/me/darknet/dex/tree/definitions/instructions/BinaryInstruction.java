@@ -27,4 +27,9 @@ public record BinaryInstruction(int opcode, int dest, int a, int b) implements I
             return new BinaryInstruction(input.op(), input.a(), input.b(), input.c());
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

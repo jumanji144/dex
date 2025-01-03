@@ -53,4 +53,9 @@ public record FormatFilledArrayData(int width, byte[] data) implements Format {
     public int hashCode() {
         return Objects.hash(width, Arrays.hashCode(data));
     }
+
+    @Override
+    public int size() {
+        return 1 + 1 + 2 + (data.length / 2) + (data.length & 1);
+    }
 }

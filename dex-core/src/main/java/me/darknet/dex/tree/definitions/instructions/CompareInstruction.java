@@ -21,4 +21,9 @@ public record CompareInstruction(int opcode, int dest, int a, int b) implements 
             return new FormatAAopCCBB(output.opcode(), output.dest(), output.a(), output.b());
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

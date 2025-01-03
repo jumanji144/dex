@@ -51,4 +51,9 @@ public record FormatPackedSwitch(int first, int[] targets) implements Format {
     public int hashCode() {
         return Objects.hash(first, Arrays.hashCode(targets));
     }
+
+    @Override
+    public int size() {
+        return 1 + 1 + 2 + targets.length * 2;
+    }
 }

@@ -3,6 +3,7 @@ package me.darknet.dex.tree.definitions.instructions;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAop;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 
 public record ThrowInstruction(int value) implements Instruction {
     @Override
@@ -17,12 +18,12 @@ public record ThrowInstruction(int value) implements Instruction {
 
     public static final InstructionCodec<ThrowInstruction, FormatAAop> CODEC = new InstructionCodec<>() {
         @Override
-        public ThrowInstruction map(FormatAAop input, Context<DexMap> context) {
+        public ThrowInstruction map(FormatAAop input, InstructionContext<DexMap> context) {
             return new ThrowInstruction(input.a());
         }
 
         @Override
-        public FormatAAop unmap(ThrowInstruction output, Context<DexMapBuilder> context) {
+        public FormatAAop unmap(ThrowInstruction output, InstructionContext<DexMapBuilder> context) {
             return new FormatAAop(THROW, output.value());
         }
     };

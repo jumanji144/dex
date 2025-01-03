@@ -33,4 +33,9 @@ public record FormatAAopBBBBCCCC(int op, int a, int b, int c) implements Format 
             output.writeShort(value.c());
         }
     };
+
+    @Override
+    public int size() {
+        return 3;
+    }
 }

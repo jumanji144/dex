@@ -35,4 +35,8 @@ public record FormatAAopCCBB(int op, int a, int b, int c) implements Format {
         }
     };
 
+    @Override
+    public int size() {
+        return 2;
+    }
 }

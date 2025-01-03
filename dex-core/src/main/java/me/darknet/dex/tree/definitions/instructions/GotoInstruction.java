@@ -6,6 +6,7 @@ import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.Format00opAAAA;
 import me.darknet.dex.file.instructions.Format00opAAAA32;
 import me.darknet.dex.file.instructions.FormatAAop;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 
 public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
@@ -29,7 +30,7 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
     public static final InstructionCodec<GotoInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public GotoInstruction map(Format input, Context<DexMap> context) {
+        public GotoInstruction map(Format input, InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAAop(int op, int a) -> new GotoInstruction(op, context.label(input, (byte) a));
                 case Format00opAAAA(int op, int a) -> new GotoInstruction(op, context.label(input, (short) a));
@@ -39,7 +40,7 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
         }
 
         @Override
-        public Format unmap(GotoInstruction output, Context<DexMapBuilder> context) {
+        public Format unmap(GotoInstruction output, InstructionContext<DexMapBuilder> context) {
             int opcode = op(output.jump);
             return switch (opcode) {
                 case GOTO -> new FormatAAop(opcode, output.jump.offset());
@@ -49,4 +50,14 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
             };
         }
     };
+
+    @Override
+    public int byteSize() {
+        return switch (opcode) {
+            case GOTO -> 1;
+            case GOTO_16 -> 2;
+            case GOTO_32 -> 4;
+            default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
+        };
+    }
 }

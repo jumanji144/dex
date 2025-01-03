@@ -49,7 +49,8 @@ public final class FieldMember extends Member<ClassType> {
 
             AnnotationSetItem set = context.annotationSet(member.annotations());
 
-            annotations.fieldAnnotations().put(field, set);
+            if (set != null)
+                annotations.fieldAnnotations().put(field, set);
 
             return new EncodedField(field, member.access());
         }

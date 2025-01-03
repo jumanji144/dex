@@ -44,10 +44,20 @@ public record ConstInstruction(int opcode, int register, int value) implements I
             return switch (output.opcode()) {
                 case CONST_4 -> new FormatBAop(CONST_4, output.register(), output.value());
                 case CONST_16 -> new FormatAAopBBBB(CONST_16, output.register(), output.value());
-                case CONST_HIGH16 -> new FormatAAopBBBB32(CONST_HIGH16, output.register(), output.value());
-                case CONST -> new FormatAAopBBBB(CONST, output.register(), output.value());
+                case CONST_HIGH16 -> new FormatAAopBBBB(CONST_HIGH16, output.register(), output.value());
+                case CONST -> new FormatAAopBBBB32(CONST, output.register(), output.value());
                 default -> throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());
             };
         }
     };
+
+    @Override
+    public int byteSize() {
+        return switch (opcode) {
+            case CONST_4 -> 1;
+            case CONST_16, CONST_HIGH16 -> 2;
+            case CONST -> 4;
+            default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
+        };
+    }
 }

@@ -37,4 +37,9 @@ public record BinaryLiteralInstruction(int opcode, int dest, int src, int consta
             };
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

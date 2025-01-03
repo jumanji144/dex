@@ -1,17 +1,11 @@
 import me.darknet.dex.codecs.DexHeaderCodec;
 import me.darknet.dex.file.DexHeader;
-import me.darknet.dex.file.DexMapBuilder;
-import me.darknet.dex.file.items.ClassDefItem;
 import me.darknet.dex.io.Input;
-import me.darknet.dex.tree.definitions.ClassDefinition;
-import me.darknet.dex.tree.definitions.instructions.Binary2AddrInstruction;
-import me.darknet.dex.tree.definitions.instructions.BinaryInstruction;
-import me.darknet.dex.tree.definitions.instructions.BinaryLiteralInstruction;
-import me.darknet.dex.tree.definitions.instructions.BinaryOperation;
-import me.darknet.dex.tree.type.Types;
-import org.junit.jupiter.api.Assertions;
+import me.darknet.dex.io.Output;
+import me.darknet.dex.tree.DexFile;
 import org.junit.jupiter.api.Test;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 
 public class TreeTest {
@@ -19,20 +13,20 @@ public class TreeTest {
     @Test
     public void testSimpleDefinition() throws IOException {
         // read dex file
-        Input input = Input.wrap(getClass().getResourceAsStream("/samples/002-sleep/classes.dex").readAllBytes());
-        DexHeader header = new DexHeaderCodec().read(input);
+        Input input = Input.wrap(getClass().getResourceAsStream("/samples/008-exceptions/classes.dex").readAllBytes());
+        Output output = Output.wrap();
+        DexHeaderCodec codec = new DexHeaderCodec();
 
-        // get the class
-        ClassDefItem classDef = header.map().classes().get(0);
+        DexFile dexFile = DexFile.CODEC.map(codec.read(input));
 
-        ClassDefinition definition = ClassDefinition.CODEC.map(classDef, header.map());
+        DexHeader newHeader = DexFile.CODEC.unmap(dexFile);
 
-        // turn it back
+        codec.write(newHeader, output);
 
-        DexMapBuilder builder = new DexMapBuilder();
-        ClassDefItem classDef2 = ClassDefinition.CODEC.unmap(definition, builder);
+        input = Input.wrap(output);
 
-
+        DexFile newDexFile = DexFile.CODEC.map(codec.read(input));
+        return;
     }
 
 }

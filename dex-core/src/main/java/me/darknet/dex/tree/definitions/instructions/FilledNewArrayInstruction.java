@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.FormatAAopBBBBCCCC;
 import me.darknet.dex.file.instructions.FormatAGopBBBBFEDC;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.Nullable;
@@ -56,10 +57,6 @@ public final class FilledNewArrayInstruction implements Instruction {
         return registers;
     }
 
-    public int size() {
-        return size;
-    }
-
     public boolean isRange() {
         return registers == null;
     }
@@ -90,7 +87,7 @@ public final class FilledNewArrayInstruction implements Instruction {
     public static final InstructionCodec<FilledNewArrayInstruction, Format> CODEC = new InstructionCodec<>() {
 
         @Override
-        public FilledNewArrayInstruction map(Format input, Context<DexMap> context) {
+        public FilledNewArrayInstruction map(Format input, InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     int[] shrunk = new int[a];
@@ -107,7 +104,7 @@ public final class FilledNewArrayInstruction implements Instruction {
         }
 
         @Override
-        public Format unmap(FilledNewArrayInstruction output, Context<DexMapBuilder> context) {
+        public Format unmap(FilledNewArrayInstruction output, InstructionContext<DexMapBuilder> context) {
             int type = context.map().addType(output.componentType);
             if (output.registers == null) {
                 return new FormatAAopBBBBCCCC(FILLED_NEW_ARRAY_RANGE, output.size, type, output.first);
@@ -120,4 +117,9 @@ public final class FilledNewArrayInstruction implements Instruction {
                     stretched[0], stretched[1], stretched[2], stretched[3], stretched[4]);
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 3;
+    }
 }

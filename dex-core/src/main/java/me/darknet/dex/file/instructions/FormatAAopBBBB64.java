@@ -31,4 +31,8 @@ public record FormatAAopBBBB64(int op, int a, long b) implements Format {
         }
     };
 
+    @Override
+    public int size() {
+        return 5;
+    }
 }

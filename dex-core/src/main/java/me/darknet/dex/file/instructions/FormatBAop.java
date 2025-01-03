@@ -29,7 +29,5 @@ public record FormatBAop(int op, int a, int b) implements Format {
             );
         }
 
-
     };
-
 }

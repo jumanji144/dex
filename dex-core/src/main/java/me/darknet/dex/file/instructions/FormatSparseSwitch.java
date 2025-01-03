@@ -55,4 +55,9 @@ public record FormatSparseSwitch(int[] keys, int[] targets) implements Format {
     public int hashCode() {
         return Objects.hash(Arrays.hashCode(keys), Arrays.hashCode(targets));
     }
+
+    @Override
+    public int size() {
+        return 2 + keys.length * 2 + targets.length * 2;
+    }
 }

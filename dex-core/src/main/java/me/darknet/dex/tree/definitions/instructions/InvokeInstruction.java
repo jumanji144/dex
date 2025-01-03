@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.*;
 import me.darknet.dex.file.items.MethodItem;
 import me.darknet.dex.file.items.ProtoItem;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Types;
@@ -68,10 +69,6 @@ public final class InvokeInstruction implements Instruction, Invoke {
         return arguments;
     }
 
-    public int size() {
-        return size;
-    }
-
     public boolean isRange() {
         return arguments == null;
     }
@@ -124,7 +121,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
     public static final InstructionCodec<InvokeInstruction, Format> CODEC = new InstructionCodec<>() {
 
         @Override
-        public InvokeInstruction map(Format input, Context<DexMap> context) {
+        public InvokeInstruction map(Format input, InstructionContext<DexMap> context) {
             return switch(input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     MethodItem method = context.map().methods().get(b);
@@ -167,7 +164,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
         }
 
         @Override
-        public Format unmap(InvokeInstruction output, Context<DexMapBuilder> context) {
+        public Format unmap(InvokeInstruction output, InstructionContext<DexMapBuilder> context) {
             int method = context.map().addMethod(output.owner, output.name, output.type);
             if (output.kind == POLYMORPHIC) {
                 int proto = context.map().addProto(output.type);
@@ -189,5 +186,8 @@ public final class InvokeInstruction implements Instruction, Invoke {
         }
     };
 
-
+    @Override
+    public int byteSize() {
+        return kind == POLYMORPHIC ? 4 : 3;
+    }
 }

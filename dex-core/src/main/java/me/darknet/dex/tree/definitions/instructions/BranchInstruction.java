@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatBAopCCCC;
 import me.darknet.dex.file.instructions.Opcodes;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
 
 public record BranchInstruction(int test, int a, int b, Label label) implements Instruction {
@@ -20,14 +21,19 @@ public record BranchInstruction(int test, int a, int b, Label label) implements 
 
     public static final InstructionCodec<BranchInstruction, FormatBAopCCCC> CODEC = new InstructionCodec<>() {
         @Override
-        public BranchInstruction map(FormatBAopCCCC input, Context<DexMap> context) {
+        public BranchInstruction map(FormatBAopCCCC input, InstructionContext<DexMap> context) {
             return new BranchInstruction(input.op() - Opcodes.IF_EQ, input.a(), input.b(),
                     context.label(input, (short) input.c()));
         }
 
         @Override
-        public FormatBAopCCCC unmap(BranchInstruction output, Context<DexMapBuilder> context) {
+        public FormatBAopCCCC unmap(BranchInstruction output, InstructionContext<DexMapBuilder> context) {
             return new FormatBAopCCCC(output.opcode(), output.a(), output.b(), (short) output.label.offset());
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

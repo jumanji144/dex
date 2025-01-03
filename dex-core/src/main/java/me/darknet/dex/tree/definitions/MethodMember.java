@@ -3,13 +3,11 @@ package me.darknet.dex.tree.definitions;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.EncodedMethod;
-import me.darknet.dex.file.annotation.MethodAnnotation;
 import me.darknet.dex.file.items.*;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
+import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Types;
-
-import java.util.Map;
 
 public final class MethodMember extends Member<MethodType> {
 
@@ -59,7 +57,8 @@ public final class MethodMember extends Member<MethodType> {
 
             AnnotationSetItem set = context.annotationSet(member.annotations());
 
-            annotations.methodAnnotations().put(method, set);
+            if (set != null)
+                annotations.methodAnnotations().put(method, set);
 
             return new EncodedMethod(method, member.access(), code);
         }

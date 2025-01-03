@@ -25,6 +25,10 @@ public record Format00opAAAA32(int op, int a) implements Format {
             output.writeInt(value.a);
         }
 
-
     };
+
+    @Override
+    public int size() {
+        return 3;
+    }
 }

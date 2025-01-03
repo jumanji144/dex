@@ -72,7 +72,9 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         DexMapCodec dexMapCodec = new DexMapCodec();
         DexMap map = dexMapCodec.read(input.slice(mapOffset));
 
-        return new DexHeader(new String(version), linkData, map);
+        String versionString = new String(version).substring(0, 3); // cut 0 character
+        int versionInt = Integer.parseInt(versionString);
+        return new DexHeader(versionInt, linkData, map);
     }
 
     private void writeSectionInfo(Output output, int offset, int size) throws IOException {
@@ -107,8 +109,10 @@ public class DexHeaderCodec implements Codec<DexHeader> {
 
         Output header = output.newOutput();
 
+        String version = "0" + value.version() + "\0";
+
         header.writeBytes(DEX_FILE_MAGIC);
-        header.writeBytes(value.version().getBytes());
+        header.writeBytes(version.getBytes());
         // skip checksum and signature
         header.seek(4 + 20);
 

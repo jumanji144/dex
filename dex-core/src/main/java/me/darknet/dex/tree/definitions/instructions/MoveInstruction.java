@@ -46,4 +46,13 @@ public record MoveInstruction(int opcode, int to, int from) implements Instructi
         }
     };
 
+    @Override
+    public int byteSize() {
+        return switch (opcode) {
+            case MOVE -> 1;
+            case MOVE_FROM16 -> 2;
+            case MOVE_16 -> 3;
+            default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
+        };
+    }
 }

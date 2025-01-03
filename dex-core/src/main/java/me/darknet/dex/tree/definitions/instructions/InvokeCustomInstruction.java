@@ -9,6 +9,7 @@ import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.file.items.CallSiteDataItem;
 import me.darknet.dex.file.items.CallSiteItem;
 import me.darknet.dex.file.value.Value;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.constant.Constant;
 import me.darknet.dex.tree.definitions.constant.Handle;
 import me.darknet.dex.tree.type.MethodType;
@@ -79,7 +80,7 @@ public class InvokeCustomInstruction implements Instruction {
         return argumentRegisters;
     }
 
-    public int size() {
+    private int size() {
         return size;
     }
 
@@ -130,7 +131,7 @@ public class InvokeCustomInstruction implements Instruction {
 
     public static InstructionCodec<InvokeCustomInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public InvokeCustomInstruction map(Format input, Context<DexMap> context) {
+        public InvokeCustomInstruction map(Format input, InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     CallSiteItem callSite = context.map().callSites().get(g);
@@ -161,14 +162,19 @@ public class InvokeCustomInstruction implements Instruction {
         }
 
         @Override
-        public Format unmap(InvokeCustomInstruction output, Context<DexMapBuilder> context) {
+        public Format unmap(InvokeCustomInstruction output, InstructionContext<DexMapBuilder> context) {
             int callSiteIndex = context.map().addCallSite(output.handle, output.name, output.type, output.arguments);
             if (output.isRange()) {
-                return new FormatAGopBBBBFEDC(Opcodes.INVOKE_CUSTOM, output.size(), callSiteIndex,
+                return new FormatAGopBBBBFEDC(Opcodes.INVOKE_CUSTOM_RANGE, output.size(), callSiteIndex,
                         output.first(), output.first() + 1, output.first() + 2, output.first() + 3, output.first() + 4);
             } else {
                 return new FormatAAopBBBBCCCC(Opcodes.INVOKE_CUSTOM, output.size(), callSiteIndex, output.first());
             }
         }
     };
+
+    @Override
+    public int byteSize() {
+        return 3;
+    }
 }

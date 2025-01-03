@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.items.FieldItem;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.InstanceType;
@@ -24,7 +25,7 @@ public record StaticFieldInstruction(int kind, int value, InstanceType owner, St
     public static final InstructionCodec<StaticFieldInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
 
         @Override
-        public StaticFieldInstruction map(FormatAAopBBBB input, Context<DexMap> context) {
+        public StaticFieldInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> context) {
             FieldItem field = context.map().fields().get(input.b());
             InstanceType owner = Types.instanceType(field.owner());
             String name = field.name().string();
@@ -33,10 +34,14 @@ public record StaticFieldInstruction(int kind, int value, InstanceType owner, St
         }
 
         @Override
-        public FormatAAopBBBB unmap(StaticFieldInstruction output, Context<DexMapBuilder> context) {
+        public FormatAAopBBBB unmap(StaticFieldInstruction output, InstructionContext<DexMapBuilder> context) {
             int field = context.map().addField(output.owner, output.name, output.type);
             return new FormatAAopBBBB(output.opcode(), output.value(), field);
         }
     };
 
+    @Override
+    public int byteSize() {
+        return 2;
+    }
 }

@@ -5,8 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.FormatAAopBBBB32;
-import me.darknet.dex.file.items.StringDataItem;
-import me.darknet.dex.file.items.StringItem;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 
 public record ConstStringInstruction(int register, String string) implements Instruction {
 
@@ -16,9 +15,14 @@ public record ConstStringInstruction(int register, String string) implements Ins
         return CONST_STRING;
     }
 
+    @Override
+    public String toString() {
+        return "const-string v" + register + ", \"" + string + "\"";
+    }
+
     public static final InstructionCodec<ConstStringInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public ConstStringInstruction map(Format input, Context<DexMap> context) {
+        public ConstStringInstruction map(Format input, InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAAopBBBB(int op, int a, int b) ->
                         new ConstStringInstruction(a, context.map().strings().get(b).string());
@@ -29,8 +33,8 @@ public record ConstStringInstruction(int register, String string) implements Ins
         }
 
         @Override
-        public Format unmap(ConstStringInstruction output, Context<DexMapBuilder> context) {
-            int index = context.map().strings().add(new StringItem(new StringDataItem(output.string())));
+        public Format unmap(ConstStringInstruction output, InstructionContext<DexMapBuilder> context) {
+            int index = context.map().addString(output.string);
             if (index <= 0xffff) {
                 return new FormatAAopBBBB(CONST_STRING, output.register(), index);
             } else {
@@ -40,7 +44,7 @@ public record ConstStringInstruction(int register, String string) implements Ins
     };
 
     @Override
-    public String toString() {
-        return "const-string v" + register + ", \"" + string + "\"";
+    public int byteSize() {
+        return 2; // NOTE: this is not accurate, but the actual size is determined at write-time
     }
 }
