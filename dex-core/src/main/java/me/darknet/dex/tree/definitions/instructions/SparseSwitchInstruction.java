@@ -35,18 +35,7 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
 
         @Override
         public FormatAAopBBBB32 unmap(SparseSwitchInstruction output, InstructionContext<DexMapBuilder> context) {
-            int[] keys = new int[output.targets.size()];
-            int[] targets = new int[output.targets.size()];
-            int i = 0;
-            for (Map.Entry<Integer, Label> entry : output.targets.entrySet()) {
-                keys[i] = entry.getKey();
-                targets[i] = entry.getValue().offset();
-                i++;
-            }
-
-            FormatSparseSwitch payload = new FormatSparseSwitch(keys, targets);
-
-            int offset = context.sparseSwitchPayloads().get(payload);
+            int offset = context.sparseSwitchPayloads().get(output);
 
             return new FormatAAopBBBB32(SPARSE_SWITCH, 0, offset);
         }

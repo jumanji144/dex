@@ -5,14 +5,14 @@ public class Label implements Instruction {
     public static int UNASSIGNED = -1;
 
     private int index = UNASSIGNED;
-    private int offset = UNASSIGNED;
+    private int position = UNASSIGNED;
 
     public Label() {
     }
 
-    public Label(int index, int offset) {
+    public Label(int index, int position) {
         this.index = index;
-        this.offset = offset;
+        this.position = position;
     }
 
     public int index() {
@@ -23,12 +23,12 @@ public class Label implements Instruction {
         this.index = index;
     }
 
-    public int offset() {
-        return offset;
+    public int position() {
+        return position;
     }
 
-    public void offset(int offset) {
-        this.offset = offset;
+    public void position(int offset) {
+        this.position = offset;
     }
 
     @Override
@@ -46,18 +46,18 @@ public class Label implements Instruction {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
         Label label = (Label) obj;
-        return index == label.index && offset == label.offset;
+        return index == label.index && position == label.position;
     }
 
     @Override
     public int hashCode() {
         int result = index;
-        result = 31 * result + offset;
+        result = 31 * result + position;
         return result;
     }
 
     @Override
     public String toString() {
-        return "@label " + index + " (offset: " + offset + ")";
+        return "@label " + index + " (offset: " + position + ")";
     }
 }

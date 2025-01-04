@@ -10,8 +10,7 @@ import me.darknet.dex.tree.codec.definition.InstructionContext;
 
 public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
-    public static int op(Label label) {
-        int offset = label.offset();
+    public static int op(int offset) {
         if (offset <= 0xff)
             return GOTO;
         if (offset <= 0xffff)
@@ -41,11 +40,12 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
         @Override
         public Format unmap(GotoInstruction output, InstructionContext<DexMapBuilder> context) {
-            int opcode = op(output.jump);
+            int offset = context.labelOffset(output, output.jump);
+            int opcode = op(offset);
             return switch (opcode) {
-                case GOTO -> new FormatAAop(opcode, output.jump.offset());
-                case GOTO_16 -> new Format00opAAAA(opcode, output.jump.offset());
-                case GOTO_32 -> new Format00opAAAA32(opcode, output.jump.offset());
+                case GOTO -> new FormatAAop(opcode, offset);
+                case GOTO_16 -> new Format00opAAAA(opcode, offset);
+                case GOTO_32 -> new Format00opAAAA32(opcode, offset);
                 default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
             };
         }

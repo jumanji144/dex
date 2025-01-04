@@ -35,14 +35,7 @@ public record PackedSwitchInstruction(int first, List<Label> targets) implements
 
         @Override
         public FormatAAopBBBB32 unmap(PackedSwitchInstruction output, InstructionContext<DexMapBuilder> context) {
-            int[] targets = new int[output.targets.size()];
-            for (int i = 0; i < output.targets.size(); i++) {
-                targets[i] = output.targets.get(i).offset();
-            }
-
-            FormatPackedSwitch payload = new FormatPackedSwitch(output.first, targets);
-
-            int offset = context.packedSwitchPayloads().get(payload);
+            int offset = context.packedSwitchPayloads().get(output);
 
             return new FormatAAopBBBB32(PACKED_SWITCH, output.first, offset);
         }

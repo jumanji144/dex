@@ -27,9 +27,8 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
     @Override
     public Code map(CodeItem input, DexMap context) {
         Code code = new Code(input.in(), input.out(), input.registers());
-        InstructionContext<DexMap> ctx = new InstructionContext<>(input, context,
-                new HashMap<>(16),
-                new HashMap<>(16), new HashMap<>(16), new HashMap<>(16));
+        InstructionContext<DexMap> ctx = new InstructionContext<>(input.instructions(), input.offsets(), context,
+                new HashMap<>(16), null, null, null);
         for (Format instruction : input.instructions()) {
             code.instructions().add(Instruction.CODEC.map(instruction, ctx));
         }
@@ -60,26 +59,31 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
     public CodeItem unmap(Code output, DexMapBuilder context) {
         List<Format> instructions = new ArrayList<>();
 
-        Map<FormatFilledArrayData, Integer> filledArrayData = new HashMap<>();
-        Map<FormatPackedSwitch, Integer> packedSwitches = new HashMap<>();
-        Map<FormatSparseSwitch, Integer> sparseSwitches = new HashMap<>();
-
-        InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(null, context,
-                new HashMap<>(16), filledArrayData, packedSwitches, sparseSwitches);
+        Map<FillArrayDataInstruction, Integer> filledArrayData = new HashMap<>();
+        Map<PackedSwitchInstruction, Integer> packedSwitches = new HashMap<>();
+        Map<SparseSwitchInstruction, Integer> sparseSwitches = new HashMap<>();
 
         // collect all data and build offsets
+
+        List<Integer> offsets = new ArrayList<>();
 
         // TODO: account for CONST_STRING_JUMBO
         int position = 0;
         for (Instruction instruction : output.instructions()) {
             // labels will have to be resolved
             if (instruction instanceof Label label) {
-                label.offset(position);
-                continue;
+                label.position(position);
             }
+
+            offsets.add(position);
 
             position += instruction.byteSize();
         }
+
+        List<Format> extra = new ArrayList<>();
+
+        InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(output.instructions(), offsets, context,
+                null, filledArrayData, packedSwitches, sparseSwitches);
 
         // now we need to create the formats and special data parts
         for (Instruction instruction : output.instructions()) {
@@ -87,37 +91,43 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                 continue;
             }
             switch (instruction) {
-                case FillArrayDataInstruction(int array, byte[] data, int elementSize) -> {
-                    FormatFilledArrayData filledArray = new FormatFilledArrayData(array, data);
-                    filledArrayData.put(filledArray, position);
+                case FillArrayDataInstruction insn -> {
+                    FormatFilledArrayData filledArray = new FormatFilledArrayData(insn.array(), insn.data());
+                    filledArrayData.put(insn, position);
+                    extra.add(filledArray);
                     position += filledArray.size();
                 }
-                case PackedSwitchInstruction(int first, List<Label> targets) -> {
-                    int[] targetOffsets = new int[targets.size()];
-                    for (int i = 0; i < targets.size(); i++) {
-                        targetOffsets[i] = targets.get(i).offset();
+                case PackedSwitchInstruction insn -> {
+                    int[] targets = new int[insn.targets().size()];
+                    for (int i = 0; i < targets.length; i++) {
+                        targets[i] = ctx.labelOffset(instruction, insn.targets().get(i));
                     }
-                    FormatPackedSwitch packedSwitch = new FormatPackedSwitch(first, targetOffsets);
-                    packedSwitches.put(packedSwitch, position);
+
+                    FormatPackedSwitch packedSwitch = new FormatPackedSwitch(insn.first(), targets);
+                    packedSwitches.put(insn, position);
+                    extra.add(packedSwitch);
                     position += packedSwitch.size();
                 }
-                case SparseSwitchInstruction(Map<Integer, Label> targets) -> {
-                    int[] keys = new int[targets.size()];
-                    int[] targetOffsets = new int[targets.size()];
+                case SparseSwitchInstruction insn -> {
+                    int[] keys = new int[insn.targets().size()];
+                    int[] targetOffsets = new int[insn.targets().size()];
                     int i = 0;
-                    for (Map.Entry<Integer, Label> entry : targets.entrySet()) {
+                    for (Map.Entry<Integer, Label> entry : insn.targets().entrySet()) {
                         keys[i] = entry.getKey();
-                        targetOffsets[i] = entry.getValue().offset();
+                        targetOffsets[i] = ctx.labelOffset(instruction, entry.getValue());
                         i++;
                     }
                     FormatSparseSwitch sparseSwitch = new FormatSparseSwitch(keys, targetOffsets);
-                    sparseSwitches.put(sparseSwitch, position);
+                    sparseSwitches.put(insn, position);
+                    extra.add(sparseSwitch);
                     position += sparseSwitch.size();
                 }
                 default -> {}
             }
             instructions.add(Instruction.CODEC.unmap(instruction, ctx));
         }
+
+        instructions.addAll(extra);
 
         DebugInfoItem debugInfo = null;
         List<TryItem> tries = new ArrayList<>();
@@ -128,7 +138,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             List<EncodedTypeAddrPair> handlerPairs = new ArrayList<>();
             int catchAllAddr = -1;
             for (Handler handler : tryCatch.handlers()) {
-                int addr = handler.handler().offset();
+                int addr = handler.handler().position();
                 if (handler.exceptionType() == null) {
                     catchAllAddr = addr;
                     continue;
@@ -138,7 +148,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             }
             EncodedTryCatchHandler handler = new EncodedTryCatchHandler(handlerPairs, catchAllAddr);
             handlers.add(handler);
-            tries.add(new TryItem(start.offset(), end.offset() - start.offset(), handler));
+            tries.add(new TryItem(start.position(), end.position() - start.position(), handler));
         }
         return new CodeItem(output.registers(), output.in(), output.out(), debugInfo, instructions, List.of(),
                 tries, handlers);

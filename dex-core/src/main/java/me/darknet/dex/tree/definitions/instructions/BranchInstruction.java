@@ -28,7 +28,8 @@ public record BranchInstruction(int test, int a, int b, Label label) implements 
 
         @Override
         public FormatBAopCCCC unmap(BranchInstruction output, InstructionContext<DexMapBuilder> context) {
-            return new FormatBAopCCCC(output.opcode(), output.a(), output.b(), (short) output.label.offset());
+            return new FormatBAopCCCC(output.opcode(), output.a(), output.b(),
+                    (short) context.labelOffset(output, output.label));
         }
     };
 

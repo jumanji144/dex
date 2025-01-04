@@ -1,6 +1,7 @@
 package me.darknet.dex.tree.definitions.instructions;
 
 import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
@@ -24,8 +25,8 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
         }
 
         @Override
-        public FormatAAopBBBB unmap(BranchZeroInstruction output) {
-            return new FormatAAopBBBB(output.opcode(), output.a(), (short) output.label.offset());
+        public FormatAAopBBBB unmap(BranchZeroInstruction output, InstructionContext<DexMapBuilder> context) {
+            return new FormatAAopBBBB(output.opcode(), output.a(), (short) context.labelOffset(output, output.label));
         }
     };
 

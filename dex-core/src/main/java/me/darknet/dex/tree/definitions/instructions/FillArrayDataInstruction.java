@@ -26,8 +26,7 @@ public record FillArrayDataInstruction(int array, byte[] data, int elementSize) 
 
         @Override
         public FormatAAopBBBB32 unmap(FillArrayDataInstruction output, InstructionContext<DexMapBuilder> context) {
-            FormatFilledArrayData payload = new FormatFilledArrayData(output.elementSize, output.data);
-            int offset = context.arrayPayloads().get(payload);
+            int offset = context.arrayPayloads().get(output);
 
             return new FormatAAopBBBB32(FILL_ARRAY_DATA, output.array, offset);
         }
