@@ -43,7 +43,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
         }
     }
 
-    public InvokeInstruction(int kind, InstanceType owner, String name, MethodType type, int size, int first) {
+    private InvokeInstruction(int kind, InstanceType owner, String name, MethodType type, int size, int first) {
         this.kind = kind;
         this.owner = owner;
         this.name = name;
@@ -51,6 +51,10 @@ public final class InvokeInstruction implements Instruction, Invoke {
         this.arguments = null;
         this.size = size;
         this.first = first;
+    }
+
+    public static InvokeInstruction range(int kind, InstanceType owner, String name, MethodType type, int size, int first) {
+        return new InvokeInstruction(kind, owner, name, type, size, first);
     }
 
     public InstanceType owner() {
@@ -163,21 +167,23 @@ public final class InvokeInstruction implements Instruction, Invoke {
             };
         }
 
+        private static final int RANGE_OFFSET = Opcodes.INVOKE_VIRTUAL_RANGE - Opcodes.INVOKE_VIRTUAL;
+
         @Override
         public Format unmap(InvokeInstruction output, InstructionContext<DexMapBuilder> context) {
             int method = context.map().addMethod(output.owner, output.name, output.type);
             if (output.kind == POLYMORPHIC) {
                 int proto = context.map().addProto(output.type);
-                if (output.arguments == null) {
-                    return new FormatAAopBBBBCCCCHHHH(output.kind, output.size, method, output.first, proto);
+                if (output.arguments == null) { // is range
+                    return new FormatAAopBBBBCCCCHHHH(output.kind + RANGE_OFFSET, output.size, method, output.first, proto);
                 }
                 int[] arguments = new int[5];
                 System.arraycopy(output.arguments, 0, arguments, 0, output.size);
                 return new FormatAGopBBBBFEDCHHHH(output.kind, output.size, method,
                         arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], proto);
             }
-            if (output.arguments == null) {
-                return new FormatAAopBBBBCCCC(output.kind, output.size, method, output.first);
+            if (output.arguments == null) { // is range
+                return new FormatAAopBBBBCCCC(output.kind + RANGE_OFFSET, output.size, method, output.first);
             }
             int[] arguments = new int[5];
             System.arraycopy(output.arguments, 0, arguments, 0, output.size);
