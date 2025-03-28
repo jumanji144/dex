@@ -10,13 +10,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public final class ClassDefinition implements Typed<InstanceType>, Accessible, Annotated {
+public final class ClassDefinition implements Typed<InstanceType>, Accessible, Annotated, Signed {
 
     private final InstanceType type;
     private final int access;
     private final InstanceType superClass;
     private List<InstanceType> interfaces = new ArrayList<>();
     private @Nullable String sourceFile;
+    private @Nullable InstanceType enclosingMethod;
+    private @Nullable InstanceType enclosingClass;
+    private InnerClass innerClass;
+    private String signature;
+    private List<InstanceType> memberClasses = new ArrayList<>();
 
     private final Map<MemberIdentifier, FieldMember> fields = new HashMap<>(16);
     private final Map<MemberIdentifier, MethodMember> methods = new HashMap<>(16);
@@ -54,6 +59,46 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
 
     public void sourceFile(@Nullable String sourceFile) {
         this.sourceFile = sourceFile;
+    }
+
+    public @Nullable InstanceType enclosingMethod() {
+        return enclosingMethod;
+    }
+
+    public void enclosingMethod(@Nullable InstanceType enclosingMethod) {
+        this.enclosingMethod = enclosingMethod;
+    }
+
+    public @Nullable InstanceType enclosingClass() {
+        return enclosingClass;
+    }
+
+    public void enclosingClass(@Nullable InstanceType enclosingClass) {
+        this.enclosingClass = enclosingClass;
+    }
+
+    public InnerClass innerClass() {
+        return innerClass;
+    }
+
+    public void innerClass(InnerClass innerClass) {
+        this.innerClass = innerClass;
+    }
+
+    public String signature() {
+        return signature;
+    }
+
+    public void signature(String signature) {
+        this.signature = signature;
+    }
+
+    public List<InstanceType> memberClasses() {
+        return memberClasses;
+    }
+
+    public void memberClasses(List<InstanceType> memberClasses) {
+        this.memberClasses = memberClasses;
     }
 
     public Map<MemberIdentifier, FieldMember> fields() {

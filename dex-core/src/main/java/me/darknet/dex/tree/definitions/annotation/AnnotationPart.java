@@ -18,6 +18,10 @@ import java.util.Map;
 
 public record AnnotationPart(InstanceType type, Map<String, Constant> elements) {
 
+    public Constant element(String name) {
+        return elements.get(name);
+    }
+
     public static final TreeCodec<AnnotationPart, EncodedAnnotation> CODEC = new TreeCodec<>() {
         @Override
         public AnnotationPart map(EncodedAnnotation input, DexMap context) {

@@ -1,9 +1,13 @@
 package me.darknet.dex.file;
 
+import me.darknet.dex.codecs.DexHeaderCodec;
+
 import java.util.Arrays;
 import java.util.Objects;
 
 public record DexHeader(int version, byte[] link, DexMap map) {
+
+    public static final DexHeaderCodec CODEC = new DexHeaderCodec();
 
     @Override
     public boolean equals(Object o) {

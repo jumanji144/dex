@@ -11,19 +11,75 @@ import me.darknet.dex.file.annotation.ParameterAnnotation;
 import me.darknet.dex.file.items.*;
 import me.darknet.dex.file.value.Value;
 import me.darknet.dex.tree.codec.TreeCodec;
-import me.darknet.dex.tree.definitions.AccessFlags;
-import me.darknet.dex.tree.definitions.ClassDefinition;
-import me.darknet.dex.tree.definitions.FieldMember;
-import me.darknet.dex.tree.definitions.MethodMember;
+import me.darknet.dex.tree.definitions.*;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
+import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.constant.*;
 import me.darknet.dex.tree.type.InstanceType;
+import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
 
 import java.util.*;
 
 public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDefItem> {
+
+    private void processAttribute(ClassDefinition definition, AnnotationPart anno) {
+        switch (anno.type().internalName()) {
+            case "dalvik/annotation/EnclosingClass" -> {
+                var enclosingClass = anno.element("value");
+                if (enclosingClass instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
+                    definition.enclosingClass(it);
+                } else {
+                    throw new IllegalStateException("Invalid EnclosingClass annotation value");
+                }
+            }
+            case "dalvik/annotation/InnerClass" -> {
+                var name = anno.element("name");
+                var access = anno.element("access");
+
+                if (name instanceof StringConstant(String n) && access instanceof IntConstant(int a)) {
+                    definition.innerClass(new InnerClass(n, a));
+                } else {
+                    throw new IllegalStateException("Invalid InnerClass annotation value");
+                }
+            }
+            case "dalvik/annotation/Signature" -> {
+                var element = anno.element("value");
+                if (element instanceof StringConstant(String value)) {
+                    definition.signature(value);
+                } else {
+                    throw new IllegalStateException("Invalid Signature annotation value");
+                }
+            }
+            case "dalvik/annotation/MemberClasses" -> {
+                var classes = anno.element("value");
+                if (classes instanceof ArrayConstant(List<Constant> constants)) {
+                    List<InstanceType> memberClasses = new ArrayList<>();
+                    for (Constant constant : constants) {
+                        if (constant instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
+                            memberClasses.add(it);
+                        } else {
+                            throw new IllegalStateException("Invalid MemberClasses annotation value");
+                        }
+                    }
+                    definition.memberClasses(memberClasses);
+                } else {
+                    throw new IllegalStateException("Invalid MemberClasses annotation value");
+                }
+            }
+        }
+    }
+
+    private void processAttributes(ClassDefinition definition) {
+        // map attributes
+        for (Annotation annotation : definition.annotations()) {
+            if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
+                var anno = annotation.annotation();
+                processAttribute(definition, anno);
+            }
+        }
+    }
 
     @Override
     public ClassDefinition map(ClassDefItem input, DexMap context) {
@@ -95,6 +151,8 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             MethodMember method = MethodMember.CODEC.map(virtualMethod, annotations, context);
             definition.putMethod(method);
         }
+
+        processAttributes(definition);
 
         return definition;
     }
