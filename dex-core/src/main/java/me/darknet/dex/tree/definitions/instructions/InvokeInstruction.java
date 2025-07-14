@@ -6,7 +6,6 @@ import me.darknet.dex.file.instructions.*;
 import me.darknet.dex.file.items.MethodItem;
 import me.darknet.dex.file.items.ProtoItem;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
-import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.ReferenceType;
 import me.darknet.dex.tree.type.Types;
@@ -15,6 +14,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public final class InvokeInstruction implements Instruction, Invoke {
+
+    private static final int RANGE_OFFSET = Opcodes.INVOKE_VIRTUAL_RANGE - Opcodes.INVOKE_VIRTUAL;
 
     @MagicConstant(intValues = {VIRTUAL, DIRECT, STATIC, INTERFACE, SUPER, POLYMORPHIC})
     private final int kind;
@@ -45,18 +46,21 @@ public final class InvokeInstruction implements Instruction, Invoke {
         }
     }
 
-    private InvokeInstruction(int kind, InstanceType owner, String name, MethodType type, int size, int first) {
+    private InvokeInstruction(int kind, ReferenceType owner, String name, MethodType type, int size, int first, int[] arguments) {
         this.kind = kind;
         this.owner = owner;
         this.name = name;
         this.type = type;
-        this.arguments = null;
         this.size = size;
         this.first = first;
+
+        // Explicit int[] arg prevents method signature confusion.
+        // Should always be 'null'
+        this.arguments = arguments;
     }
 
-    public static InvokeInstruction range(int kind, InstanceType owner, String name, MethodType type, int size, int first) {
-        return new InvokeInstruction(kind, owner, name, type, size, first);
+    public static @NotNull InvokeInstruction range(int kind, ReferenceType owner, String name, MethodType type, int size, int first) {
+        return new InvokeInstruction(kind - RANGE_OFFSET, owner, name, type, size, first, null);
     }
 
     public ReferenceType owner() {
@@ -144,6 +148,8 @@ public final class InvokeInstruction implements Instruction, Invoke {
                     ReferenceType owner = Types.referenceType(method.owner());
                     String name = method.name().string();
                     MethodType type = Types.methodType(method.proto());
+                    if (isRangeOp(op))
+                        yield range(op, owner, name, type, a, c);
                     yield new InvokeInstruction(op, owner, name, type, a, c);
                 }
                 case FormatAGopBBBBFEDCHHHH(int op, int a, int b, int c, int d, int e, int f, int g, int h) -> {
@@ -169,14 +175,12 @@ public final class InvokeInstruction implements Instruction, Invoke {
             };
         }
 
-        private static final int RANGE_OFFSET = Opcodes.INVOKE_VIRTUAL_RANGE - Opcodes.INVOKE_VIRTUAL;
-
         @Override
         public @NotNull Format unmap(@NotNull InvokeInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int method = context.map().addMethod(output.owner, output.name, output.type);
             if (output.kind == POLYMORPHIC) {
                 int proto = context.map().addProto(output.type);
-                if (output.arguments == null) { // is range
+                if (output.isRange()) {
                     return new FormatAAopBBBBCCCCHHHH(output.kind + RANGE_OFFSET, output.size, method, output.first, proto);
                 }
                 int[] arguments = new int[5];
@@ -184,7 +188,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
                 return new FormatAGopBBBBFEDCHHHH(output.kind, output.size, method,
                         arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], proto);
             }
-            if (output.arguments == null) { // is range
+            if (output.isRange()) {
                 return new FormatAAopBBBBCCCC(output.kind + RANGE_OFFSET, output.size, method, output.first);
             }
             int[] arguments = new int[5];
@@ -198,4 +202,9 @@ public final class InvokeInstruction implements Instruction, Invoke {
     public int byteSize() {
         return kind == POLYMORPHIC ? 4 : 3;
     }
+
+    private static boolean isRangeOp(int op) {
+        return op >= INVOKE_VIRTUAL_RANGE && op <= INVOKE_INTERFACE_RANGE;
+    }
+
 }
