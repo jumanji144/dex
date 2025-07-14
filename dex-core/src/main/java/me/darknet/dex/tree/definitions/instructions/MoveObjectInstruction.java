@@ -46,7 +46,9 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
                 case MOVE -> new FormatBAop(MOVE, output.to(), output.from());
                 case MOVE_FROM16 -> new FormatAAopBBBB(MOVE_FROM16, output.to(), output.from());
                 case MOVE_16 -> new Format00opAAAABBBB(MOVE_16, output.to(), output.from());
-                default -> throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());
+                case MOVE_OBJECT -> new FormatBAop(MOVE_OBJECT, output.to(), output.from());
+                case MOVE_OBJECT_FROM16 -> new FormatAAopBBBB(MOVE_OBJECT_FROM16, output.to(), output.from());
+                default -> throw new IllegalArgumentException("Unmappable opcode: 0x" + Integer.toHexString(output.opcode()));
             };
         }
     };
