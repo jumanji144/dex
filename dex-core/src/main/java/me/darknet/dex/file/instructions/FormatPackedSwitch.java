@@ -8,10 +8,10 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
 
-public record FormatPackedSwitch(int first, int[] targets) implements Format {
+public record FormatPackedSwitch(int first, int[] targets) implements PseudoFormat {
     @Override
     public int op() {
-        return 0x0100;
+        return P_PACKED_SWITCH;
     }
 
     public static final FormatCodec<FormatPackedSwitch> CODEC = new FormatCodec<>() {

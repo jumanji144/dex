@@ -34,7 +34,7 @@ public interface Instruction extends Opcodes {
         public @NotNull Instruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             InstructionCodec codec = Instructions.CODECS.get(input.op());
             if (codec == null) {
-                throw new IllegalArgumentException("Unmappable format: " + input);
+                throw new IllegalArgumentException("Unmappable format: 0x" + Integer.toHexString(input.op()) + " - " + input);
             }
             return (Instruction) codec.map(input, context);
         }
@@ -43,7 +43,7 @@ public interface Instruction extends Opcodes {
         public @NotNull Format unmap(@NotNull Instruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             InstructionCodec codec = Instructions.CODECS.get(output.opcode());
             if (codec == null) {
-                throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());
+                throw new IllegalArgumentException("Unmappable opcode: 0x" + Integer.toHexString(output.opcode()) + " - " + output.opcode());
             }
             return (Format) codec.unmap(output, context);
         }

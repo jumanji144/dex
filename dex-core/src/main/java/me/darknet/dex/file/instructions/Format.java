@@ -27,14 +27,14 @@ public interface Format extends Opcodes {
         public @NotNull Format read(@NotNull Input input) throws IOException {
             int first = input.readShort();
             FormatCodec<?> codec = switch (first) {
-                case 0x0100 -> FormatPackedSwitch.CODEC;
-                case 0x0200 -> FormatSparseSwitch.CODEC;
-                case 0x0300 -> FormatFilledArrayData.CODEC;
+                case PseudoFormat.P_PACKED_SWITCH -> FormatPackedSwitch.CODEC;
+                case PseudoFormat.P_SPARSE_SWITCH -> FormatSparseSwitch.CODEC;
+                case PseudoFormat.P_FILL_ARRAY_DATA -> FormatFilledArrayData.CODEC;
                 default -> Formats.get(first & 0xFF);
             };
             if (codec == null) {
-                throw new IOException("Unknown opcode: " + Integer.toHexString(first)
-                        + " at " + Integer.toHexString(input.position()));
+                throw new IOException("Unknown opcode: 0x" + Integer.toHexString(first)
+                        + " at 0x" + Integer.toHexString(input.position()));
             }
             input.seek(-2); // go back
             return codec.read(input);
@@ -44,9 +44,9 @@ public interface Format extends Opcodes {
         public void write(@NotNull Format value, @NotNull Output output) throws IOException {
             int op = value.op();
             FormatCodec codec = switch (op) {
-                case 0x0100 -> FormatPackedSwitch.CODEC;
-                case 0x0200 -> FormatSparseSwitch.CODEC;
-                case 0x0300 -> FormatFilledArrayData.CODEC;
+                case PseudoFormat.P_PACKED_SWITCH -> FormatPackedSwitch.CODEC;
+                case PseudoFormat.P_SPARSE_SWITCH -> FormatSparseSwitch.CODEC;
+                case PseudoFormat.P_FILL_ARRAY_DATA -> FormatFilledArrayData.CODEC;
                 default -> Formats.get(op);
             };
             if (codec == null) {

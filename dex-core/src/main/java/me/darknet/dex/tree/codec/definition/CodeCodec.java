@@ -31,6 +31,11 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         InstructionContext<DexMap> ctx = new InstructionContext<>(input.instructions(), input.offsets(), context,
                 new HashMap<>(16), null, null, null);
         for (Format instruction : input.instructions()) {
+            // Skip pseudo instructions
+            if (instruction instanceof PseudoFormat)
+                // TODO: These probably need to be tracked in the Code model somehow for round-tripping.
+                continue;
+
             code.instructions().add(Instruction.CODEC.map(instruction, ctx));
         }
         for (TryItem item : input.tries()) {

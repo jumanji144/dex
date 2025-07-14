@@ -8,11 +8,11 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
 
-public record FormatFilledArrayData(int width, byte[] data) implements Format {
+public record FormatFilledArrayData(int width, byte[] data) implements PseudoFormat {
 
     @Override
     public int op() {
-        return 0x0300;
+        return P_FILL_ARRAY_DATA;
     }
 
     public static final FormatCodec<FormatFilledArrayData> CODEC = new FormatCodec<>() {
