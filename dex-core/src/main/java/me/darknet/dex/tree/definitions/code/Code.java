@@ -4,17 +4,19 @@ import me.darknet.dex.file.items.CodeItem;
 import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.codec.definition.CodeCodec;
 import me.darknet.dex.tree.definitions.instructions.Instruction;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class Code {
+    public static final TreeCodec<Code, CodeItem> CODEC = new CodeCodec();
 
+    private final List<Instruction> instructions = new ArrayList<>();
+    private final List<TryCatch> tryCatches = new ArrayList<>();
     private int in;
     private int out;
     private int registers;
-    private List<Instruction> instructions = new ArrayList<>();
-    private List<TryCatch> tryCatch = new ArrayList<>();
 
     public Code(int in, int out, int registers) {
         this.in = in;
@@ -22,46 +24,47 @@ public class Code {
         this.registers = registers;
     }
 
-    public int in() {
+    public int getIn() {
         return in;
     }
 
-    public void in(int in) {
+    public void setIn(int in) {
         this.in = in;
     }
 
-    public int out() {
+    public int getOut() {
         return out;
     }
 
-    public void out(int out) {
+    public void setOut(int out) {
         this.out = out;
     }
 
-    public int registers() {
+    public int getRegisters() {
         return registers;
     }
 
-    public void registers(int registers) {
+    public void setRegisters(int registers) {
         this.registers = registers;
     }
 
-    public List<Instruction> instructions() {
+    public @NotNull List<Instruction> getInstructions() {
         return instructions;
     }
 
-    public void instructions(List<Instruction> instructions) {
-        this.instructions = instructions;
+    public void addInstruction(@NotNull Instruction instruction) {
+        instructions.add(instruction);
     }
 
-    public List<TryCatch> tryCatch() {
-        return tryCatch;
+    public void addInstructions(@NotNull List<Instruction> instructions) {
+        instructions.forEach(this::addInstruction);
     }
 
-    public void tryCatch(List<TryCatch> tryCatch) {
-        this.tryCatch = tryCatch;
+    public @NotNull List<TryCatch> tryCatch() {
+        return tryCatches;
     }
 
-    public static final TreeCodec<Code, CodeItem> CODEC = new CodeCodec();
-
+    public void addTryCatch(@NotNull TryCatch tryCatch) {
+        tryCatches.add(tryCatch);
+    }
 }

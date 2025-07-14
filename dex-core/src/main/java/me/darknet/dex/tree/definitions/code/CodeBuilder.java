@@ -52,7 +52,7 @@ public class CodeBuilder implements Builder<Code> {
     @Override
     public @NotNull Code build() {
         Code code = new Code(registers, in, out);
-        code.instructions(instructions);
+        code.addInstructions(instructions);
         return code;
     }
 }

@@ -1,10 +1,11 @@
 package me.darknet.dex.tree.definitions;
 
 import me.darknet.dex.tree.type.Type;
+import org.jetbrains.annotations.NotNull;
 
-public record MemberIdentifier(String name, String descriptor) {
+public record MemberIdentifier(@NotNull String name, @NotNull String descriptor) {
 
-    public MemberIdentifier(String name, Type type) {
+    public MemberIdentifier(@NotNull String name, @NotNull Type type) {
         this(name, type.descriptor());
     }
 

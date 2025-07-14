@@ -19,7 +19,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-public class InvokeCustomInstruction implements Instruction {
+public final class InvokeCustomInstruction implements Instruction {
 
     private final Handle handle;
     private final String name;

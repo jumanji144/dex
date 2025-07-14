@@ -36,7 +36,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                 // TODO: These probably need to be tracked in the Code model somehow for round-tripping.
                 continue;
 
-            code.instructions().add(Instruction.CODEC.map(instruction, ctx));
+            code.addInstruction(Instruction.CODEC.map(instruction, ctx));
         }
         for (TryItem item : input.tries()) {
             Label start = ctx.label(item.startAddr());
@@ -56,7 +56,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                 handlers.add(new Handler(handlerStart, null));
             }
 
-            code.tryCatch().add(new TryCatch(start, end, handlers));
+            code.addTryCatch(new TryCatch(start, end, handlers));
         }
         return code;
     }
@@ -76,7 +76,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         // TODO: account for CONST_STRING_JUMBO
         int position = 0;
-        for (Instruction instruction : output.instructions()) {
+        for (Instruction instruction : output.getInstructions()) {
             // labels will have to be resolved
             if (instruction instanceof Label label) {
                 label.position(position);
@@ -89,11 +89,11 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         List<Format> extra = new ArrayList<>();
 
-        InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(output.instructions(), offsets, context,
+        InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(output.getInstructions(), offsets, context,
                 labels, filledArrayData, packedSwitches, sparseSwitches);
 
         // now we need to create the formats and special data parts
-        for (Instruction instruction : output.instructions()) {
+        for (Instruction instruction : output.getInstructions()) {
             if (instruction instanceof Label) {
                 continue;
             }
@@ -157,7 +157,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             handlers.add(handler);
             tries.add(new TryItem(start.position(), end.position() - start.position(), handler));
         }
-        return new CodeItem(output.registers(), output.in(), output.out(), debugInfo, instructions, List.of(),
+        return new CodeItem(output.getRegisters(), output.getIn(), output.getOut(), debugInfo, instructions, List.of(),
                 tries, handlers);
     }
 

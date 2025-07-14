@@ -1,11 +1,12 @@
 package me.darknet.dex.tree.definitions;
 
 import me.darknet.dex.tree.definitions.annotation.Annotation;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
 public sealed interface Annotated permits ClassDefinition, Member {
 
-    List<Annotation> annotations();
+    @NotNull List<Annotation> getAnnotations();
 
 }

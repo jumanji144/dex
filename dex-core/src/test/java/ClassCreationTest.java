@@ -23,13 +23,13 @@ public class ClassCreationTest {
 
         ClassDefinition classDefinition = new ClassDefinition(
                 Types.instanceTypeFromInternalName("test"),
-                0,
-                Types.instanceType(Object.class));
+                Types.instanceType(Object.class), 0
+        );
 
         MethodMember methodMember = new MethodMember(
-                Types.methodTypeFromDescriptor("()V"),
-                0,
-                "test");
+                "test", Types.methodTypeFromDescriptor("()V"),
+                0
+        );
 
         Code code = new Code(1, 0, 3);
 
@@ -42,7 +42,7 @@ public class ClassCreationTest {
                 new ReturnInstruction()
         );
 
-        code.instructions(instructions);
+        code.addInstructions(instructions);
         methodMember.code(code);
 
         classDefinition.putMethod(methodMember);

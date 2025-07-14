@@ -4,6 +4,8 @@ import org.jetbrains.annotations.Nullable;
 
 public interface Signed {
 
-    @Nullable String signature();
+    @Nullable String getSignature();
+
+    void setSignature(@Nullable String signature);
 
 }

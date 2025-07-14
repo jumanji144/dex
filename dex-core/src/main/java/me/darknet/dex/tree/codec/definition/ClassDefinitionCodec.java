@@ -25,25 +25,26 @@ import java.util.*;
 
 public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDefItem> {
 
-    private void processAttribute(@NotNull ClassDefinition definition, @NotNull AnnotationPart anno) {
+    private static void processAttribute(@NotNull ClassDefinition definition, @NotNull AnnotationPart anno) {
         switch (anno.type().internalName()) {
             case "dalvik/annotation/EnclosingClass" -> {
                 var enclosingClass = anno.element("value");
                 if (enclosingClass instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
-                    definition.enclosingClass(it);
+                    definition.setEnclosingClass(it);
                 } else {
                     throw new IllegalStateException("Invalid EnclosingClass annotation value");
                 }
             }
+            // TODO: EnclosingMethod
             case "dalvik/annotation/InnerClass" -> {
                 var name = anno.element("name");
                 var access = anno.element("accessFlags");
 
                 if (access instanceof IntConstant(int a)) {
                     if (name instanceof StringConstant(String n))
-                        definition.innerClass(new InnerClass(n, a));
+                        definition.addInnerClass(new InnerClass(n, a));
                     else if (name instanceof NullConstant)
-                        definition.innerClass(new InnerClass(null, a));
+                        definition.addInnerClass(new InnerClass(null, a));
                 } else {
                     throw new IllegalStateException("Invalid InnerClass annotation value");
                 }
@@ -51,14 +52,14 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             case "dalvik/annotation/Signature" -> {
                 var element = anno.element("value");
                 if (element instanceof StringConstant(String value)) {
-                    definition.signature(value);
+                    definition.setSignature(value);
                 } else  if (element instanceof ArrayConstant array) {
                     StringBuilder sb = new StringBuilder();
                     for (Constant constant : array.constants()) {
                         if (constant instanceof StringConstant(String value))
                             sb.append(value);
                     }
-                    definition.signature(sb.toString());
+                    definition.setSignature(sb.toString());
                 } else {
                     throw new IllegalStateException("Invalid Signature annotation value");
                 }
@@ -66,15 +67,13 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             case "dalvik/annotation/MemberClasses" -> {
                 var classes = anno.element("value");
                 if (classes instanceof ArrayConstant(List<Constant> constants)) {
-                    List<InstanceType> memberClasses = new ArrayList<>();
                     for (Constant constant : constants) {
                         if (constant instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
-                            memberClasses.add(it);
+                            definition.addMemberClass(it);
                         } else {
                             throw new IllegalStateException("Invalid MemberClasses annotation value");
                         }
                     }
-                    definition.memberClasses(memberClasses);
                 } else {
                     throw new IllegalStateException("Invalid MemberClasses annotation value");
                 }
@@ -84,7 +83,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
     private void processAttributes(@NotNull ClassDefinition definition) {
         // map attributes
-        for (Annotation annotation : definition.annotations()) {
+        for (Annotation annotation : definition.getAnnotations()) {
             if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
                 var anno = annotation.annotation();
                 processAttribute(definition, anno);
@@ -97,9 +96,9 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         InstanceType type = Types.instanceType(input.type());
         InstanceType superClass = input.superType() == null ? null : Types.instanceType(input.superType());
         List<InstanceType> interfaces = Types.instanceTypes(input.interfaces());
-        ClassDefinition definition = new ClassDefinition(type, input.access(), superClass);
-        definition.sourceFile(input.sourceFile() == null ? null : input.sourceFile().string());
-        definition.interfaces(interfaces);
+        ClassDefinition definition = new ClassDefinition(type, superClass, input.access());
+        definition.setSourceFile(input.sourceFile() == null ? null : input.sourceFile().string());
+        definition.addInterfaces(interfaces);
 
         ClassDataItem data = input.classData();
 
@@ -124,7 +123,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
             // map class annotations
             for (AnnotationOffItem entry : directory.classAnnotations().entries()) {
-                definition.annotations().add(Annotation.CODEC.map(entry.item(), context));
+                definition.addAnnotation(Annotation.CODEC.map(entry.item(), context));
             }
 
         }
@@ -139,10 +138,10 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             Value value = indexSnapshot >= backingValues.size() ? null : backingValues.get(indexSnapshot);
             if (value == null) {
                 // select default value
-                field.staticValue(Constant.defaultValue(field.type()));
+                field.setStaticValue(Constant.defaultValue(field.getType()));
             } else {
                 // use encoded value
-                field.staticValue(Constant.CODEC.map(value, context));
+                field.setStaticValue(Constant.CODEC.map(value, context));
             }
             definition.putField(field);
         }
@@ -169,16 +168,16 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
     @Override
     public @NotNull ClassDefItem unmap(@NotNull ClassDefinition output, @NotNull DexMapBuilder context) {
-        TypeItem type = context.type(output.type());
+        TypeItem type = context.type(output.getType());
 
-        TypeItem superType = output.superClass() == null ? null : context.type(output.superClass());
-        TypeListItem interfaces = context.typeList(output.interfaces());
+        TypeItem superType = output.getSuperClass() == null ? null : context.type(output.getSuperClass());
+        TypeListItem interfaces = context.typeList(output.getInterfaces());
 
-        StringItem sourceFile = output.sourceFile() == null ? null : context.string(output.sourceFile());
+        StringItem sourceFile = output.getSourceFile() == null ? null : context.string(output.getSourceFile());
 
         AnnotationSetItem classAnnotations;
-        if (!output.annotations().isEmpty()) {
-            classAnnotations = context.annotationSet(output.annotations());
+        if (!output.getAnnotations().isEmpty()) {
+            classAnnotations = context.annotationSet(output.getAnnotations());
         } else {
             classAnnotations = new AnnotationSetItem(new ArrayList<>(0));
         }
@@ -194,22 +193,22 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         List<Value> staticValues = new ArrayList<>();
 
-        for (FieldMember value : output.fields().values()) {
+        for (FieldMember value : output.getFields().values()) {
             EncodedField field = FieldMember.CODEC.unmap(value, annotations, context);
-            if (value.staticValue() != null) {
-                Value staticValue = Constant.CODEC.unmap(value.staticValue(), context);
+            if (value.getStaticValue() != null) {
+                Value staticValue = Constant.CODEC.unmap(value.getStaticValue(), context);
                 staticValues.add(staticValue);
             }
-            if ((value.access() & AccessFlags.ACC_STATIC) != 0) {
+            if ((value.getAccess() & AccessFlags.ACC_STATIC) != 0) {
                 staticFields.add(field);
             } else {
                 instanceFields.add(field);
             }
         }
 
-        for (MethodMember value : output.methods().values()) {
+        for (MethodMember value : output.getMethods().values()) {
             EncodedMethod method = MethodMember.CODEC.unmap(value, annotations, context);
-            if ((value.access() & AccessFlags.ACC_STATIC) != 0) {
+            if ((value.getAccess() & AccessFlags.ACC_STATIC) != 0) {
                 directMethods.add(method);
             } else {
                 virtualMethods.add(method);
@@ -257,7 +256,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         if (directory != null)
             context.annotationsDirectories().add(directory);
 
-        return new ClassDefItem(type, output.access(), superType, interfaces, sourceFile, directory,
+        return new ClassDefItem(type, output.getAccess(), superType, interfaces, sourceFile, directory,
                 data, staticValuesItem);
     }
 

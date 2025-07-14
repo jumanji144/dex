@@ -1,6 +1,6 @@
 package me.darknet.dex.tree.definitions.instructions;
 
-public class Label implements Instruction {
+public final class Label implements Instruction {
 
     public static int UNASSIGNED = -1;
 

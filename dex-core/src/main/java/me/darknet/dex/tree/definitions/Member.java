@@ -3,7 +3,6 @@ package me.darknet.dex.tree.definitions;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.EncodedMember;
-import me.darknet.dex.file.items.AnnotationItem;
 import me.darknet.dex.file.items.AnnotationOffItem;
 import me.darknet.dex.file.items.AnnotationSetItem;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
@@ -13,9 +12,11 @@ import me.darknet.dex.tree.definitions.constant.StringConstant;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -25,9 +26,9 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
     private final int access;
     private final String name;
     private final MemberIdentifier identifier;
-    private List<Annotation> annotations = new ArrayList<>();
+    private @Nullable List<Annotation> annotations;
     private @Nullable String signature;
-    private InstanceType owner;
+    private @Nullable InstanceType owner;
 
     public Member(T type, int access, String name) {
         this.type = type;
@@ -37,58 +38,81 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
     }
 
     @Override
-    public int access() {
+    public int getAccess() {
         return access;
     }
 
     @Override
-    public T type() {
+    public @NotNull T getType() {
         return type;
     }
 
-    public InstanceType owner() {
+    public @Nullable InstanceType getOwner() {
         return owner;
     }
 
-    public String name() {
+    public @NotNull String getName() {
         return name;
     }
 
-    public MemberIdentifier identifier() {
+    public @NotNull MemberIdentifier getIdentifier() {
         return identifier;
     }
 
-    public List<Annotation> annotations() {
+    public @NotNull List<Annotation> getAnnotations() {
+        if (annotations == null)
+            return Collections.emptyList();
         return annotations;
     }
 
-    public void annotations(List<Annotation> annotations) {
-        this.annotations = annotations;
+    public void addAnnotation(@NotNull Annotation annotation) {
+        if (annotations == null)
+            annotations = new ArrayList<>();
+        annotations.add(annotation);
     }
 
-    public void owner(InstanceType owner) {
+    public void addAnnotations(@NotNull List<Annotation> annotations) {
+        annotations.forEach(this::addAnnotation);
+    }
+
+    public void setOwner(@Nullable InstanceType owner) {
         this.owner = owner;
     }
 
-    protected void mapAnnotations(AnnotationSetItem set, DexMap map) {
+    @Override
+    public @Nullable String getSignature() {
+        return signature;
+    }
+
+    @Override
+    public void setSignature(@Nullable String signature) {
+        this.signature = signature;
+    }
+
+    protected void mapAnnotations(@NotNull AnnotationSetItem set, @NotNull DexMap map) {
         for (AnnotationOffItem entry : set.entries()) {
             Annotation annotation = Annotation.CODEC.map(entry.item(), map);
 
             if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
                 var anno = annotation.annotation();
+
+                // TODO: Recycle code in ClassDefinitionCodec
+                //  - this doesn't support all signatures, but the CDC does
+
                 if (anno.type().internalName().equals("dalvik/annotation/Signature")) {
                     var element = anno.element("value");
                     if (element instanceof StringConstant(String value)) {
-                        signature(value);
+                        setSignature(value);
                     }
                 }
             }
 
-            annotations.add(annotation);
+            addAnnotation(annotation);
         }
     }
 
-    protected void unmapAnnotations(DexMapBuilder builder) {
+    protected void unmapAnnotations(@NotNull DexMapBuilder builder) {
+        // TODO: this is never used, and this should also recycle code in ClassDefinitionCodec
         if (signature != null) {
             // check if we have a signature annotation
             builder.type("dalvik/annotation/Signature");
@@ -96,17 +120,8 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
                     Map.of("value", new StringConstant(signature)));
             Annotation signatureAnnotation = new Annotation((byte) Annotation.VISIBILITY_SYSTEM, part);
 
-            annotations.add(signatureAnnotation);
+            addAnnotation(signatureAnnotation);
         }
-    }
-
-    @Override
-    public @Nullable String signature() {
-        return signature;
-    }
-
-    public void signature(@Nullable String signature) {
-        this.signature = signature;
     }
 
     public interface MemberCodec<M extends Member<?>, C extends EncodedMember> {

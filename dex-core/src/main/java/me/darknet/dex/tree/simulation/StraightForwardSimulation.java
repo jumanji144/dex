@@ -9,7 +9,7 @@ public class StraightForwardSimulation implements Simulation<ExecutionEngine, Co
 
     @Override
     public void execute(@NotNull ExecutionEngine engine, @NotNull Code code) {
-        for (Instruction instruction : code.instructions()) {
+        for (Instruction instruction : code.getInstructions()) {
             if (instruction instanceof Label label) {
                 engine.label(label);
             } else {

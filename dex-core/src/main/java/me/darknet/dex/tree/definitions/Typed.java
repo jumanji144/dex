@@ -4,6 +4,6 @@ import me.darknet.dex.tree.type.Type;
 
 public sealed interface Typed<T extends Type> permits ClassDefinition, Member {
 
-    T type();
+    T getType();
 
 }
