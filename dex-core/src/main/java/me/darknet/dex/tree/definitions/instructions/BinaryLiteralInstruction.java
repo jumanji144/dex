@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.FormatAAopCCBB;
 import me.darknet.dex.file.instructions.FormatBAopCCCC;
+import me.darknet.dex.file.instructions.Formats;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import org.jetbrains.annotations.NotNull;
@@ -34,7 +35,7 @@ public record BinaryLiteralInstruction(int opcode, int dest, int src, int consta
 
         @Override
         public @NotNull Format unmap(@NotNull BinaryLiteralInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            if (output.constant() <= 0xFF) {
+            if (Formats.get(output.opcode) == FormatAAopCCBB.CODEC) {
                 return new FormatAAopCCBB(output.opcode(), output.dest(), output.src(), output.constant());
             } else {
                 return new FormatBAopCCCC(output.opcode(), output.dest(), output.src(), output.constant());
