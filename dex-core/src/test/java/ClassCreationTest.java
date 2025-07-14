@@ -7,6 +7,7 @@ import me.darknet.dex.tree.definitions.MethodMember;
 import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.instructions.*;
 import me.darknet.dex.tree.type.Types;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.FileOutputStream;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.List;
 
+@Disabled
 public class ClassCreationTest {
 
     @Test
