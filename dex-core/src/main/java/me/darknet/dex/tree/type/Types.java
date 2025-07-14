@@ -73,6 +73,19 @@ public class Types {
         return instanceTypeFromInternalName(internalName(clazz.getName()));
     }
 
+    public static @NotNull ReferenceType referenceType(@NotNull TypeItem type) {
+       return referenceTypeFromDescriptor(type.descriptor().string());
+    }
+
+    public static @NotNull ReferenceType referenceTypeFromDescriptor(@NotNull String descriptor) {
+        char c = descriptor.charAt(0);
+        return switch (c) {
+            case 'L' -> instanceTypeFromDescriptor(descriptor);
+            case '[' -> arrayTypeFromDescriptor(descriptor);
+            default -> throw new IllegalArgumentException("Not a valid type descriptor: " + descriptor);
+        };
+    }
+
     public static @NotNull Type typeFromDescriptor(@NotNull String descriptor) {
         char c = descriptor.charAt(0);
         return switch (c) {

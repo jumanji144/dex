@@ -8,6 +8,7 @@ import me.darknet.dex.file.items.ProtoItem;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
+import me.darknet.dex.tree.type.ReferenceType;
 import me.darknet.dex.tree.type.Types;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
@@ -17,7 +18,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
 
     @MagicConstant(intValues = {VIRTUAL, DIRECT, STATIC, INTERFACE, SUPER, POLYMORPHIC})
     private final int kind;
-    private final InstanceType owner;
+    private final ReferenceType owner;
     private final String name;
     private final MethodType type;
 
@@ -25,7 +26,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
     private final int size;
     private final int first;
 
-    public InvokeInstruction(int kind, InstanceType owner, String name, MethodType type, int... arguments) {
+    public InvokeInstruction(int kind, ReferenceType owner, String name, MethodType type, int... arguments) {
         this.kind = kind;
         this.owner = owner;
         this.name = name;
@@ -58,7 +59,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
         return new InvokeInstruction(kind, owner, name, type, size, first);
     }
 
-    public InstanceType owner() {
+    public ReferenceType owner() {
         return owner;
     }
 
@@ -130,7 +131,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
             return switch(input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     MethodItem method = context.map().methods().get(b);
-                    InstanceType owner = Types.instanceType(method.owner());
+                    ReferenceType owner = Types.referenceType(method.owner());
                     String name = method.name().string();
                     MethodType type = Types.methodType(method.proto());
 
@@ -140,7 +141,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
                 }
                 case FormatAAopBBBBCCCC(int op, int a, int b, int c) -> {
                     MethodItem method = context.map().methods().get(b);
-                    InstanceType owner = Types.instanceType(method.owner());
+                    ReferenceType owner = Types.referenceType(method.owner());
                     String name = method.name().string();
                     MethodType type = Types.methodType(method.proto());
                     yield new InvokeInstruction(op, owner, name, type, a, c);
@@ -148,7 +149,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
                 case FormatAGopBBBBFEDCHHHH(int op, int a, int b, int c, int d, int e, int f, int g, int h) -> {
                     MethodItem method = context.map().methods().get(b);
                     ProtoItem proto = context.map().protos().get(h);
-                    InstanceType owner = Types.instanceType(method.owner());
+                    ReferenceType owner = Types.referenceType(method.owner());
                     String name = method.name().string();
                     MethodType type = Types.methodType(proto);
 
@@ -159,7 +160,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
                 case FormatAAopBBBBCCCCHHHH(int op, int a, int b, int c, int h) -> {
                     MethodItem method = context.map().methods().get(b);
                     ProtoItem proto = context.map().protos().get(h);
-                    InstanceType owner = Types.instanceType(method.owner());
+                    ReferenceType owner = Types.referenceType(method.owner());
                     String name = method.name().string();
                     MethodType type = Types.methodType(proto);
                     yield new InvokeInstruction(op, owner, name, type, a, c);

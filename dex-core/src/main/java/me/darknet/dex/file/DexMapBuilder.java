@@ -14,6 +14,7 @@ import me.darknet.dex.tree.definitions.constant.Constant;
 import me.darknet.dex.tree.definitions.constant.Handle;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
+import me.darknet.dex.tree.type.ReferenceType;
 import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
@@ -209,7 +210,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return protos.add(proto(type));
     }
 
-    public @NotNull MethodItem method(@NotNull InstanceType owner, @NotNull String name, @NotNull MethodType type) {
+    public @NotNull MethodItem method(@NotNull ReferenceType owner, @NotNull String name, @NotNull MethodType type) {
         TypeItem ownerType = type(owner);
         ProtoItem proto = proto(type);
         StringItem nameItem = string(name);
@@ -218,7 +219,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return method;
     }
 
-    public int addMethod(@NotNull InstanceType owner, @NotNull String name, @NotNull MethodType type) {
+    public int addMethod(@NotNull ReferenceType owner, @NotNull String name, @NotNull MethodType type) {
         return methods.add(method(owner, name, type));
     }
 
