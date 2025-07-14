@@ -42,9 +42,9 @@ public record MoveWideInstruction(int opcode, int to, int from) implements Instr
         @Override
         public @NotNull Format unmap(@NotNull MoveWideInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return switch (output.opcode()) {
-                case MOVE -> new FormatBAop(MOVE, output.to(), output.from());
-                case MOVE_FROM16 -> new FormatAAopBBBB(MOVE_FROM16, output.to(), output.from());
-                case MOVE_16 -> new Format00opAAAABBBB(MOVE_16, output.to(), output.from());
+                case MOVE_WIDE -> new FormatBAop(MOVE_WIDE, output.to(), output.from());
+                case MOVE_WIDE_FROM16 -> new FormatAAopBBBB(MOVE_WIDE_FROM16, output.to(), output.from());
+                case MOVE_WIDE_16 -> new Format00opAAAABBBB(MOVE_WIDE_16, output.to(), output.from());
                 default -> throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());
             };
         }
