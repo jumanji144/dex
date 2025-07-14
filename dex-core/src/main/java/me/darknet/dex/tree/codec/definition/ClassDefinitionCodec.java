@@ -135,7 +135,8 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         int valueIndex = 0;
         for (EncodedField staticField : data.staticFields()) {
             FieldMember field = FieldMember.CODEC.map(staticField, annotations, context);
-            Value value = backingValues.get(valueIndex++);
+            int indexSnapshot = valueIndex++;
+            Value value = indexSnapshot >= backingValues.size() ? null : backingValues.get(indexSnapshot);
             if (value == null) {
                 // select default value
                 field.staticValue(Constant.defaultValue(field.type()));
