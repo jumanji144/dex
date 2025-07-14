@@ -23,7 +23,7 @@ public record CheckCastInstruction(int register, ClassType type) implements Inst
     public static final InstructionCodec<CheckCastInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
         public @NotNull CheckCastInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> ctx) {
-            return new CheckCastInstruction(input.a(), Types.classType(ctx.map().types().get(input.b())));
+            return new CheckCastInstruction(input.a(), Types.classType(ctx.map().types().get(input.ub())));
         }
 
         @Override

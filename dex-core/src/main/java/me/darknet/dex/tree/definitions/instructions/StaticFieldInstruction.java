@@ -27,7 +27,7 @@ public record StaticFieldInstruction(int kind, int value, InstanceType owner, St
 
         @Override
         public @NotNull StaticFieldInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> context) {
-            FieldItem field = context.map().fields().get(input.b());
+            FieldItem field = context.map().fields().get(input.ub());
             InstanceType owner = Types.instanceType(field.owner());
             String name = field.name().string();
             ClassType type = Types.classType(field.type());

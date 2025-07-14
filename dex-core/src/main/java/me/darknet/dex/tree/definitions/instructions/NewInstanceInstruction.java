@@ -22,7 +22,7 @@ public record NewInstanceInstruction(int dest, InstanceType type) implements Ins
     public static final InstructionCodec<NewInstanceInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
         public @NotNull NewInstanceInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> ctx) {
-            return new NewInstanceInstruction(input.a(), Types.instanceType(ctx.map().types().get(input.b())));
+            return new NewInstanceInstruction(input.a(), Types.instanceType(ctx.map().types().get(input.ub())));
         }
 
         @Override

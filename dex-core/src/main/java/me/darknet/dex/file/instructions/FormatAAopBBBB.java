@@ -14,7 +14,7 @@ public record FormatAAopBBBB(int op, int a, int b) implements Format {
         @Override
         public @NotNull FormatAAopBBBB read(@NotNull Input input) throws IOException {
             int value = input.readUnsignedShort();
-            int b = input.readUnsignedShort();
+            int b = input.readShort();
             return new FormatAAopBBBB(
                     value & 0xFF,
                     (value >> 8) & 0xFF,
@@ -31,6 +31,11 @@ public record FormatAAopBBBB(int op, int a, int b) implements Format {
             output.writeShort(value.b());
         }
     };
+
+    public int ub() {
+        // Map s2 to u2
+        return b & 0xFFFF;
+    }
 
     @Override
     public int size() {

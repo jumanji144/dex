@@ -23,7 +23,7 @@ public record ConstTypeInstruction(int register, ClassType type) implements Inst
     public static final InstructionCodec<ConstTypeInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
         public @NotNull ConstTypeInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> context) {
-            return new ConstTypeInstruction(input.a(), Types.classType(context.map().types().get(input.b())));
+            return new ConstTypeInstruction(input.a(), Types.classType(context.map().types().get(input.ub())));
         }
 
         @Override
