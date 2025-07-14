@@ -99,7 +99,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             }
             switch (instruction) {
                 case FillArrayDataInstruction insn -> {
-                    FormatFilledArrayData filledArray = new FormatFilledArrayData(insn.array(), insn.data());
+                    FormatFilledArrayData filledArray = new FormatFilledArrayData(insn.elementSize(), insn.data());
                     filledArrayData.put(insn, position);
                     extra.add(filledArray);
                     position += filledArray.size();
