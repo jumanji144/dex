@@ -1,8 +1,9 @@
 package me.darknet.dex.file.instructions;
 
-import me.darknet.dex.io.Codec;
+import me.darknet.dex.codecs.Codec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
@@ -23,7 +24,7 @@ public interface Format extends Opcodes {
     Codec<Format> CODEC = new Codec<>() {
 
         @Override
-        public Format read(Input input) throws IOException {
+        public @NotNull Format read(@NotNull Input input) throws IOException {
             int first = input.readShort();
             FormatCodec<?> codec = switch (first) {
                 case 0x0100 -> FormatPackedSwitch.CODEC;
@@ -40,7 +41,7 @@ public interface Format extends Opcodes {
         }
 
         @Override
-        public void write(Format value, Output output) throws IOException {
+        public void write(@NotNull Format value, @NotNull Output output) throws IOException {
             int op = value.op();
             FormatCodec codec = switch (op) {
                 case 0x0100 -> FormatPackedSwitch.CODEC;
@@ -49,8 +50,8 @@ public interface Format extends Opcodes {
                 default -> Formats.get(op);
             };
             if (codec == null) {
-                throw new IOException("Unknown opcode: " + Integer.toHexString(op)
-                        + " at " + Integer.toHexString(output.position()));
+                throw new IOException("Unknown opcode: 0x" + Integer.toHexString(op) +
+                        " at 0x" + Integer.toHexString(output.position()));
             }
             codec.write(value, output);
         }

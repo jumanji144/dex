@@ -5,9 +5,10 @@ import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.Item;
 import me.darknet.dex.file.items.StringItem;
 import me.darknet.dex.file.items.TypeItem;
-import me.darknet.dex.io.ContextCodec;
+import me.darknet.dex.codecs.ContextCodec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
@@ -28,7 +29,7 @@ public interface DebugInstruction extends Item {
         }
 
         @Override
-        public DebugInstruction read(Input input, DexMapAccess context) throws IOException {
+        public DebugInstruction read(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int opcode = input.readUnsignedByte();
             return switch (opcode) {
                 case 0x01 -> new DebugAdvancePc(input.readULeb128());
@@ -50,7 +51,7 @@ public interface DebugInstruction extends Item {
         }
 
         @Override
-        public void write(DebugInstruction value, Output output, WriteContext context) throws IOException {
+        public void write(DebugInstruction value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             DexMapAccess index = context.index();
             if(value instanceof DebugAdvancePc advancePc) {
                 output.writeByte(0x01);

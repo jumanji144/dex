@@ -19,12 +19,13 @@ import me.darknet.dex.tree.definitions.constant.*;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
 public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDefItem> {
 
-    private void processAttribute(ClassDefinition definition, AnnotationPart anno) {
+    private void processAttribute(@NotNull ClassDefinition definition, @NotNull AnnotationPart anno) {
         switch (anno.type().internalName()) {
             case "dalvik/annotation/EnclosingClass" -> {
                 var enclosingClass = anno.element("value");
@@ -36,10 +37,13 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             }
             case "dalvik/annotation/InnerClass" -> {
                 var name = anno.element("name");
-                var access = anno.element("access");
+                var access = anno.element("accessFlags");
 
-                if (name instanceof StringConstant(String n) && access instanceof IntConstant(int a)) {
-                    definition.innerClass(new InnerClass(n, a));
+                if (access instanceof IntConstant(int a)) {
+                    if (name instanceof StringConstant(String n))
+                        definition.innerClass(new InnerClass(n, a));
+                    else if (name instanceof NullConstant)
+                        definition.innerClass(new InnerClass(null, a));
                 } else {
                     throw new IllegalStateException("Invalid InnerClass annotation value");
                 }
@@ -71,7 +75,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         }
     }
 
-    private void processAttributes(ClassDefinition definition) {
+    private void processAttributes(@NotNull ClassDefinition definition) {
         // map attributes
         for (Annotation annotation : definition.annotations()) {
             if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
@@ -82,7 +86,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
     }
 
     @Override
-    public ClassDefinition map(ClassDefItem input, DexMap context) {
+    public @NotNull ClassDefinition map(@NotNull ClassDefItem input, @NotNull DexMap context) {
         InstanceType type = Types.instanceType(input.type());
         InstanceType superClass = input.superType() == null ? null : Types.instanceType(input.superType());
         List<InstanceType> interfaces = Types.instanceTypes(input.interfaces());
@@ -112,10 +116,8 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             }
 
             // map class annotations
-            if (directory.classAnnotations() != null) {
-                for (AnnotationOffItem entry : directory.classAnnotations().entries()) {
-                    definition.annotations().add(Annotation.CODEC.map(entry.item(), context));
-                }
+            for (AnnotationOffItem entry : directory.classAnnotations().entries()) {
+                definition.annotations().add(Annotation.CODEC.map(entry.item(), context));
             }
 
         }
@@ -158,7 +160,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
     }
 
     @Override
-    public ClassDefItem unmap(ClassDefinition output, DexMapBuilder context) {
+    public @NotNull ClassDefItem unmap(@NotNull ClassDefinition output, @NotNull DexMapBuilder context) {
         TypeItem type = context.type(output.type());
 
         TypeItem superType = output.superClass() == null ? null : context.type(output.superClass());
@@ -166,9 +168,11 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         StringItem sourceFile = output.sourceFile() == null ? null : context.string(output.sourceFile());
 
-        AnnotationSetItem classAnnotations = null;
+        AnnotationSetItem classAnnotations;
         if (!output.annotations().isEmpty()) {
             classAnnotations = context.annotationSet(output.annotations());
+        } else {
+            classAnnotations = new AnnotationSetItem(new ArrayList<>(0));
         }
 
         AnnotationMap annotations = new AnnotationMap(

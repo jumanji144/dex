@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopBBBB32;
 import me.darknet.dex.file.instructions.FormatPackedSwitch;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,7 @@ public record PackedSwitchInstruction(int first, List<Label> targets) implements
 
     public static final InstructionCodec<PackedSwitchInstruction, FormatAAopBBBB32> CODEC = new InstructionCodec<>() {
         @Override
-        public PackedSwitchInstruction map(FormatAAopBBBB32 input, InstructionContext<DexMap> context) {
+        public @NotNull PackedSwitchInstruction map(@NotNull FormatAAopBBBB32 input, @NotNull InstructionContext<DexMap> context) {
             FormatPackedSwitch payload = context.packedSwitchPayload(input, input.b());
             List<Label> targets = new ArrayList<>(payload.targets().length);
             for (int target : payload.targets()) {
@@ -34,7 +35,7 @@ public record PackedSwitchInstruction(int first, List<Label> targets) implements
         }
 
         @Override
-        public FormatAAopBBBB32 unmap(PackedSwitchInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull FormatAAopBBBB32 unmap(@NotNull PackedSwitchInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int offset = context.packedSwitchPayloads().get(output);
 
             return new FormatAAopBBBB32(PACKED_SWITCH, output.first, offset);

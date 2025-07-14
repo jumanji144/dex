@@ -1,4 +1,6 @@
 package me.darknet.dex.tree.definitions;
 
-public record InnerClass(String name, int access) {
+import org.jetbrains.annotations.Nullable;
+
+public record InnerClass(@Nullable String name, int access) {
 }

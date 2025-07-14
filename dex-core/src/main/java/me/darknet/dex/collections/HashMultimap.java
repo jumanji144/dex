@@ -1,17 +1,28 @@
 package me.darknet.dex.collections;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.*;
 
 public class HashMultimap<K, V> implements Multimap<K, V> {
-
     private final static int AVERAGE_VALUES_PER_KEY = 2;
-
-    private int expectedValuesPerKey;
-    private int expectedKeys;
-
+    private final int expectedValuesPerKey;
+    private final Map<K, Collection<V>> map;
     private int size;
 
-    private Map<K, Collection<V>> map;
+    public HashMultimap() {
+        this(10, AVERAGE_VALUES_PER_KEY);
+    }
+
+
+    public HashMultimap(int expectedKeys) {
+        this(expectedKeys, AVERAGE_VALUES_PER_KEY);
+    }
+
+    public HashMultimap(int expectedKeys, int expectedValuesPerKey) {
+        this.expectedValuesPerKey = expectedValuesPerKey;
+        map = new HashMap<>(expectedKeys);
+    }
 
     @Override
     public int size() {
@@ -63,7 +74,7 @@ public class HashMultimap<K, V> implements Multimap<K, V> {
         return false;
     }
 
-    private Collection<V> createCollection(K key) {
+    private @NotNull Collection<V> createCollection(K key) {
         return new HashSet<>(expectedValuesPerKey);
     }
 
@@ -88,31 +99,25 @@ public class HashMultimap<K, V> implements Multimap<K, V> {
     }
 
     @Override
-    public Collection<V> get(K key) {
-        Collection<V> values = map.get(key);
-        if (values == null) {
-            values = createCollection(key);
-            map.put(key, values);
-        }
-        return values;
+    public @NotNull Collection<V> get(K key) {
+	    return map.computeIfAbsent(key, this::createCollection);
     }
 
     @Override
-    public Collection<V> values() {
+    public @NotNull Collection<V> values() {
         HashSet<V> values = new HashSet<>(size);
-        for (Collection<V> vs : map.values()) {
+        for (Collection<V> vs : map.values())
             values.addAll(vs);
-        }
         return values;
     }
 
     @Override
-    public Collection<K> keys() {
+    public @NotNull Collection<K> keys() {
         return map.keySet();
     }
 
     @Override
-    public Collection<Map.Entry<K, V>> entries() {
+    public @NotNull Collection<Map.Entry<K, V>> entries() {
         HashSet<Map.Entry<K, V>> entries = new HashSet<>(size);
         for (Map.Entry<K, Collection<V>> entry : map.entrySet()) {
             for (V value : entry.getValue()) {
@@ -123,7 +128,7 @@ public class HashMultimap<K, V> implements Multimap<K, V> {
     }
 
     @Override
-    public Map<K, Collection<V>> asMap() {
+    public @NotNull Map<K, Collection<V>> asMap() {
         return map;
     }
 

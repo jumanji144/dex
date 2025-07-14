@@ -5,13 +5,12 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.items.FieldItem;
 import me.darknet.dex.file.items.MethodHandleItem;
 import me.darknet.dex.file.items.MethodItem;
-import me.darknet.dex.io.ContextCodec;
-import me.darknet.dex.tree.codec.MappingCodec;
 import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 public record Handle(int kind, InstanceType owner, String name, Type type) {
 
@@ -27,7 +26,7 @@ public record Handle(int kind, InstanceType owner, String name, Type type) {
 
     public static final TreeCodec<Handle, MethodHandleItem> CODEC = new TreeCodec<>() {
         @Override
-        public Handle map(MethodHandleItem input, DexMap context) {
+        public @NotNull Handle map(@NotNull MethodHandleItem input, @NotNull DexMap context) {
             return switch (input.type()) {
                 case Handle.KIND_STATIC_PUT, Handle.KIND_STATIC_GET,
                      Handle.KIND_INSTANCE_PUT, Handle.KIND_INSTANCE_GET -> {
@@ -47,7 +46,7 @@ public record Handle(int kind, InstanceType owner, String name, Type type) {
         }
 
         @Override
-        public MethodHandleItem unmap(Handle output, DexMapBuilder context) {
+        public @NotNull MethodHandleItem unmap(@NotNull Handle output, @NotNull DexMapBuilder context) {
             int index = switch (output.kind) {
                 case Handle.KIND_STATIC_PUT, Handle.KIND_STATIC_GET,
                      Handle.KIND_INSTANCE_PUT, Handle.KIND_INSTANCE_GET -> context.addField(output.owner, output.name, output.type);

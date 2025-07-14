@@ -1,6 +1,10 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format00op;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record NopInstruction() implements Instruction {
 
@@ -16,12 +20,12 @@ public record NopInstruction() implements Instruction {
 
     public static final InstructionCodec<NopInstruction, Format00op> CODEC = new InstructionCodec<>() {
         @Override
-        public NopInstruction map(Format00op input) {
+        public @NotNull NopInstruction map(@NotNull Format00op input, @NotNull InstructionContext<DexMap> context) {
             return new NopInstruction();
         }
 
         @Override
-        public Format00op unmap(NopInstruction output) {
+        public @NotNull Format00op unmap(@NotNull NopInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return new Format00op(NOP);
         }
     };

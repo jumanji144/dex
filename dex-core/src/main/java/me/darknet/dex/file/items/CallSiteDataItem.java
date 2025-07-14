@@ -9,17 +9,18 @@ import me.darknet.dex.file.value.StringValue;
 import me.darknet.dex.file.value.Value;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public record CallSiteDataItem(MethodHandleValue handle, StringValue name, MethodTypeValue type,
-                               List<Value> arguments) implements Item {
+public record CallSiteDataItem(@NotNull MethodHandleValue handle, @NotNull StringValue name, @NotNull MethodTypeValue type,
+                              @NotNull List<Value> arguments) implements Item {
 
     public static final ItemCodec<CallSiteDataItem> CODEC = new ItemCodec<>() {
         @Override
-        public CallSiteDataItem read0(Input input, DexMapAccess context) throws IOException {
+        public CallSiteDataItem read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int size = input.readULeb128();
             List<Value> values = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
@@ -34,7 +35,7 @@ public record CallSiteDataItem(MethodHandleValue handle, StringValue name, Metho
         }
 
         @Override
-        public void write0(CallSiteDataItem value, Output output, WriteContext context) throws IOException {
+        public void write0(CallSiteDataItem value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeULeb128(value.arguments.size() + 3);
             Value.CODEC.write(value.handle, output, context);
             Value.CODEC.write(value.name, output, context);

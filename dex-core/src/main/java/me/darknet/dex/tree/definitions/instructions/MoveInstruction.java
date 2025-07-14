@@ -1,9 +1,13 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.Format00opAAAABBBB;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.FormatBAop;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record MoveInstruction(int opcode, int to, int from) implements Instruction {
 
@@ -26,7 +30,7 @@ public record MoveInstruction(int opcode, int to, int from) implements Instructi
 
     public static final InstructionCodec<MoveInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public MoveInstruction map(Format input) {
+        public @NotNull MoveInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatBAop(int op, int a, int b) -> new MoveInstruction(op, a, b);
                 case FormatAAopBBBB(int op, int a, int b) -> new MoveInstruction(op, a, b);
@@ -36,7 +40,7 @@ public record MoveInstruction(int opcode, int to, int from) implements Instructi
         }
 
         @Override
-        public Format unmap(MoveInstruction output) {
+        public @NotNull Format unmap(@NotNull MoveInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return switch (output.opcode()) {
                 case MOVE -> new FormatBAop(MOVE, output.to(), output.from());
                 case MOVE_FROM16 -> new FormatAAopBBBB(MOVE_FROM16, output.to(), output.from());

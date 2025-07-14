@@ -2,6 +2,7 @@ package me.darknet.dex.file.instructions;
 
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
@@ -11,7 +12,7 @@ public record Format00opAAAABBBB(int op, int a, int b) implements Format {
     public static final FormatCodec<Format00opAAAABBBB> CODEC = new FormatCodec<>() {
 
         @Override
-        public Format00opAAAABBBB read(Input input) throws IOException {
+        public @NotNull Format00opAAAABBBB read(@NotNull Input input) throws IOException {
             int value = input.readUnsignedShort();
             int a = input.readUnsignedShort();
             int b = input.readUnsignedShort();
@@ -23,7 +24,7 @@ public record Format00opAAAABBBB(int op, int a, int b) implements Format {
         }
 
         @Override
-        public void write(Format00opAAAABBBB value, Output output) throws IOException {
+        public void write(@NotNull Format00opAAAABBBB value, @NotNull Output output) throws IOException {
             output.writeShort(value.op);
             output.writeShort(value.a);
             output.writeShort(value.b);

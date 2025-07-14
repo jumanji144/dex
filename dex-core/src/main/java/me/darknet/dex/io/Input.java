@@ -1,5 +1,7 @@
 package me.darknet.dex.io;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.io.DataInput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -7,17 +9,17 @@ import java.nio.ByteOrder;
 
 public interface Input extends DataInput, Seekable, Slicable {
 
-    void order(ByteOrder order);
+    void order(@NotNull ByteOrder order);
 
-    ByteOrder order();
+    @NotNull ByteOrder order();
 
-    Input position(int position);
+    @NotNull Input position(int position);
 
-    Input seek(int offset);
+    @NotNull Input seek(int offset);
 
-    Input slice(int offset, int length);
+    @NotNull Input slice(int offset, int length);
 
-    Input slice(int offset);
+    @NotNull Input slice(int offset);
 
     int peek(int offset) throws IOException;
 
@@ -33,20 +35,19 @@ public interface Input extends DataInput, Seekable, Slicable {
 
     long readUnsignedInt() throws IOException;
 
-    static Input wrap(byte[] bytes) {
+    static @NotNull Input wrap(byte[] bytes) {
         return wrap(bytes, ByteOrder.BIG_ENDIAN);
     }
 
-    static Input wrap(byte[] bytes, ByteOrder order) {
+    static @NotNull Input wrap(byte[] bytes, ByteOrder order) {
         return new ByteBufferInput(ByteBuffer.wrap(bytes).order(order));
     }
 
-    static Input wrap(ByteBuffer buffer) {
+    static @NotNull Input wrap(@NotNull ByteBuffer buffer) {
         return new ByteBufferInput(buffer);
     }
 
-    static Input wrap(Output output) {
+    static @NotNull Input wrap(@NotNull Output output) {
         return new ByteBufferInput(output.buffer());
     }
-
 }

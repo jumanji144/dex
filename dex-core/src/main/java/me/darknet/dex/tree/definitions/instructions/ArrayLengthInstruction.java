@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatBAop;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record ArrayLengthInstruction(int dest, int array) implements Instruction {
     @Override
@@ -18,12 +19,12 @@ public record ArrayLengthInstruction(int dest, int array) implements Instruction
 
     public static final InstructionCodec<ArrayLengthInstruction, FormatBAop> CODEC = new InstructionCodec<>() {
         @Override
-        public ArrayLengthInstruction map(FormatBAop input, InstructionContext<DexMap> ctx) {
+        public @NotNull ArrayLengthInstruction map(@NotNull FormatBAop input, @NotNull InstructionContext<DexMap> ctx) {
             return new ArrayLengthInstruction(input.a(), input.b());
         }
 
         @Override
-        public FormatBAop unmap(ArrayLengthInstruction output, InstructionContext<DexMapBuilder> ctx) {
+        public @NotNull FormatBAop unmap(@NotNull ArrayLengthInstruction output, @NotNull InstructionContext<DexMapBuilder> ctx) {
             return new FormatBAop(ARRAY_LENGTH, output.dest(), output.array());
         }
     };

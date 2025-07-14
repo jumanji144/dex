@@ -6,6 +6,7 @@ import me.darknet.dex.file.instructions.FormatBAopCCCC;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 public record NewArrayInstruction(int dest, int sizeRegister, ClassType componentType) implements Instruction {
     @Override
@@ -20,12 +21,12 @@ public record NewArrayInstruction(int dest, int sizeRegister, ClassType componen
 
     public static final InstructionCodec<NewArrayInstruction, FormatBAopCCCC> CODEC = new InstructionCodec<>() {
         @Override
-        public NewArrayInstruction map(FormatBAopCCCC input, InstructionContext<DexMap> ctx) {
+        public @NotNull NewArrayInstruction map(@NotNull FormatBAopCCCC input, @NotNull InstructionContext<DexMap> ctx) {
             return new NewArrayInstruction(input.a(), input.b(), Types.classType(ctx.map().types().get(input.c())));
         }
 
         @Override
-        public FormatBAopCCCC unmap(NewArrayInstruction output, InstructionContext<DexMapBuilder> ctx) {
+        public @NotNull FormatBAopCCCC unmap(@NotNull NewArrayInstruction output, @NotNull InstructionContext<DexMapBuilder> ctx) {
             int type = ctx.map().addType(output.componentType());
             return new FormatBAopCCCC(NEW_ARRAY, output.dest(), output.sizeRegister(), type);
         }

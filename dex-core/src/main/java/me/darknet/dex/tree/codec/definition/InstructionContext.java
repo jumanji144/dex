@@ -8,17 +8,21 @@ import me.darknet.dex.file.instructions.FormatSparseSwitch;
 import me.darknet.dex.file.items.CodeItem;
 import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.instructions.*;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
 
-public record InstructionContext<T extends DexMapAccess>(List<? extends Object> instructions, List<Integer> offsets,
-                                                         T map, Map<Integer, Label> labels,
-                                                         Map<FillArrayDataInstruction, Integer> arrayPayloads,
-                                                         Map<PackedSwitchInstruction, Integer> packedSwitchPayloads,
-                                                         Map<SparseSwitchInstruction, Integer> sparseSwitchPayloads) {
+public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends Object> instructions,
+                                                         @NotNull List<Integer> offsets,
+                                                         @NotNull T map,
+                                                         @NotNull Map<Integer, Label> labels,
+                                                         @Nullable Map<FillArrayDataInstruction, Integer> arrayPayloads,
+                                                         @Nullable Map<PackedSwitchInstruction, Integer> packedSwitchPayloads,
+                                                         @Nullable Map<SparseSwitchInstruction, Integer> sparseSwitchPayloads) {
 
-    public Label label(Format format, int offset) {
+    public @NotNull Label label(@NotNull Format format, int offset) {
         int thisIndex = instructions.indexOf(format);
         int thisPosition = offsets.get(thisIndex);
 
@@ -33,7 +37,7 @@ public record InstructionContext<T extends DexMapAccess>(List<? extends Object> 
         return target;
     }
 
-    public int labelOffset(Instruction instruction, Label label) {
+    public int labelOffset(@NotNull Instruction instruction, @NotNull Label label) {
         int thisIndex = instructions.indexOf(instruction);
         int thisPosition = offsets.get(thisIndex);
 
@@ -42,7 +46,7 @@ public record InstructionContext<T extends DexMapAccess>(List<? extends Object> 
         return targetPosition - thisPosition;
     }
 
-    public Label label(int offset) {
+    public @NotNull Label label(int offset) {
         int targetIndex = offsets.indexOf(offset);
         if (targetIndex == -1)
             throw new IllegalArgumentException("No instruction found for offset: " + offset);
@@ -52,25 +56,25 @@ public record InstructionContext<T extends DexMapAccess>(List<? extends Object> 
         return target;
     }
 
-    public FormatFilledArrayData arrayPayload(Format format, int offset) {
+    public @NotNull FormatFilledArrayData arrayPayload(@NotNull Format format, int offset) {
         int targetIndex = lookup(format, offset);
 
         return (FormatFilledArrayData) instructions.get(targetIndex);
     }
 
-    public FormatPackedSwitch packedSwitchPayload(Format format, int offset) {
+    public @NotNull FormatPackedSwitch packedSwitchPayload(@NotNull Format format, int offset) {
         int targetIndex = lookup(format, offset);
 
         return (FormatPackedSwitch) instructions.get(targetIndex);
     }
 
-    public FormatSparseSwitch sparseSwitchPayload(Format format, int offset) {
+    public @NotNull FormatSparseSwitch sparseSwitchPayload(@NotNull Format format, int offset) {
         int targetIndex = lookup(format, offset);
 
         return (FormatSparseSwitch) instructions.get(targetIndex);
     }
 
-    private int lookup(Format format, int offset) {
+    private int lookup(@NotNull Format format, int offset) {
         int thisIndex = instructions.indexOf(format);
         int thisPosition = offsets.get(thisIndex);
 

@@ -1,7 +1,11 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopCCBB;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
+import org.jetbrains.annotations.NotNull;
 
 public record CompareInstruction(int opcode, int dest, int a, int b) implements Instruction {
 
@@ -12,12 +16,12 @@ public record CompareInstruction(int opcode, int dest, int a, int b) implements 
 
     public static final InstructionCodec<CompareInstruction, FormatAAopCCBB> CODEC = new InstructionCodec<>() {
         @Override
-        public CompareInstruction map(FormatAAopCCBB input) {
+        public @NotNull CompareInstruction map(@NotNull FormatAAopCCBB input, @NotNull InstructionContext<DexMap> context) {
             return new CompareInstruction(input.op(), input.a(), input.b(), input.c());
         }
 
         @Override
-        public FormatAAopCCBB unmap(CompareInstruction output) {
+        public @NotNull FormatAAopCCBB unmap(@NotNull CompareInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return new FormatAAopCCBB(output.opcode(), output.dest(), output.a(), output.b());
         }
     };

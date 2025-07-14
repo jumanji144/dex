@@ -1,29 +1,31 @@
 package me.darknet.dex.tree.type;
 
+import org.jetbrains.annotations.NotNull;
+
 public final class InstanceType implements ReferenceType {
 
     private final String internalName;
     private final String externalName;
     private final String descriptor;
 
-    public InstanceType(String descriptor) {
+    public InstanceType(@NotNull String descriptor) {
         this.descriptor = descriptor;
         this.internalName = descriptor.substring(1, descriptor.length() - 1);
         this.externalName = Types.externalName(internalName);
     }
 
     @Override
-    public String internalName() {
+    public @NotNull String internalName() {
         return internalName;
     }
 
     @Override
-    public String externalName() {
+    public @NotNull String externalName() {
         return externalName;
     }
 
     @Override
-    public String descriptor() {
+    public @NotNull String descriptor() {
         return descriptor;
     }
 

@@ -8,13 +8,14 @@ import me.darknet.dex.file.code.TryItem;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
 
-public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem debug, List<Format> instructions,
-                       List<Integer> offsets, List<TryItem> tries, List<EncodedTryCatchHandler> handlers) implements Item {
+public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem debug, @NotNull List<Format> instructions,
+                       @NotNull List<Integer> offsets, @NotNull List<TryItem> tries, @NotNull List<EncodedTryCatchHandler> handlers) implements Item {
 
     public static final ItemCodec<CodeItem> CODEC = new ItemCodec<>() {
 
@@ -24,7 +25,7 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
         }
 
         @Override
-        public CodeItem read0(Input input, DexMapAccess context) throws IOException {
+        public CodeItem read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int registers = input.readUnsignedShort();
             int in = input.readUnsignedShort();
             int out = input.readUnsignedShort();
@@ -95,7 +96,7 @@ public record CodeItem(int registers, int in, int out, @Nullable DebugInfoItem d
         }
 
         @Override
-        public void write0(CodeItem value, Output output, WriteContext context) throws IOException {
+        public void write0(CodeItem value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeShort(value.registers());
             output.writeShort(value.in());
             output.writeShort(value.out());

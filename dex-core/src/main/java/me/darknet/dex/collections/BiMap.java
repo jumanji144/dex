@@ -1,10 +1,12 @@
 package me.darknet.dex.collections;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Map;
 
 public interface BiMap<K, V> extends Map<K, V> {
 
-    BiMap<V, K> inverse();
+    @NotNull BiMap<V, K> inverse();
 
     boolean containsValue(Object value);
 

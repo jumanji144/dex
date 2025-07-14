@@ -16,6 +16,7 @@ import me.darknet.dex.tree.definitions.code.TryCatch;
 import me.darknet.dex.tree.definitions.instructions.*;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,7 +26,7 @@ import java.util.Map;
 public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
     @Override
-    public Code map(CodeItem input, DexMap context) {
+    public @NotNull Code map(@NotNull CodeItem input, @NotNull DexMap context) {
         Code code = new Code(input.in(), input.out(), input.registers());
         InstructionContext<DexMap> ctx = new InstructionContext<>(input.instructions(), input.offsets(), context,
                 new HashMap<>(16), null, null, null);
@@ -56,9 +57,10 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
     }
 
     @Override
-    public CodeItem unmap(Code output, DexMapBuilder context) {
+    public @NotNull CodeItem unmap(@NotNull Code output, @NotNull DexMapBuilder context) {
         List<Format> instructions = new ArrayList<>();
 
+        Map<Integer, Label> labels = new HashMap<>();
         Map<FillArrayDataInstruction, Integer> filledArrayData = new HashMap<>();
         Map<PackedSwitchInstruction, Integer> packedSwitches = new HashMap<>();
         Map<SparseSwitchInstruction, Integer> sparseSwitches = new HashMap<>();
@@ -83,7 +85,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         List<Format> extra = new ArrayList<>();
 
         InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(output.instructions(), offsets, context,
-                null, filledArrayData, packedSwitches, sparseSwitches);
+                labels, filledArrayData, packedSwitches, sparseSwitches);
 
         // now we need to create the formats and special data parts
         for (Instruction instruction : output.instructions()) {

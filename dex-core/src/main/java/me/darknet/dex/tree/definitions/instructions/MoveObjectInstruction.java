@@ -1,9 +1,14 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.Format00opAAAABBBB;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.FormatBAop;
+import me.darknet.dex.file.instructions.Opcodes;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record MoveObjectInstruction(int opcode, int to, int from) implements Instruction {
 
@@ -26,7 +31,7 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
 
     public static final InstructionCodec<MoveObjectInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public MoveObjectInstruction map(Format input) {
+        public @NotNull MoveObjectInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatBAop(int op, int a, int b) -> new MoveObjectInstruction(op, a, b);
                 case FormatAAopBBBB(int op, int a, int b) -> new MoveObjectInstruction(op, a, b);
@@ -36,7 +41,7 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
         }
 
         @Override
-        public Format unmap(MoveObjectInstruction output) {
+        public @NotNull Format unmap(@NotNull MoveObjectInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return switch (output.opcode()) {
                 case MOVE -> new FormatBAop(MOVE, output.to(), output.from());
                 case MOVE_FROM16 -> new FormatAAopBBBB(MOVE_FROM16, output.to(), output.from());
@@ -52,7 +57,7 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
             case MOVE_OBJECT -> 1;
             case MOVE_OBJECT_FROM16 -> 2;
             case MOVE_OBJECT_16 -> 3;
-            default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
+            default -> throw new IllegalArgumentException("Invalid opcode: 0x" + Integer.toHexString(opcode));
         };
     }
 }

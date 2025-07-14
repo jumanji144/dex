@@ -1,4 +1,5 @@
 import me.darknet.dex.file.DexHeader;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.io.Output;
 import me.darknet.dex.tree.DexFile;
 import me.darknet.dex.tree.definitions.ClassDefinition;
@@ -47,7 +48,7 @@ public class ClassCreationTest {
         DexFile dexFile = new DexFile(39, List.of(classDefinition), new byte[0]);
 
         // write to file
-        DexHeader header = DexFile.CODEC.unmap(dexFile);
+        DexHeader header = DexFile.CODEC.unmap(dexFile, new DexMapBuilder());
 
         Output output = Output.wrap();
 

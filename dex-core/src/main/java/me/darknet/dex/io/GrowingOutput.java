@@ -42,12 +42,12 @@ public class GrowingOutput implements Output {
     }
 
     @Override
-    public void order(ByteOrder order) {
+    public void order(@NotNull ByteOrder order) {
         bigEndian = order == ByteOrder.BIG_ENDIAN;
     }
 
     @Override
-    public ByteOrder order() {
+    public @NotNull ByteOrder order() {
         return bigEndian ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
     }
 
@@ -57,32 +57,32 @@ public class GrowingOutput implements Output {
     }
 
     @Override
-    public Output position(int position) {
+    public @NotNull Output position(int position) {
         ensureCapacity(position);
         this.position = position;
         return this;
     }
 
     @Override
-    public Output seek(int offset) {
+    public @NotNull Output seek(int offset) {
         ensureCapacity(position + offset);
         this.position += offset;
         return this;
     }
 
     @Override
-    public Output newOutput() {
+    public @NotNull Output newOutput() {
         GrowingOutput output = new GrowingOutput();
         output.order(order());
         return output;
     }
 
-    public ByteBuffer buffer() {
+    public @NotNull ByteBuffer buffer() {
         return ByteBuffer.wrap(bytes, 0, position).order(bigEndian ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
     }
 
     @Override
-    public void write(Output output) throws IOException {
+    public void write(@NotNull Output output) throws IOException {
         if(output instanceof GrowingOutput go) {
             write(go.bytes, 0, go.position);
             return;
@@ -236,7 +236,7 @@ public class GrowingOutput implements Output {
     }
 
     @Override
-    public void pipe(OutputStream output) throws IOException {
+    public void pipe(@NotNull OutputStream output) throws IOException {
         output.write(bytes, 0, position);
     }
 }

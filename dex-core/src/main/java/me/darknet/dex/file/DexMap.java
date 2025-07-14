@@ -2,6 +2,7 @@ package me.darknet.dex.file;
 
 import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.items.*;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.stream.Stream;
 
@@ -14,7 +15,7 @@ public record DexMap(ConstantPool<StringItem> strings, ConstantPool<TypeItem> ty
                      ConstantPool<EncodedArrayItem> encodedArrays, ConstantPool<AnnotationsDirectoryItem> annotationsDirectories)
         implements DexMapAccess {
     @Override
-    public Stream<Item> all() {
+    public @NotNull Stream<Item> all() {
         return Stream.of();
     }
 

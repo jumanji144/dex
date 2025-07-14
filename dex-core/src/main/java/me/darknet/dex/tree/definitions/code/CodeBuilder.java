@@ -5,6 +5,7 @@ import me.darknet.dex.tree.definitions.instructions.*;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +50,7 @@ public class CodeBuilder implements Builder<Code> {
     }
 
     @Override
-    public Code build() {
+    public @NotNull Code build() {
         Code code = new Code(registers, in, out);
         code.instructions(instructions);
         return code;

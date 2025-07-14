@@ -1,5 +1,7 @@
 package me.darknet.dex.tree.type;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.List;
 
 public final class MethodType implements Type {
@@ -8,7 +10,7 @@ public final class MethodType implements Type {
     private final List<ClassType> parameterTypes;
     private final String descriptor;
 
-    MethodType(ClassType returnType, List<ClassType> parameterTypes) {
+    MethodType(@NotNull ClassType returnType, @NotNull List<ClassType> parameterTypes) {
         this.returnType = returnType;
         this.parameterTypes = parameterTypes;
 
@@ -20,16 +22,16 @@ public final class MethodType implements Type {
         this.descriptor = builder.append(')').append(returnType.descriptor()).toString();
     }
 
-    public ClassType returnType() {
+    public @NotNull ClassType returnType() {
         return returnType;
     }
 
-    public List<ClassType> parameterTypes() {
+    public @NotNull List<ClassType> parameterTypes() {
         return parameterTypes;
     }
 
     @Override
-    public String descriptor() {
+    public @NotNull String descriptor() {
         return descriptor;
     }
 

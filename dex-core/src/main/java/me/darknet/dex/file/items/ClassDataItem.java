@@ -7,6 +7,7 @@ import me.darknet.dex.file.EncodedField;
 import me.darknet.dex.file.EncodedMethod;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -18,7 +19,7 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
 
     public static final ItemCodec<ClassDataItem> CODEC = new ItemCodec<>() {
         @Override
-        public ClassDataItem read0(Input input, DexMapAccess context) throws IOException {
+        public ClassDataItem read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int staticFieldsSize = input.readULeb128();
             int instanceFieldsSize = input.readULeb128();
             int directMethodsSize = input.readULeb128();
@@ -61,7 +62,7 @@ public record ClassDataItem(List<EncodedField> staticFields, List<EncodedField> 
         }
 
         @Override
-        public void write0(ClassDataItem value, Output output, WriteContext context) throws IOException {
+        public void write0(ClassDataItem value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeULeb128(value.staticFields.size());
             output.writeULeb128(value.instanceFields.size());
             output.writeULeb128(value.directMethods.size());

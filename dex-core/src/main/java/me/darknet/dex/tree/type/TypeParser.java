@@ -1,5 +1,6 @@
 package me.darknet.dex.tree.type;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -9,7 +10,7 @@ public final class TypeParser {
     private final CharSequence cs;
     private int index;
 
-    public TypeParser(CharSequence cs) {
+    public TypeParser(@NotNull CharSequence cs) {
         this.cs = cs;
     }
 

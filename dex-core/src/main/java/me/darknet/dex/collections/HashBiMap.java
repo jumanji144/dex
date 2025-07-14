@@ -220,7 +220,7 @@ public class HashBiMap<K, V> implements BiMap<K, V> {
     }
 
     @Override
-    public BiMap<V, K> inverse() {
+    public @NotNull BiMap<V, K> inverse() {
         return inverse;
     }
 
@@ -323,7 +323,7 @@ public class HashBiMap<K, V> implements BiMap<K, V> {
     class Inverse implements BiMap<V, K> {
 
         @Override
-        public BiMap<K, V> inverse() {
+        public @NotNull BiMap<K, V> inverse() {
             return HashBiMap.this;
         }
 

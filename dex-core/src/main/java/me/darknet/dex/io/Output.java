@@ -1,5 +1,7 @@
 package me.darknet.dex.io;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -8,25 +10,25 @@ import java.nio.ByteOrder;
 
 public interface Output extends DataOutput, Seekable {
 
-    void order(ByteOrder order);
+    void order(@NotNull ByteOrder order);
 
-    ByteOrder order();
+    @NotNull ByteOrder order();
 
-    Output position(int position);
+    @NotNull Output position(int position);
 
-    Output seek(int offset);
+    @NotNull Output seek(int offset);
 
     /**
      * Creates a new buffer of the same type
      * @return a new buffer
      */
-    Output newOutput();
+    @NotNull Output newOutput();
 
-    ByteBuffer buffer();
+    @NotNull ByteBuffer buffer();
 
-    void pipe(OutputStream output) throws IOException;
+    void pipe(@NotNull OutputStream output) throws IOException;
 
-    void write(Output output) throws IOException;
+    void write(@NotNull Output output) throws IOException;
 
     void writeBytes(byte[] bytes) throws IOException;
 
@@ -38,7 +40,7 @@ public interface Output extends DataOutput, Seekable {
 
     void writeULeb128p1(int value) throws IOException;
 
-    static Output wrap() {
+    static @NotNull Output wrap() {
         return new GrowingOutput();
     }
 }

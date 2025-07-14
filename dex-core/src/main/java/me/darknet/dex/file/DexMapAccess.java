@@ -2,49 +2,50 @@ package me.darknet.dex.file;
 
 import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.items.*;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.stream.Stream;
 
 public interface DexMapAccess {
 
-    Stream<Item> all();
+    @NotNull Stream<Item> all();
 
-    ConstantPool<StringItem> strings();
+    @NotNull ConstantPool<StringItem> strings();
 
-    ConstantPool<TypeItem> types();
+    @NotNull ConstantPool<TypeItem> types();
 
-    ConstantPool<ProtoItem> protos();
+    @NotNull ConstantPool<ProtoItem> protos();
 
-    ConstantPool<FieldItem> fields();
+    @NotNull ConstantPool<FieldItem> fields();
 
-    ConstantPool<MethodItem> methods();
+    @NotNull ConstantPool<MethodItem> methods();
 
-    ConstantPool<ClassDefItem> classes();
+    @NotNull ConstantPool<ClassDefItem> classes();
 
-    ConstantPool<CallSiteItem> callSites();
+    @NotNull ConstantPool<CallSiteItem> callSites();
 
-    ConstantPool<MethodHandleItem> methodHandles();
+    @NotNull ConstantPool<MethodHandleItem> methodHandles();
 
-    ConstantPool<TypeListItem> typeLists();
+    @NotNull ConstantPool<TypeListItem> typeLists();
 
-    ConstantPool<AnnotationSetRefList> annotationSetRefLists();
+    @NotNull ConstantPool<AnnotationSetRefList> annotationSetRefLists();
 
-    ConstantPool<AnnotationSetItem> annotationSets();
+    @NotNull ConstantPool<AnnotationSetItem> annotationSets();
 
-    ConstantPool<ClassDataItem> classDatas();
+    @NotNull ConstantPool<ClassDataItem> classDatas();
 
-    ConstantPool<CodeItem> codes();
+    @NotNull ConstantPool<CodeItem> codes();
 
-    ConstantPool<StringDataItem> stringDatas();
+    @NotNull ConstantPool<StringDataItem> stringDatas();
 
-    ConstantPool<DebugInfoItem> debugInfos();
+    @NotNull ConstantPool<DebugInfoItem> debugInfos();
 
-    ConstantPool<AnnotationItem> annotations();
+    @NotNull ConstantPool<AnnotationItem> annotations();
 
-    ConstantPool<EncodedArrayItem> encodedArrays();
+    @NotNull ConstantPool<EncodedArrayItem> encodedArrays();
 
-    ConstantPool<AnnotationsDirectoryItem> annotationsDirectories();
+    @NotNull ConstantPool<AnnotationsDirectoryItem> annotationsDirectories();
 
     int size();
 

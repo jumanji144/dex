@@ -5,17 +5,18 @@ import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public record AnnotationSetRefList(List<@Nullable AnnotationSetItem> items) implements Item {
+public record AnnotationSetRefList(@NotNull List<@Nullable AnnotationSetItem> items) implements Item {
 
     public static final ItemCodec<AnnotationSetRefList> CODEC = new ItemCodec<>() {
         @Override
-        public AnnotationSetRefList read0(Input input, DexMapAccess context) throws IOException {
+        public AnnotationSetRefList read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int size = (int) input.readUnsignedInt();
             List<AnnotationSetItem> items = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
@@ -29,7 +30,7 @@ public record AnnotationSetRefList(List<@Nullable AnnotationSetItem> items) impl
         }
 
         @Override
-        public void write0(AnnotationSetRefList value, Output output, WriteContext context) throws IOException {
+        public void write0(AnnotationSetRefList value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeInt(value.items().size());
             for (AnnotationSetItem item : value.items()) {
                 if (item == null)

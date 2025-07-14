@@ -2,6 +2,7 @@ package me.darknet.dex.file.instructions;
 
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -16,7 +17,7 @@ public record FormatFilledArrayData(int width, byte[] data) implements Format {
 
     public static final FormatCodec<FormatFilledArrayData> CODEC = new FormatCodec<>() {
         @Override
-        public FormatFilledArrayData read(Input input) throws IOException {
+        public @NotNull FormatFilledArrayData read(@NotNull Input input) throws IOException {
             input.readUnsignedShort(); // discard
             int width = input.readUnsignedShort();
             int size = input.readInt();
@@ -29,7 +30,7 @@ public record FormatFilledArrayData(int width, byte[] data) implements Format {
         }
 
         @Override
-        public void write(FormatFilledArrayData value, Output output) throws IOException {
+        public void write(@NotNull FormatFilledArrayData value, @NotNull Output output) throws IOException {
             int size = value.data().length / value.width();
             output.writeShort(value.op());
             output.writeShort(value.width());

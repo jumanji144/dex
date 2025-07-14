@@ -1,11 +1,13 @@
 package me.darknet.dex.io;
 
+import org.jetbrains.annotations.NotNull;
+
 public interface Seekable {
 
     int position();
 
-    Seekable position(int position);
+    @NotNull Seekable position(int position);
 
-    Seekable seek(int offset);
+    @NotNull Seekable seek(int offset);
 
 }

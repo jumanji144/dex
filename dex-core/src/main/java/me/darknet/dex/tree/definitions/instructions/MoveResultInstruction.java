@@ -1,6 +1,10 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAop;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record MoveResultInstruction(int opcode, int type, int to) implements Instruction {
 
@@ -33,7 +37,7 @@ public record MoveResultInstruction(int opcode, int type, int to) implements Ins
 
     public static final InstructionCodec<MoveResultInstruction, FormatAAop> CODEC = new InstructionCodec<>() {
         @Override
-        public MoveResultInstruction map(FormatAAop input) {
+        public @NotNull MoveResultInstruction map(@NotNull FormatAAop input, @NotNull InstructionContext<DexMap> context) {
             return switch (input.op()) {
                 case MOVE_RESULT -> new MoveResultInstruction(Result.NORMAL, input.a());
                 case MOVE_RESULT_WIDE -> new MoveResultInstruction(Result.WIDE, input.a());
@@ -43,7 +47,7 @@ public record MoveResultInstruction(int opcode, int type, int to) implements Ins
         }
 
         @Override
-        public FormatAAop unmap(MoveResultInstruction output) {
+        public @NotNull FormatAAop unmap(@NotNull MoveResultInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return new FormatAAop(output.opcode(), output.to());
         }
     };

@@ -8,6 +8,7 @@ import me.darknet.dex.file.instructions.FormatAGopBBBBFEDC;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public final class FilledNewArrayInstruction implements Instruction {
@@ -87,7 +88,7 @@ public final class FilledNewArrayInstruction implements Instruction {
     public static final InstructionCodec<FilledNewArrayInstruction, Format> CODEC = new InstructionCodec<>() {
 
         @Override
-        public FilledNewArrayInstruction map(Format input, InstructionContext<DexMap> context) {
+        public @NotNull FilledNewArrayInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     int[] shrunk = new int[a];
@@ -104,7 +105,7 @@ public final class FilledNewArrayInstruction implements Instruction {
         }
 
         @Override
-        public Format unmap(FilledNewArrayInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull Format unmap(@NotNull FilledNewArrayInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int type = context.map().addType(output.componentType);
             if (output.registers == null) {
                 return new FormatAAopBBBBCCCC(FILLED_NEW_ARRAY_RANGE, output.size, type, output.first);

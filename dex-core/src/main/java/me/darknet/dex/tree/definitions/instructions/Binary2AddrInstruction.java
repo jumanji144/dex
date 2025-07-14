@@ -1,9 +1,13 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatBAop;
 import me.darknet.dex.file.instructions.Opcodes;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
 import me.darknet.dex.tree.type.PrimitiveType;
+import org.jetbrains.annotations.NotNull;
 
 public record Binary2AddrInstruction(int opcode, int a, int b) implements Instruction {
 
@@ -18,13 +22,13 @@ public record Binary2AddrInstruction(int opcode, int a, int b) implements Instru
 
     public static final InstructionCodec<Binary2AddrInstruction, FormatBAop> CODEC = new InstructionCodec<>() {
         @Override
-        public FormatBAop unmap(Binary2AddrInstruction output) {
-            return new FormatBAop(output.opcode(), output.a(), output.b());
+        public @NotNull Binary2AddrInstruction map(@NotNull FormatBAop input, @NotNull InstructionContext<DexMap> context) {
+            return new Binary2AddrInstruction(input.op(), input.a(), input.b());
         }
 
         @Override
-        public Binary2AddrInstruction map(FormatBAop input) {
-            return new Binary2AddrInstruction(input.op(), input.a(), input.b());
+        public @NotNull FormatBAop unmap(@NotNull Binary2AddrInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
+            return new FormatBAop(output.opcode(), output.a(), output.b());
         }
     };
 }

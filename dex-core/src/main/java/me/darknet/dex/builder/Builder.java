@@ -1,7 +1,9 @@
 package me.darknet.dex.builder;
 
+import org.jetbrains.annotations.NotNull;
+
 public interface Builder<T> {
 
-    T build();
+    @NotNull T build();
 
 }

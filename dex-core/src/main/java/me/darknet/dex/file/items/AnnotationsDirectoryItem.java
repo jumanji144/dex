@@ -8,6 +8,7 @@ import me.darknet.dex.file.annotation.MethodAnnotation;
 import me.darknet.dex.file.annotation.ParameterAnnotation;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
@@ -15,20 +16,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotations,
-                                       List<FieldAnnotation> fieldAnnotations,
-                                       List<MethodAnnotation> methodAnnotations,
-                                       List<ParameterAnnotation> parameterAnnotations) implements Item {
+public record AnnotationsDirectoryItem(@NotNull AnnotationSetItem classAnnotations,
+                                       @NotNull List<FieldAnnotation> fieldAnnotations,
+                                       @NotNull List<MethodAnnotation> methodAnnotations,
+                                       @NotNull List<ParameterAnnotation> parameterAnnotations) implements Item {
 
     public static final ItemCodec<AnnotationsDirectoryItem> CODEC = new ItemCodec<>() {
 
         @Override
-        public AnnotationsDirectoryItem read0(Input input, DexMapAccess context) throws IOException {
+        public AnnotationsDirectoryItem read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int classAnnotationsOffset = (int) input.readUnsignedInt();
             int fieldAnnotationsSize = (int) input.readUnsignedInt();
             int methodAnnotationsSize = (int) input.readUnsignedInt();
             int parameterAnnotationsSize = (int) input.readUnsignedInt();
-            AnnotationSetItem classAnnotations = classAnnotationsOffset == 0 ? null : AnnotationSetItem.CODEC.read(input.slice(classAnnotationsOffset), context);
+            AnnotationSetItem classAnnotations = classAnnotationsOffset == 0 ? new AnnotationSetItem(new ArrayList<>(0)) : AnnotationSetItem.CODEC.read(input.slice(classAnnotationsOffset), context);
             List<FieldAnnotation> fieldAnnotations = new ArrayList<>(fieldAnnotationsSize);
             for (int i = 0; i < fieldAnnotationsSize; i++) {
                 fieldAnnotations.add(FieldAnnotation.CODEC.read(input, context));
@@ -45,8 +46,8 @@ public record AnnotationsDirectoryItem(@Nullable AnnotationSetItem classAnnotati
         }
 
         @Override
-        public void write0(AnnotationsDirectoryItem value, Output output, WriteContext context) throws IOException {
-            output.writeInt(value.classAnnotations() == null ? 0 : context.offset(value.classAnnotations()));
+        public void write0(AnnotationsDirectoryItem value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
+            output.writeInt(value.classAnnotations().isEmpty() ? 0 : context.offset(value.classAnnotations()));
             output.writeInt(value.fieldAnnotations().size());
             output.writeInt(value.methodAnnotations().size());
             output.writeInt(value.parameterAnnotations().size());

@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.items.AnnotationItem;
 import me.darknet.dex.tree.codec.TreeCodec;
+import org.jetbrains.annotations.NotNull;
 
 public record Annotation(byte visibility, AnnotationPart annotation) {
 
@@ -13,12 +14,12 @@ public record Annotation(byte visibility, AnnotationPart annotation) {
 
     public static final TreeCodec<Annotation, AnnotationItem> CODEC = new TreeCodec<>() {
         @Override
-        public Annotation map(AnnotationItem input, DexMap context) {
+        public @NotNull Annotation map(@NotNull AnnotationItem input, @NotNull DexMap context) {
             return new Annotation(input.visibility(), AnnotationPart.CODEC.map(input.annotation(), context));
         }
 
         @Override
-        public AnnotationItem unmap(Annotation output, DexMapBuilder context) {
+        public @NotNull AnnotationItem unmap(@NotNull Annotation output, @NotNull DexMapBuilder context) {
             return new AnnotationItem(output.visibility(), AnnotationPart.CODEC.unmap(output.annotation(), context));
         }
     };

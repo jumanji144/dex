@@ -1,5 +1,7 @@
 import me.darknet.dex.codecs.DexHeaderCodec;
 import me.darknet.dex.file.DexHeader;
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 import me.darknet.dex.tree.DexFile;
@@ -28,10 +30,11 @@ public class TreeTest {
         DexHeaderCodec codec = new DexHeaderCodec();
         DexHeader header = codec.read(input);
 
-        DexFile dexFile = DexFile.CODEC.map(header);
+        DexMap map = header.map();
+        DexFile dexFile = DexFile.CODEC.map(header, map);
 
         Output output = Output.wrap();
-        var out = DexFile.CODEC.unmap(dexFile);
+        var out = DexFile.CODEC.unmap(dexFile, new DexMapBuilder());
 
         codec.write(out, output);
     }

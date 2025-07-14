@@ -5,6 +5,7 @@ import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -46,7 +47,7 @@ public sealed interface Value permits ByteValue, ShortValue, CharValue, IntValue
         }
 
         @Override
-        public Value read(Input input, DexMapAccess context) throws IOException {
+        public Value read(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int value = input.readUnsignedByte();
             // (value_arg << 5) | value_type
             int value_type = value & 0x1f;
@@ -60,7 +61,7 @@ public sealed interface Value permits ByteValue, ShortValue, CharValue, IntValue
         }
 
         @Override
-        public void write(Value value, Output output, WriteContext context) throws IOException {
+        public void write(Value value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             int type = value.type();
             ValueCodec codec = CODECS.get(type);
             codec.write(value, output, context);

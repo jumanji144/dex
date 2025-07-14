@@ -6,7 +6,7 @@ import java.util.*;
 
 public class ImmutableCollections {
 
-    public static <T> List<T> emptyList(int size) {
+    public static <T> @NotNull List<T> emptyList(int size) {
         if (size == 0) {
             return Collections.emptyList();
         }
@@ -77,7 +77,7 @@ public class ImmutableCollections {
 
         @Override
         public void clear() {
-
+            // no-op
         }
 
         @Override
@@ -90,7 +90,6 @@ public class ImmutableCollections {
 
         @Override
         public E set(int index, E element) {
-
             return null;
         }
 

@@ -14,6 +14,7 @@ import me.darknet.dex.tree.definitions.constant.Constant;
 import me.darknet.dex.tree.definitions.constant.Handle;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -131,7 +132,7 @@ public class InvokeCustomInstruction implements Instruction {
 
     public static InstructionCodec<InvokeCustomInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public InvokeCustomInstruction map(Format input, InstructionContext<DexMap> context) {
+        public @NotNull InvokeCustomInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     CallSiteItem callSite = context.map().callSites().get(g);
@@ -162,7 +163,7 @@ public class InvokeCustomInstruction implements Instruction {
         }
 
         @Override
-        public Format unmap(InvokeCustomInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull Format unmap(@NotNull InvokeCustomInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int callSiteIndex = context.map().addCallSite(output.handle, output.name, output.type, output.arguments);
             if (output.isRange()) {
                 return new FormatAGopBBBBFEDC(Opcodes.INVOKE_CUSTOM_RANGE, output.size(), callSiteIndex,

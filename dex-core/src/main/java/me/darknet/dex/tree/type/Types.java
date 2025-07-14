@@ -3,6 +3,7 @@ package me.darknet.dex.tree.type;
 import me.darknet.dex.file.items.ProtoItem;
 import me.darknet.dex.file.items.TypeItem;
 import me.darknet.dex.file.items.TypeListItem;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,14 +21,14 @@ public class Types {
 
     public static InstanceType OBJECT = instanceType(Object.class);
 
-    public static InstanceType instanceTypeFromDescriptor(String descriptor) {
+    public static @NotNull InstanceType instanceTypeFromDescriptor(@NotNull String descriptor) {
         if (descriptor.charAt(0) != 'L' || descriptor.charAt(descriptor.length() - 1) != ';') {
             throw new IllegalArgumentException("Not an instance type descriptor: " + descriptor);
         }
         return new InstanceType(descriptor);
     }
 
-    public static MethodType methodTypeFromDescriptor(String descriptor) {
+    public static @NotNull MethodType methodTypeFromDescriptor(@NotNull String descriptor) {
         TypeParser parser = new TypeParser(descriptor);
         Type parsed = parser.read();
         if (!(parsed instanceof MethodType)) {
@@ -36,7 +37,7 @@ public class Types {
         return (MethodType) parsed;
     }
 
-    public static ArrayType arrayTypeFromDescriptor(String descriptor) {
+    public static @NotNull ArrayType arrayTypeFromDescriptor(@NotNull String descriptor) {
         TypeParser parser = new TypeParser(descriptor);
         Type parsed = parser.read();
         if (!(parsed instanceof ArrayType)) {
@@ -45,7 +46,7 @@ public class Types {
         return (ArrayType) parsed;
     }
 
-    public static PrimitiveType primitiveTypeFromDescriptor(String descriptor) {
+    public static @NotNull PrimitiveType primitiveTypeFromDescriptor(@NotNull String descriptor) {
         char c = descriptor.charAt(0);
         return switch (c) {
             case 'B' -> BYTE;
@@ -61,18 +62,18 @@ public class Types {
         };
     }
 
-    public static InstanceType instanceTypeFromInternalName(String internalName) {
+    public static @NotNull InstanceType instanceTypeFromInternalName(@NotNull String internalName) {
         return new InstanceType('L' + internalName + ';');
     }
 
-    public static InstanceType instanceType(Class<?> clazz) {
+    public static @NotNull InstanceType instanceType(@NotNull Class<?> clazz) {
         if (clazz.isPrimitive() || clazz.isArray()) {
             throw new IllegalArgumentException("Cannot create instance type for primitive or array class: " + clazz);
         }
         return instanceTypeFromInternalName(internalName(clazz.getName()));
     }
 
-    public static Type typeFromDescriptor(String descriptor) {
+    public static @NotNull Type typeFromDescriptor(@NotNull String descriptor) {
         char c = descriptor.charAt(0);
         return switch (c) {
             case 'V' -> VOID;
@@ -91,12 +92,12 @@ public class Types {
         };
     }
 
-    public static ClassType classType(TypeItem item) {
+    public static @NotNull ClassType classType(@NotNull TypeItem item) {
         TypeParser parser = new TypeParser(item.descriptor().string());
         return parser.requireClassType();
     }
 
-    public static List<ClassType> classTypes(TypeListItem item) {
+    public static @NotNull List<ClassType> classTypes(@NotNull TypeListItem item) {
         List<ClassType> types = new ArrayList<>(item.types().size());
         for (TypeItem type : item.types()) {
             types.add(classType(type));
@@ -104,11 +105,11 @@ public class Types {
         return types;
     }
 
-    public static InstanceType instanceType(TypeItem item) {
+    public static @NotNull InstanceType instanceType(@NotNull TypeItem item) {
         return instanceTypeFromDescriptor(item.descriptor().string());
     }
 
-    public static List<InstanceType> instanceTypes(TypeListItem item) {
+    public static @NotNull List<InstanceType> instanceTypes(@NotNull TypeListItem item) {
         List<InstanceType> types = new ArrayList<>(item.types().size());
         for (TypeItem type : item.types()) {
             types.add(instanceType(type));
@@ -116,20 +117,20 @@ public class Types {
         return types;
     }
 
-    public static MethodType methodType(ProtoItem item) {
+    public static @NotNull MethodType methodType(@NotNull ProtoItem item) {
         ClassType returnType = classType(item.returnType());
         List<ClassType> parameterTypes = classTypes(item.parameters());
         return new MethodType(returnType, parameterTypes);
     }
 
-    public static String shortyDescriptor(ClassType type) {
+    public static @NotNull String shortyDescriptor(@NotNull ClassType type) {
         char c = type.descriptor().charAt(0);
         if (c == '[')
             return "L";
         return Character.toString(c);
     }
 
-    public static String shortyDescriptor(MethodType type) {
+    public static @NotNull String shortyDescriptor(@NotNull MethodType type) {
         StringBuilder builder = new StringBuilder();
         builder.append(Types.shortyDescriptor(type.returnType()));
         for (ClassType parameter : type.parameterTypes()) {
@@ -138,11 +139,11 @@ public class Types {
         return builder.toString();
     }
 
-    public static String internalName(String externalName) {
+    public static @NotNull String internalName(@NotNull String externalName) {
         return externalName.replace('.', '/');
     }
 
-    public static String externalName(String internalName) {
+    public static @NotNull String externalName(@NotNull String internalName) {
         return internalName.replace('/', '.');
     }
 }

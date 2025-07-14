@@ -8,19 +8,19 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.CharBuffer;
 
-public record ByteBufferInput(ByteBuffer buffer) implements Input {
+public record ByteBufferInput(@NotNull ByteBuffer buffer) implements Input {
 
-    public ByteBufferInput(InputStream stream, ByteOrder order) throws IOException {
+    public ByteBufferInput(@NotNull InputStream stream, @NotNull ByteOrder order) throws IOException {
         this(ByteBuffer.wrap(stream.readAllBytes()).order(order));
     }
 
     @Override
-    public void order(ByteOrder order) {
+    public void order(@NotNull ByteOrder order) {
         buffer.order(order);
     }
 
     @Override
-    public ByteOrder order() {
+    public @NotNull ByteOrder order() {
         return buffer.order();
     }
 
@@ -186,24 +186,24 @@ public record ByteBufferInput(ByteBuffer buffer) implements Input {
     }
 
     @Override
-    public Input position(int position) {
+    public @NotNull Input position(int position) {
         buffer.position(position);
         return this;
     }
 
     @Override
-    public Input seek(int offset) {
+    public @NotNull Input seek(int offset) {
         buffer.position(buffer.position() + offset);
         return this;
     }
 
     @Override
-    public Input slice(int offset, int length) {
+    public @NotNull Input slice(int offset, int length) {
         return new ByteBufferInput(buffer.duplicate().position(offset).limit(offset + length).order(buffer.order()));
     }
 
     @Override
-    public Input slice(int offset) {
+    public @NotNull Input slice(int offset) {
         return new ByteBufferInput(buffer.duplicate().position(offset).order(buffer.order()));
     }
 

@@ -1,18 +1,20 @@
 package me.darknet.dex.io;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.io.IOException;
 
 public record Sections(Output stringIds, Output typeIds, Output protoIds, Output fieldIds,
                        Output methodIds, Output classDefs, Output callSiteIds, Output methodHandles,
                        Output data, Output map, Output link) {
 
-    public Sections(Output output) {
+    public Sections(@NotNull Output output) {
         this(output.newOutput(), output.newOutput(), output.newOutput(), output.newOutput(),
                 output.newOutput(), output.newOutput(), output.newOutput(), output.newOutput(),
                 output.newOutput(), output.newOutput(), output.newOutput());
     }
 
-    public void write(Output output) throws IOException {
+    public void write(@NotNull Output output) throws IOException {
         output.write(stringIds);
         output.write(typeIds);
         output.write(protoIds);

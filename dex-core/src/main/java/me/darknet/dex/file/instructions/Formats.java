@@ -4,8 +4,8 @@ import java.lang.reflect.Field;
 
 public class Formats implements Opcodes {
 
-    private static FormatCodec<?>[] CODECS = new FormatCodec<?>[256];
-    private static String[] OP_NAMES = new String[256];
+    private static final FormatCodec<?>[] CODECS = new FormatCodec<?>[256];
+    private static final String[] OP_NAMES = new String[256];
 
     private static void put(FormatCodec<?> codec, int... opcodes) {
         for (int opcode : opcodes) {

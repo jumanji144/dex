@@ -2,9 +2,10 @@ package me.darknet.dex.codecs;
 
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.items.Item;
-import me.darknet.dex.io.ContextCodec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -14,9 +15,9 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
 
     private static Map<Integer, CacheEntry> ITEM_CACHE = new HashMap<>(1 << 16);
 
-    public abstract I read0(Input input, DexMapAccess context) throws IOException;
+    public abstract I read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException;
 
-    public abstract void write0(I value, Output output, WriteContext context) throws IOException;
+    public abstract void write0(I value, @NotNull Output output, @NotNull WriteContext context) throws IOException;
 
     public int alignment() {
         return 1;
@@ -27,7 +28,7 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
     }
 
     @Override
-    public I read(Input input, DexMapAccess context) throws IOException {
+    public I read(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
         int position = input.position();
         CacheEntry cached = ITEM_CACHE.get(position);
         if (cached != null) {
@@ -44,7 +45,7 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
     }
 
     @Override
-    public void write(I value, Output output, WriteContext context) throws IOException {
+    public void write(I value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
         // align
         int position = output.position();
         position = (position + alignment() - 1) & -alignment();
@@ -52,6 +53,6 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
         write0(value, output, context);
     }
 
-    record CacheEntry(Item item, int position) {}
+    record CacheEntry(@NotNull Item item, int position) {}
 
 }

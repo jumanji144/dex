@@ -1,12 +1,14 @@
 package me.darknet.dex.tree.type;
 
+import org.jetbrains.annotations.NotNull;
+
 public final class ArrayType implements ReferenceType {
 
     private final int dimensions;
     private final ClassType componentType;
     private final String descriptor;
 
-    public ArrayType(ClassType componentType) {
+    public ArrayType(@NotNull ClassType componentType) {
         this.dimensions = nextDimension(componentType);
         this.componentType = componentType;
 
@@ -15,12 +17,12 @@ public final class ArrayType implements ReferenceType {
     }
 
     @Override
-    public String internalName() {
+    public @NotNull String internalName() {
         return descriptor;
     }
 
     @Override
-    public String descriptor() {
+    public @NotNull String descriptor() {
         return descriptor;
     }
 
@@ -28,7 +30,7 @@ public final class ArrayType implements ReferenceType {
         return dimensions;
     }
 
-    public ClassType componentType() {
+    public @NotNull ClassType componentType() {
         return componentType;
     }
 

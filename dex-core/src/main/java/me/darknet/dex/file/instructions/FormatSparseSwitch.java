@@ -2,6 +2,7 @@ package me.darknet.dex.file.instructions;
 
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -15,7 +16,7 @@ public record FormatSparseSwitch(int[] keys, int[] targets) implements Format {
 
     public static final FormatCodec<FormatSparseSwitch> CODEC = new FormatCodec<>() {
         @Override
-        public FormatSparseSwitch read(Input input) throws IOException {
+        public @NotNull FormatSparseSwitch read(@NotNull Input input) throws IOException {
             input.readUnsignedShort(); // discard
             int size = input.readShort();
             int[] keys = new int[size];
@@ -30,7 +31,7 @@ public record FormatSparseSwitch(int[] keys, int[] targets) implements Format {
         }
 
         @Override
-        public void write(FormatSparseSwitch value, Output output) throws IOException {
+        public void write(@NotNull FormatSparseSwitch value, @NotNull Output output) throws IOException {
             output.writeShort(value.op());
             int size = value.keys().length;
             output.writeShort(size);

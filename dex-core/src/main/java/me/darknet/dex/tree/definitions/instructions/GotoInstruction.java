@@ -7,6 +7,7 @@ import me.darknet.dex.file.instructions.Format00opAAAA;
 import me.darknet.dex.file.instructions.Format00opAAAA32;
 import me.darknet.dex.file.instructions.FormatAAop;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
@@ -29,7 +30,7 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
     public static final InstructionCodec<GotoInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public GotoInstruction map(Format input, InstructionContext<DexMap> context) {
+        public @NotNull GotoInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAAop(int op, int a) -> new GotoInstruction(op, context.label(input, (byte) a));
                 case Format00opAAAA(int op, int a) -> new GotoInstruction(op, context.label(input, (short) a));
@@ -39,7 +40,7 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
         }
 
         @Override
-        public Format unmap(GotoInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull Format unmap(@NotNull GotoInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int offset = context.labelOffset(output, output.jump);
             int opcode = op(offset);
             return switch (opcode) {

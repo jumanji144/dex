@@ -2,10 +2,10 @@ package me.darknet.dex.codecs;
 
 import me.darknet.dex.file.DexHeader;
 import me.darknet.dex.file.DexMap;
-import me.darknet.dex.io.Codec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 import me.darknet.dex.io.Sections;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -22,7 +22,7 @@ public class DexHeaderCodec implements Codec<DexHeader> {
     private final int REVERSE_ENDIAN_CONSTANT = 0x78563412;
     private final int ENDIAN_CONSTANT = 0x12345678;
 
-    private void checkRead(Input input, int size, int position) throws IOException {
+    private void checkRead(@NotNull Input input, int size, int position) throws IOException {
         if(size == 0) return;
         if(input.position() == position + size) return;
 
@@ -30,7 +30,7 @@ public class DexHeaderCodec implements Codec<DexHeader> {
     }
 
     @Override
-    public DexHeader read(Input input) throws IOException {
+    public @NotNull DexHeader read(@NotNull Input input) throws IOException {
         byte[] magic = input.readBytes(4);
         if (!Arrays.equals(magic, DEX_FILE_MAGIC)) {
             throw new IOException("Invalid magic");
@@ -77,12 +77,12 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         return new DexHeader(versionInt, linkData, map);
     }
 
-    private void writeSectionInfo(Output output, int offset, int size) throws IOException {
+    private void writeSectionInfo(@NotNull Output output, int offset, int size) throws IOException {
         output.writeInt(size);
         output.writeInt(offset);
     }
 
-    private byte[] computeSignature(ByteBuffer buffer) {
+    private byte[] computeSignature(@NotNull ByteBuffer buffer) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-1");
             digest.update(buffer);
@@ -93,7 +93,7 @@ public class DexHeaderCodec implements Codec<DexHeader> {
     }
 
     @Override
-    public void write(DexHeader value, Output output) throws IOException {
+    public void write(@NotNull DexHeader value, @NotNull Output output) throws IOException {
         // the final header requires a checksum of the entire file,
         // so we need to write all file contents before writing the header
         // neither do we know the file size until this is done

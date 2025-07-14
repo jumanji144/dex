@@ -4,17 +4,18 @@ import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public record ArrayValue(List<Value> values) implements Value {
+public record ArrayValue(@NotNull List<Value> values) implements Value {
 
     public static final ValueCodec<ArrayValue> CODEC = new ValueCodec<>() {
 
         @Override
-        public ArrayValue read(Input input, DexMapAccess context) throws IOException {
+        public ArrayValue read(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int size = input.readULeb128();
             List<Value> values = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
@@ -24,7 +25,7 @@ public record ArrayValue(List<Value> values) implements Value {
         }
 
         @Override
-        public void write(ArrayValue value, Output output, WriteContext context) throws IOException {
+        public void write(ArrayValue value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeByte(value.type()); // 0 << 5 | 0x1c
             output.writeULeb128(value.values.size());
             for (Value v : value.values) {

@@ -1,10 +1,12 @@
 package me.darknet.dex.tree.type;
 
+import org.jetbrains.annotations.NotNull;
+
 public sealed interface ReferenceType extends ClassType permits InstanceType, ArrayType {
 
-    String internalName();
+    @NotNull String internalName();
 
-    default String externalName() {
+    default @NotNull String externalName() {
         return Types.externalName(internalName());
     }
 

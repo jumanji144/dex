@@ -1,5 +1,7 @@
 package me.darknet.dex.io;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
@@ -21,11 +23,11 @@ public class NullTerminatedCharsetDecoder extends CharsetDecoder {
      *                            characters that will be produced for each input byte
      * @throws IllegalArgumentException If the preconditions on the parameters do not hold
      */
-    protected NullTerminatedCharsetDecoder(Charset cs, float averageCharsPerByte, float maxCharsPerByte) {
+    protected NullTerminatedCharsetDecoder(@NotNull Charset cs, float averageCharsPerByte, float maxCharsPerByte) {
         super(cs, averageCharsPerByte, maxCharsPerByte);
     }
 
-    public NullTerminatedCharsetDecoder(Charset cs) {
+    public NullTerminatedCharsetDecoder(@NotNull Charset cs) {
         super(cs, 1f, 1f);
     }
 

@@ -6,6 +6,7 @@ import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 public record ConstTypeInstruction(int register, ClassType type) implements Instruction {
 
@@ -21,12 +22,12 @@ public record ConstTypeInstruction(int register, ClassType type) implements Inst
 
     public static final InstructionCodec<ConstTypeInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
-        public ConstTypeInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> context) {
+        public @NotNull ConstTypeInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> context) {
             return new ConstTypeInstruction(input.a(), Types.classType(context.map().types().get(input.b())));
         }
 
         @Override
-        public FormatAAopBBBB unmap(ConstTypeInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull FormatAAopBBBB unmap(@NotNull ConstTypeInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int type = context.map().addType(output.type());
             return new FormatAAopBBBB(CONST_CLASS, output.register(), type);
         }

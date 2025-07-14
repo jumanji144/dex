@@ -5,16 +5,17 @@ import me.darknet.dex.codecs.WriteContext;
 import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
-public record ProtoItem(StringItem shortyDescriptor, TypeItem returnType, TypeListItem parameters) implements Item {
+public record ProtoItem(@NotNull StringItem shortyDescriptor, @NotNull TypeItem returnType, @NotNull TypeListItem parameters) implements Item {
 
     public static final ItemCodec<ProtoItem> CODEC = new ItemCodec<>() {
         @Override
-        public ProtoItem read0(Input input, DexMapAccess context) throws IOException {
+        public ProtoItem read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int shortyDescriptorIndex = input.readInt();
             int returnTypeIndex = input.readInt();
             int parametersOffset = input.readInt();
@@ -28,7 +29,7 @@ public record ProtoItem(StringItem shortyDescriptor, TypeItem returnType, TypeLi
         }
 
         @Override
-        public void write0(ProtoItem value, Output output, WriteContext context) throws IOException {
+        public void write0(ProtoItem value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeInt(context.index().strings().indexOf(value.shortyDescriptor()));
             output.writeInt(context.index().types().indexOf(value.returnType()));
             if (value.parameters().types().isEmpty()) {

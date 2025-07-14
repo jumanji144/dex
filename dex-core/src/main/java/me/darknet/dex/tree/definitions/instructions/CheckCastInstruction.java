@@ -6,6 +6,7 @@ import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 public record CheckCastInstruction(int register, ClassType type) implements Instruction {
 
@@ -21,12 +22,12 @@ public record CheckCastInstruction(int register, ClassType type) implements Inst
 
     public static final InstructionCodec<CheckCastInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
-        public CheckCastInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> ctx) {
+        public @NotNull CheckCastInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> ctx) {
             return new CheckCastInstruction(input.a(), Types.classType(ctx.map().types().get(input.b())));
         }
 
         @Override
-        public FormatAAopBBBB unmap(CheckCastInstruction output, InstructionContext<DexMapBuilder> ctx) {
+        public @NotNull FormatAAopBBBB unmap(@NotNull CheckCastInstruction output, @NotNull InstructionContext<DexMapBuilder> ctx) {
             int type = ctx.map().addType(output.type());
             return new FormatAAopBBBB(CHECK_CAST, output.register(), type);
         }

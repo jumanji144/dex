@@ -6,6 +6,7 @@ import me.darknet.dex.file.instructions.FormatBAopCCCC;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 public record InstanceOfInstruction(int destination, int register, ClassType type) implements Instruction {
     @Override
@@ -20,12 +21,12 @@ public record InstanceOfInstruction(int destination, int register, ClassType typ
 
     public static final InstructionCodec<InstanceOfInstruction, FormatBAopCCCC> CODEC = new InstructionCodec<>() {
         @Override
-        public InstanceOfInstruction map(FormatBAopCCCC input, InstructionContext<DexMap> context) {
+        public @NotNull InstanceOfInstruction map(@NotNull FormatBAopCCCC input, @NotNull InstructionContext<DexMap> context) {
             return new InstanceOfInstruction(input.a(), input.b(), Types.classType(context.map().types().get(input.c())));
         }
 
         @Override
-        public FormatBAopCCCC unmap(InstanceOfInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull FormatBAopCCCC unmap(@NotNull InstanceOfInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int type = context.map().addType(output.type());
             return new FormatBAopCCCC(INSTANCE_OF, output.destination(), output.register(), type);
         }

@@ -1,8 +1,8 @@
 package me.darknet.dex.file.instructions;
 
-import me.darknet.dex.io.Codec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -16,7 +16,7 @@ public record FormatPackedSwitch(int first, int[] targets) implements Format {
 
     public static final FormatCodec<FormatPackedSwitch> CODEC = new FormatCodec<>() {
         @Override
-        public FormatPackedSwitch read(Input input) throws IOException {
+        public @NotNull FormatPackedSwitch read(@NotNull Input input) throws IOException {
             input.readUnsignedShort(); // discard
             int size = input.readShort();
             int first = input.readInt();
@@ -28,7 +28,7 @@ public record FormatPackedSwitch(int first, int[] targets) implements Format {
         }
 
         @Override
-        public void write(FormatPackedSwitch value, Output output) throws IOException {
+        public void write(@NotNull FormatPackedSwitch value, @NotNull Output output) throws IOException {
             output.writeShort(value.op());
             int size = value.targets().length;
             output.writeShort(size);

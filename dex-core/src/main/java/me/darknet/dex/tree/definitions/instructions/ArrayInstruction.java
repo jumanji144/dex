@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.FormatAAopCCBB;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
+import org.jetbrains.annotations.NotNull;
 
 public record ArrayInstruction(int kind, int value, int array, int index) implements Instruction {
     @Override
@@ -19,12 +20,12 @@ public record ArrayInstruction(int kind, int value, int array, int index) implem
 
     public static final InstructionCodec<ArrayInstruction, FormatAAopCCBB> CODEC = new InstructionCodec<>() {
         @Override
-        public ArrayInstruction map(FormatAAopCCBB input, InstructionContext<DexMap> context) {
+        public @NotNull ArrayInstruction map(@NotNull FormatAAopCCBB input, @NotNull InstructionContext<DexMap> context) {
             return new ArrayInstruction(input.op() - AGET, input.a(), input.b(), input.c());
         }
 
         @Override
-        public FormatAAopCCBB unmap(ArrayInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull FormatAAopCCBB unmap(@NotNull ArrayInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return new FormatAAopCCBB(output.opcode(), output.value(), output.array(), output.index());
         }
     };

@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.*;
 import me.darknet.dex.tree.codec.ContextMappingCodec;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public interface Instruction extends Opcodes {
 
@@ -30,7 +31,7 @@ public interface Instruction extends Opcodes {
     @SuppressWarnings({"unchecked", "rawtypes"})
     InstructionCodec<Instruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public Instruction map(Format input, InstructionContext<DexMap> context) {
+        public @NotNull Instruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             InstructionCodec codec = Instructions.CODECS.get(input.op());
             if (codec == null) {
                 throw new IllegalArgumentException("Unmappable format: " + input);
@@ -39,7 +40,7 @@ public interface Instruction extends Opcodes {
         }
 
         @Override
-        public Format unmap(Instruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull Format unmap(@NotNull Instruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             InstructionCodec codec = Instructions.CODECS.get(output.opcode());
             if (codec == null) {
                 throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());

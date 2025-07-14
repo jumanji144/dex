@@ -10,6 +10,7 @@ import me.darknet.dex.tree.definitions.MemberIdentifier;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.constant.*;
 import me.darknet.dex.tree.type.*;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +18,7 @@ import java.util.List;
 public class ConstantCodec implements TreeCodec<Constant, Value> {
 
     @Override
-    public Constant map(Value input, DexMap context) {
+    public @NotNull Constant map(@NotNull Value input, @NotNull DexMap context) {
         return switch (input) {
             case AnnotationValue(EncodedAnnotation annotation) ->
                     new AnnotationConstant(AnnotationPart.CODEC.map(annotation, context));
@@ -63,7 +64,7 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
     }
 
     @Override
-    public Value unmap(Constant output, DexMapBuilder context) {
+    public @NotNull Value unmap(@NotNull Constant output, @NotNull DexMapBuilder context) {
         return switch (output) {
             case AnnotationConstant(AnnotationPart annotation) ->
                 new AnnotationValue(AnnotationPart.CODEC.unmap(annotation, context));

@@ -1,9 +1,13 @@
 package me.darknet.dex.tree.definitions.instructions;
 
+import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.FormatAAopBBBB32;
 import me.darknet.dex.file.instructions.FormatAAopBBBB64;
+import me.darknet.dex.tree.codec.definition.InstructionContext;
+import org.jetbrains.annotations.NotNull;
 
 public record ConstWideInstruction(int opcode, int register, long value) implements Instruction {
 
@@ -30,7 +34,7 @@ public record ConstWideInstruction(int opcode, int register, long value) impleme
 
     public static final InstructionCodec<ConstWideInstruction, Format> CODEC = new InstructionCodec<>() {
         @Override
-        public ConstWideInstruction map(Format input) {
+        public @NotNull ConstWideInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAAopBBBB(int op, int a, int b) -> new ConstWideInstruction(op, a, b);
                 case FormatAAopBBBB32(int op, int a, int b) -> new ConstWideInstruction(op, a, b);
@@ -40,7 +44,7 @@ public record ConstWideInstruction(int opcode, int register, long value) impleme
         }
 
         @Override
-        public Format unmap(ConstWideInstruction output) {
+        public @NotNull Format unmap(@NotNull ConstWideInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return switch (output.opcode()) {
                 case CONST_WIDE_16 -> new FormatAAopBBBB(CONST_WIDE_16, output.register(), (int) output.value());
                 case CONST_WIDE_32 -> new FormatAAopBBBB32(CONST_WIDE_32, output.register(), (int) output.value());

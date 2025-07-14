@@ -9,6 +9,7 @@ import me.darknet.dex.tree.definitions.OpcodeNames;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 public record StaticFieldInstruction(int kind, int value, InstanceType owner, String name, ClassType type)
         implements Instruction {
@@ -25,7 +26,7 @@ public record StaticFieldInstruction(int kind, int value, InstanceType owner, St
     public static final InstructionCodec<StaticFieldInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
 
         @Override
-        public StaticFieldInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> context) {
+        public @NotNull StaticFieldInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> context) {
             FieldItem field = context.map().fields().get(input.b());
             InstanceType owner = Types.instanceType(field.owner());
             String name = field.name().string();
@@ -34,7 +35,7 @@ public record StaticFieldInstruction(int kind, int value, InstanceType owner, St
         }
 
         @Override
-        public FormatAAopBBBB unmap(StaticFieldInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull FormatAAopBBBB unmap(@NotNull StaticFieldInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int field = context.map().addField(output.owner, output.name, output.type);
             return new FormatAAopBBBB(output.opcode(), output.value(), field);
         }

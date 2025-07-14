@@ -16,6 +16,7 @@ import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -43,7 +44,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     private final ConstantPool<EncodedArrayItem> encodedArrays = new ConstantPool<>();
     private final ConstantPool<AnnotationsDirectoryItem> annotationsDirectories = new ConstantPool<>();
 
-    public DexMapBuilder add(Item item) {
+    public @NotNull DexMapBuilder add(Item item) {
         switch (item) {
             case StringItem stringItem -> strings.add(stringItem);
             case TypeItem typeItem -> types.add(typeItem);
@@ -69,79 +70,79 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return this;
     }
 
-    public ConstantPool<StringItem> strings() {
+    public @NotNull ConstantPool<StringItem> strings() {
         return strings;
     }
 
-    public ConstantPool<TypeItem> types() {
+    public @NotNull ConstantPool<TypeItem> types() {
         return types;
     }
 
-    public ConstantPool<ProtoItem> protos() {
+    public @NotNull ConstantPool<ProtoItem> protos() {
         return protos;
     }
 
-    public ConstantPool<FieldItem> fields() {
+    public @NotNull ConstantPool<FieldItem> fields() {
         return fields;
     }
 
-    public ConstantPool<MethodItem> methods() {
+    public @NotNull ConstantPool<MethodItem> methods() {
         return methods;
     }
 
-    public ConstantPool<ClassDefItem> classes() {
+    public @NotNull ConstantPool<ClassDefItem> classes() {
         return classes;
     }
 
-    public ConstantPool<CallSiteItem> callSites() {
+    public @NotNull ConstantPool<CallSiteItem> callSites() {
         return callSites;
     }
 
-    public ConstantPool<MethodHandleItem> methodHandles() {
+    public @NotNull ConstantPool<MethodHandleItem> methodHandles() {
         return methodHandles;
     }
 
-    public ConstantPool<TypeListItem> typeLists() {
+    public @NotNull ConstantPool<TypeListItem> typeLists() {
         return typeLists;
     }
 
-    public ConstantPool<AnnotationSetRefList> annotationSetRefLists() {
+    public @NotNull ConstantPool<AnnotationSetRefList> annotationSetRefLists() {
         return annotationSetRefLists;
     }
 
-    public ConstantPool<AnnotationSetItem> annotationSets() {
+    public @NotNull ConstantPool<AnnotationSetItem> annotationSets() {
         return annotationSets;
     }
 
-    public ConstantPool<ClassDataItem> classDatas() {
+    public @NotNull ConstantPool<ClassDataItem> classDatas() {
         return classDatas;
     }
 
-    public ConstantPool<CodeItem> codes() {
+    public @NotNull ConstantPool<CodeItem> codes() {
         return codes;
     }
 
-    public ConstantPool<StringDataItem> stringDatas() {
+    public @NotNull ConstantPool<StringDataItem> stringDatas() {
         return stringDatas;
     }
 
-    public ConstantPool<DebugInfoItem> debugInfos() {
+    public @NotNull ConstantPool<DebugInfoItem> debugInfos() {
         return debugInfos;
     }
 
-    public ConstantPool<AnnotationItem> annotations() {
+    public @NotNull ConstantPool<AnnotationItem> annotations() {
         return annotations;
     }
 
-    public ConstantPool<EncodedArrayItem> encodedArrays() {
+    public @NotNull ConstantPool<EncodedArrayItem> encodedArrays() {
         return encodedArrays;
     }
 
-    public ConstantPool<AnnotationsDirectoryItem> annotationsDirectories() {
+    public @NotNull ConstantPool<AnnotationsDirectoryItem> annotationsDirectories() {
         return annotationsDirectories;
     }
 
-    public Stream<Item> all() {
+    public @NotNull Stream<Item> all() {
         return Stream.of();
     }
 
@@ -151,24 +152,24 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
 
     // tree helpers
 
-    public TypeItem type(Type value) {
+    public @NotNull TypeItem type(@NotNull Type value) {
         TypeItem typeItem = new TypeItem(string(value.descriptor()));
         types.add(typeItem);
         return typeItem;
     }
 
-    public TypeItem type(String descriptor) {
+    public @NotNull TypeItem type(@NotNull String descriptor) {
         TypeItem typeItem = new TypeItem(string(descriptor));
         types.add(typeItem);
         return typeItem;
     }
 
-    public int addType(Type value) {
+    public int addType(@NotNull Type value) {
         return types.add(type(value));
     }
 
-    public TypeListItem typeList(List<? extends Type> types) {
-        if (types.isEmpty()) {
+    public @NotNull TypeListItem typeList(@Nullable List<? extends Type> types) {
+        if (types == null || types.isEmpty()) {
             return TypeListItem.EMPTY;
         }
         List<TypeItem> items = new ArrayList<>(types.size());
@@ -180,7 +181,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return item;
     }
 
-    public StringItem string(String value) {
+    public @NotNull StringItem string(@NotNull String value) {
         StringDataItem data = new StringDataItem(value);
         StringItem item = new StringItem(data);
         stringDatas.add(data);
@@ -188,14 +189,14 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return item;
     }
 
-    public int addString(String value) {
+    public int addString(@NotNull String value) {
         StringDataItem data = new StringDataItem(value);
         StringItem item = new StringItem(data);
         stringDatas.add(data);
         return strings.add(item);
     }
 
-    public ProtoItem proto(MethodType type) {
+    public @NotNull ProtoItem proto(@NotNull MethodType type) {
         TypeItem returnType = type(type.returnType());
         TypeListItem parameters = typeList(type.parameterTypes());
         StringItem shorty = string(Types.shortyDescriptor(type));
@@ -204,11 +205,11 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return proto;
     }
 
-    public int addProto(MethodType type) {
+    public int addProto(@NotNull MethodType type) {
         return protos.add(proto(type));
     }
 
-    public MethodItem method(InstanceType owner, String name, MethodType type) {
+    public @NotNull MethodItem method(@NotNull InstanceType owner, @NotNull String name, @NotNull MethodType type) {
         TypeItem ownerType = type(owner);
         ProtoItem proto = proto(type);
         StringItem nameItem = string(name);
@@ -217,11 +218,11 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return method;
     }
 
-    public int addMethod(InstanceType owner, String name, MethodType type) {
+    public int addMethod(@NotNull InstanceType owner, @NotNull String name, @NotNull MethodType type) {
         return methods.add(method(owner, name, type));
     }
 
-    public FieldItem field(InstanceType owner, String name, Type type) {
+    public FieldItem field(@NotNull InstanceType owner, @NotNull String name, @NotNull Type type) {
         TypeItem ownerType = type(owner);
         TypeItem fieldType = type(type);
         StringItem nameItem = string(name);
@@ -230,17 +231,17 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return field;
     }
 
-    public int addField(InstanceType owner, String name, Type type) {
+    public int addField(@NotNull InstanceType owner, @NotNull String name, @NotNull Type type) {
         return fields.add(field(owner, name, type));
     }
 
-    public MethodHandleItem methodHandle(Handle handle) {
+    public @NotNull MethodHandleItem methodHandle(@NotNull Handle handle) {
         MethodHandleItem item = Handle.CODEC.unmap(handle, this);
         methodHandles.add(item);
         return item;
     }
 
-    public CallSiteItem callSite(Handle handle, String name, MethodType type, List<Constant> constants) {
+    public @NotNull CallSiteItem callSite(@NotNull Handle handle, @NotNull String name, @NotNull MethodType type, @NotNull List<Constant> constants) {
         MethodHandleItem methodHandle = methodHandle(handle);
         StringItem nameItem = string(name);
         ProtoItem proto = proto(type);
@@ -260,16 +261,15 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return item;
     }
 
-    public AnnotationItem annotation(Annotation annotation) {
+    public @NotNull AnnotationItem annotation(@NotNull Annotation annotation) {
         AnnotationItem item = Annotation.CODEC.unmap(annotation, this);
         annotations.add(item);
         return item;
     }
 
-    public @Nullable AnnotationSetItem annotationSet(List<Annotation> annotations) {
-        if (annotations.isEmpty()) {
+    public @Nullable AnnotationSetItem annotationSet(@Nullable List<Annotation> annotations) {
+        if (annotations == null || annotations.isEmpty())
             return null;
-        }
         List<AnnotationOffItem> items = new ArrayList<>(annotations.size());
         for (Annotation annotation : annotations) {
             AnnotationItem item = annotation(annotation);
@@ -280,21 +280,20 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return item;
     }
 
-    public @Nullable CodeItem code(Code code) {
-        if (code == null) {
+    public @Nullable CodeItem code(@Nullable Code code) {
+        if (code == null)
             return null;
-        }
         CodeItem item = Code.CODEC.unmap(code, this);
         codes.add(item);
         return item;
     }
 
-    public int addCallSite(Handle handle, String name, MethodType type, List<Constant> constants) {
+    public int addCallSite(@NotNull Handle handle, @NotNull String name, @NotNull MethodType type, @NotNull List<Constant> constants) {
         return callSites.add(callSite(handle, name, type, constants));
     }
 
     @Override
-    public DexMap build() {
+    public @NotNull DexMap build() {
         return new DexMap(strings, types, protos, fields, methods, classes, callSites, methodHandles, typeLists,
                 annotationSetRefLists, annotationSets, classDatas, codes, stringDatas, debugInfos, annotations,
                 encodedArrays, annotationsDirectories);

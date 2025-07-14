@@ -1,11 +1,12 @@
 package me.darknet.dex.file;
 
 import me.darknet.dex.codecs.DexHeaderCodec;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 import java.util.Objects;
 
-public record DexHeader(int version, byte[] link, DexMap map) {
+public record DexHeader(int version, byte[] link, @NotNull DexMap map) {
 
     public static final DexHeaderCodec CODEC = new DexHeaderCodec();
 

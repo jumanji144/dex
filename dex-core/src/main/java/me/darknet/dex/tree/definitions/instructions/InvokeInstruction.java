@@ -10,6 +10,7 @@ import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.tree.type.Types;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public final class InvokeInstruction implements Instruction, Invoke {
@@ -125,7 +126,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
     public static final InstructionCodec<InvokeInstruction, Format> CODEC = new InstructionCodec<>() {
 
         @Override
-        public InvokeInstruction map(Format input, InstructionContext<DexMap> context) {
+        public @NotNull InvokeInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch(input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
                     MethodItem method = context.map().methods().get(b);
@@ -170,7 +171,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
         private static final int RANGE_OFFSET = Opcodes.INVOKE_VIRTUAL_RANGE - Opcodes.INVOKE_VIRTUAL;
 
         @Override
-        public Format unmap(InvokeInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull Format unmap(@NotNull InvokeInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int method = context.map().addMethod(output.owner, output.name, output.type);
             if (output.kind == POLYMORPHIC) {
                 int proto = context.map().addProto(output.type);

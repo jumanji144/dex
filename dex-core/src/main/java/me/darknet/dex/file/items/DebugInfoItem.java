@@ -6,6 +6,7 @@ import me.darknet.dex.file.DexMapAccess;
 import me.darknet.dex.file.debug.DebugInstruction;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -15,7 +16,7 @@ public record DebugInfoItem(int lineStart, List<StringItem> parameterNames, List
 
     public static final ItemCodec<DebugInfoItem> CODEC = new ItemCodec<>() {
         @Override
-        public DebugInfoItem read0(Input input, DexMapAccess context) throws IOException {
+        public DebugInfoItem read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
             int lineStart = input.readULeb128();
             int parametersSize = input.readULeb128();
             List<StringItem> parameterNames = new ArrayList<>(parametersSize);
@@ -36,7 +37,7 @@ public record DebugInfoItem(int lineStart, List<StringItem> parameterNames, List
         }
 
         @Override
-        public void write0(DebugInfoItem value, Output output, WriteContext context) throws IOException {
+        public void write0(DebugInfoItem value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
             output.writeULeb128(value.lineStart);
             output.writeULeb128(value.parameterNames.size());
             for (StringItem parameterName : value.parameterNames) {

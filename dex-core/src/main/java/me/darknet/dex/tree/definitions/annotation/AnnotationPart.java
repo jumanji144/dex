@@ -10,6 +10,7 @@ import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.definitions.constant.Constant;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Types;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,7 +25,7 @@ public record AnnotationPart(InstanceType type, Map<String, Constant> elements) 
 
     public static final TreeCodec<AnnotationPart, EncodedAnnotation> CODEC = new TreeCodec<>() {
         @Override
-        public AnnotationPart map(EncodedAnnotation input, DexMap context) {
+        public @NotNull AnnotationPart map(@NotNull EncodedAnnotation input, @NotNull DexMap context) {
             InstanceType type = Types.instanceType(input.type());
             Map<String, Constant> entries = new HashMap<>();
             for (AnnotationElement element : input.elements()) {
@@ -34,7 +35,7 @@ public record AnnotationPart(InstanceType type, Map<String, Constant> elements) 
         }
 
         @Override
-        public EncodedAnnotation unmap(AnnotationPart output, DexMapBuilder context) {
+        public @NotNull EncodedAnnotation unmap(@NotNull AnnotationPart output, @NotNull DexMapBuilder context) {
             List<AnnotationElement> elements = new ArrayList<>();
             for (Map.Entry<String, Constant> entry : output.elements().entrySet()) {
                 StringItem name = context.string(entry.getKey());

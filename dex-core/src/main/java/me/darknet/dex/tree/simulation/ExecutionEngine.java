@@ -1,50 +1,51 @@
 package me.darknet.dex.tree.simulation;
 
 import me.darknet.dex.tree.definitions.instructions.*;
+import org.jetbrains.annotations.NotNull;
 
 public interface ExecutionEngine {
 
-    void label(Label label);
+    void label(@NotNull Label label);
 
-    void execute(ArrayInstruction instruction);
-    void execute(ArrayLengthInstruction instruction);
-    void execute(Binary2AddrInstruction instruction);
-    void execute(BinaryInstruction instruction);
-    void execute(BinaryLiteralInstruction instruction);
-    void execute(BranchInstruction instruction);
-    void execute(BranchZeroInstruction instruction);
-    void execute(CheckCastInstruction instruction);
-    void execute(CompareInstruction instruction);
-    void execute(ConstInstruction instruction);
-    void execute(ConstTypeInstruction instruction);
-    void execute(ConstWideInstruction instruction);
-    void execute(ConstStringInstruction instruction);
-    void execute(FillArrayDataInstruction instruction);
-    void execute(FilledNewArrayInstruction instruction);
-    void execute(GotoInstruction instruction);
-    void execute(InstanceFieldInstruction instruction);
-    void execute(InstanceOfInstruction instruction);
-    void execute(InvokeCustomInstruction instruction);
-    void execute(InvokeInstruction instruction);
-    void execute(MonitorInstruction instruction);
-    void execute(MoveExceptionInstruction instruction);
-    void execute(MoveInstruction instruction);
-    void execute(MoveObjectInstruction instruction);
-    void execute(MoveResultInstruction instruction);
-    void execute(MoveWideInstruction instruction);
-    void execute(NewArrayInstruction instruction);
-    void execute(NewInstanceInstruction instruction);
-    void execute(NopInstruction instruction);
-    void execute(PackedSwitchInstruction instruction);
-    void execute(ReturnInstruction instruction);
-    void execute(SparseSwitchInstruction instruction);
-    void execute(StaticFieldInstruction instruction);
-    void execute(ThrowInstruction instruction);
-    void execute(UnaryInstruction instruction);
+    void execute(@NotNull ArrayInstruction instruction);
+    void execute(@NotNull ArrayLengthInstruction instruction);
+    void execute(@NotNull Binary2AddrInstruction instruction);
+    void execute(@NotNull BinaryInstruction instruction);
+    void execute(@NotNull BinaryLiteralInstruction instruction);
+    void execute(@NotNull BranchInstruction instruction);
+    void execute(@NotNull BranchZeroInstruction instruction);
+    void execute(@NotNull CheckCastInstruction instruction);
+    void execute(@NotNull CompareInstruction instruction);
+    void execute(@NotNull ConstInstruction instruction);
+    void execute(@NotNull ConstTypeInstruction instruction);
+    void execute(@NotNull ConstWideInstruction instruction);
+    void execute(@NotNull ConstStringInstruction instruction);
+    void execute(@NotNull FillArrayDataInstruction instruction);
+    void execute(@NotNull FilledNewArrayInstruction instruction);
+    void execute(@NotNull GotoInstruction instruction);
+    void execute(@NotNull InstanceFieldInstruction instruction);
+    void execute(@NotNull InstanceOfInstruction instruction);
+    void execute(@NotNull InvokeCustomInstruction instruction);
+    void execute(@NotNull InvokeInstruction instruction);
+    void execute(@NotNull MonitorInstruction instruction);
+    void execute(@NotNull MoveExceptionInstruction instruction);
+    void execute(@NotNull MoveInstruction instruction);
+    void execute(@NotNull MoveObjectInstruction instruction);
+    void execute(@NotNull MoveResultInstruction instruction);
+    void execute(@NotNull MoveWideInstruction instruction);
+    void execute(@NotNull NewArrayInstruction instruction);
+    void execute(@NotNull NewInstanceInstruction instruction);
+    void execute(@NotNull NopInstruction instruction);
+    void execute(@NotNull PackedSwitchInstruction instruction);
+    void execute(@NotNull ReturnInstruction instruction);
+    void execute(@NotNull SparseSwitchInstruction instruction);
+    void execute(@NotNull StaticFieldInstruction instruction);
+    void execute(@NotNull ThrowInstruction instruction);
+    void execute(@NotNull UnaryInstruction instruction);
 
-    void execute(Instruction instruction);
+    void execute(@NotNull Instruction instruction);
 
-    static void execute(ExecutionEngine engine, Instruction instruction) {
+    static void execute(@NotNull ExecutionEngine engine, @NotNull Instruction instruction) {
         switch (instruction) {
             case ArrayInstruction arrayInstruction -> engine.execute(arrayInstruction);
             case ArrayLengthInstruction arrayLengthInstruction -> engine.execute(arrayLengthInstruction);
@@ -81,7 +82,7 @@ public interface ExecutionEngine {
             case StaticFieldInstruction staticFieldInstruction -> engine.execute(staticFieldInstruction);
             case ThrowInstruction throwInstruction -> engine.execute(throwInstruction);
             case UnaryInstruction unaryInstruction -> engine.execute(unaryInstruction);
-            default -> throw new IllegalArgumentException("Unknown instruction type: " + instruction);
+            default -> throw new IllegalArgumentException("Unknown instruction type: " + instruction.getClass().getName());
         }
     }
 

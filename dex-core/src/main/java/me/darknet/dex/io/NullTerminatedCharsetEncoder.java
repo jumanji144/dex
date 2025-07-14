@@ -1,5 +1,7 @@
 package me.darknet.dex.io;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
@@ -7,11 +9,11 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 
 public class NullTerminatedCharsetEncoder extends CharsetEncoder {
-    protected NullTerminatedCharsetEncoder(Charset cs, float averageBytesPerChar, float maxBytesPerChar) {
+    protected NullTerminatedCharsetEncoder(@NotNull Charset cs, float averageBytesPerChar, float maxBytesPerChar) {
         super(cs, averageBytesPerChar, maxBytesPerChar);
     }
 
-    public NullTerminatedCharsetEncoder(Charset cs) {
+    public NullTerminatedCharsetEncoder(@NotNull Charset cs) {
         super(cs, 1f, 1f);
     }
 

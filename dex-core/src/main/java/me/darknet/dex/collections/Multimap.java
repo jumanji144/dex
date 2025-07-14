@@ -1,5 +1,7 @@
 package me.darknet.dex.collections;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Collection;
 import java.util.Map;
 
@@ -23,13 +25,13 @@ public interface Multimap<K extends Object, V extends Object>  {
 
     void clear();
 
-    Collection<V> get(K key);
+    @NotNull Collection<V> get(K key);
 
-    Collection<V> values();
+    @NotNull Collection<V> values();
 
-    Collection<K> keys();
+    @NotNull Collection<K> keys();
 
-    Collection<Map.Entry<K, V>> entries();
+    @NotNull Collection<Map.Entry<K, V>> entries();
 
-    Map<K, Collection<V>> asMap();
+    @NotNull Map<K, Collection<V>> asMap();
 }

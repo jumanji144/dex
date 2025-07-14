@@ -4,7 +4,6 @@ import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.items.*;
-import me.darknet.dex.io.Codec;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 import me.darknet.dex.io.Sections;
@@ -34,7 +33,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     }
 
     @Override
-    public DexMap read(Input input) throws IOException {
+    public @NotNull DexMap read(@NotNull Input input) throws IOException {
         ItemCodec.clearCache(); // clear the cache
         DexMapBuilder builder = new DexMapBuilder();
         long size = input.readUnsignedInt();
@@ -55,7 +54,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         return builder.build();
     }
 
-    private <T extends Item> void write(T item, ItemCodec<T> codec, Output output, WriteContext context) throws IOException {
+    private <T extends Item> void write(T item, @NotNull ItemCodec<T> codec, @NotNull Output output, @NotNull WriteContext context) throws IOException {
         // align to alignment
         int position = output.position();
         position = (position + codec.alignment() - 1) & -codec.alignment();
@@ -64,7 +63,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         codec.write(item, output, context);
     }
 
-    private void writeMapEntry(Output output, int type, int size, int offset) throws IOException {
+    private void writeMapEntry(@NotNull Output output, int type, int size, int offset) throws IOException {
         if(size == 0) return;
         output.writeShort(type);
         output.writeShort(0);
@@ -72,19 +71,19 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         output.writeInt(offset);
     }
 
-    private <T> void writeMapEntry(Output output, int type, ConstantPool<T> objects) throws IOException {
+    private <T> void writeMapEntry(@NotNull Output output, int type, @NotNull ConstantPool<T> objects) throws IOException {
         if(!objects.isEmpty()) {
             writeMapEntry(output, type, objects.size(), offsets.get(objects.get(0)) + dataOffset);
         }
     }
 
-    private int putOffset(Output section, Map<Object, Integer> offsets, int offset) {
+    private int putOffset(@NotNull Output section, @NotNull Map<Object, Integer> offsets, int offset) {
         offsets.put(section, offset);
         return offset + section.position();
     }
 
     @Override
-    public void write(DexMap value, Output output) throws IOException {
+    public void write(@NotNull DexMap value, @NotNull Output output) throws IOException {
         this.sections = new Sections(output);
         this.offsets = new HashMap<>();
         // figure out the offset of the data section
@@ -100,7 +99,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         writeMap(value, sections().map(), context);
     }
 
-    private int computeNumberItems(DexMap map) {
+    private int computeNumberItems(@NotNull DexMap map) {
         int size = 2; // header item and map list
 
         if(!map.strings().isEmpty()) size += 2; // string_id and string_data
@@ -124,7 +123,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         return size;
     }
 
-    private void writeMap(DexMap value, Output output, WriteContext context) throws IOException {
+    private void writeMap(@NotNull DexMap value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
         output.writeInt(computeNumberItems(value));
 
         var offsets = context.offsets();
@@ -157,7 +156,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         writeMapEntry(output, TYPE_MAP_LIST, 1, offsets.get(sections.map()));
     }
 
-    private void computeOffsets(WriteContext context) {
+    private void computeOffsets(@NotNull WriteContext context) {
         var offsets = context.offsets();
         int offset = 0x70;
 
@@ -173,7 +172,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         putOffset(sections.map(), offsets, offset);
     }
 
-    private void writeBasic(DexMap value, WriteContext context) throws IOException {
+    private void writeBasic(@NotNull DexMap value, @NotNull WriteContext context) throws IOException {
         // we place the typelists first to avoid having to write extra alignment bytes later
         for (TypeListItem typeList : value.typeLists()) {
             write(typeList, TypeListItem.CODEC, sections.data(), context);
@@ -204,7 +203,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
     }
 
-    private void writeAnnotations(DexMap value, WriteContext context) throws IOException {
+    private void writeAnnotations(@NotNull DexMap value, @NotNull WriteContext context) throws IOException {
         // encoded arrays depend on method handles
         for (MethodHandleItem methodHandle : value.methodHandles()) {
             write(methodHandle, MethodHandleItem.CODEC, sections.methodHandles(), context);
@@ -237,7 +236,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
     }
 
-    private void writeClasses(DexMap value, WriteContext context) throws IOException {
+    private void writeClasses(@NotNull DexMap value, @NotNull WriteContext context) throws IOException {
         for (DebugInfoItem debugInfo : value.debugInfos()) {
             write(debugInfo, DebugInfoItem.CODEC, sections.data(), context);
         }
@@ -253,8 +252,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
     }
 
-    @NotNull
-    private WriteContext createContext(DexMap value) {
+    private @NotNull WriteContext createContext(@NotNull DexMap value) {
         int offset = 0x70; // we are after the header
         offset += value.strings().size() * 4; // string ids
         offset += value.types().size() * 4; // type ids

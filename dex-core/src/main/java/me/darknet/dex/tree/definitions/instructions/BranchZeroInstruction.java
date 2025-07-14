@@ -6,6 +6,7 @@ import me.darknet.dex.file.instructions.FormatAAopBBBB;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.OpcodeNames;
+import org.jetbrains.annotations.NotNull;
 
 public record BranchZeroInstruction(int kind, int a, Label label) implements Instruction {
     @Override
@@ -20,12 +21,12 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
 
     public static final InstructionCodec<BranchZeroInstruction, FormatAAopBBBB> CODEC = new InstructionCodec<>() {
         @Override
-        public BranchZeroInstruction map(FormatAAopBBBB input, InstructionContext<DexMap> context) {
+        public @NotNull BranchZeroInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> context) {
             return new BranchZeroInstruction(input.op() - Opcodes.IF_EQZ, input.a(), context.label(input, input.b()));
         }
 
         @Override
-        public FormatAAopBBBB unmap(BranchZeroInstruction output, InstructionContext<DexMapBuilder> context) {
+        public @NotNull FormatAAopBBBB unmap(@NotNull BranchZeroInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             return new FormatAAopBBBB(output.opcode(), output.a(), (short) context.labelOffset(output, output.label));
         }
     };
