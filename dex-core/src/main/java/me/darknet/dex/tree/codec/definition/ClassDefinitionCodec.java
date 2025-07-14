@@ -52,6 +52,13 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
                 var element = anno.element("value");
                 if (element instanceof StringConstant(String value)) {
                     definition.signature(value);
+                } else  if (element instanceof ArrayConstant array) {
+                    StringBuilder sb = new StringBuilder();
+                    for (Constant constant : array.constants()) {
+                        if (constant instanceof StringConstant(String value))
+                            sb.append(value);
+                    }
+                    definition.signature(sb.toString());
                 } else {
                     throw new IllegalStateException("Invalid Signature annotation value");
                 }
