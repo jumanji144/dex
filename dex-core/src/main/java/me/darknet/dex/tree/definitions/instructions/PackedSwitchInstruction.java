@@ -28,7 +28,7 @@ public record PackedSwitchInstruction(int first, List<Label> targets) implements
             FormatPackedSwitch payload = context.packedSwitchPayload(input, input.b());
             List<Label> targets = new ArrayList<>(payload.targets().length);
             for (int target : payload.targets()) {
-                targets.add(context.label(payload, target));
+                targets.add(context.label(input, target));
             }
 
             return new PackedSwitchInstruction(input.a(), targets);

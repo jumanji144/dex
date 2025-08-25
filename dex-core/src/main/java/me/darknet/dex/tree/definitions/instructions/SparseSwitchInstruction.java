@@ -28,7 +28,7 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
             FormatSparseSwitch payload = context.sparseSwitchPayload(input, input.b());
             Map<Integer, Label> targets = new HashMap<>(payload.targets().length);
             for (int i = 0; i < payload.targets().length; i++) {
-                targets.put(payload.keys()[i], context.label(payload, payload.targets()[i]));
+                targets.put(payload.keys()[i], context.label(input, payload.targets()[i]));
             }
 
             return new SparseSwitchInstruction(targets);

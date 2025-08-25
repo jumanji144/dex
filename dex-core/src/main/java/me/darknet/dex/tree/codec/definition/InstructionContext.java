@@ -56,6 +56,31 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
         return target;
     }
 
+    public @NotNull Label labelInexact(int offset) {
+        int targetIndex = offsets.indexOf(offset);
+        if (targetIndex == -1) {
+            // Find the closest offset less than the target offset
+            int closestIndex = -1;
+            int closestOffset = -1;
+            for (int i = 0; i < offsets.size(); i++) {
+                int currentOffset = offsets.get(i);
+                if (currentOffset < offset && currentOffset > closestOffset) {
+                    closestOffset = currentOffset;
+                    closestIndex = i;
+                }
+            }
+            if (closestIndex == -1) {
+                throw new IllegalArgumentException("No instruction found for offset: " + offset);
+            }
+
+            targetIndex = closestIndex;
+        }
+
+        Label target = new Label(targetIndex, offset);
+        labels.put(offset, target);
+        return target;
+    }
+
     public @NotNull FormatFilledArrayData arrayPayload(@NotNull Format format, int offset) {
         int targetIndex = lookup(format, offset);
 
