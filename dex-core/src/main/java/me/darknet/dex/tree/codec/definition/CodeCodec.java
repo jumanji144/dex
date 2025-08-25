@@ -40,9 +40,6 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         }
         for (TryItem item : input.tries()) {
             Label start = ctx.label(item.startAddr());
-            int amount = item.count();
-            if (amount == 1)
-                amount = 0; // single instruction try-catch blocks are inclusive of the end address
             Label end = ctx.labelInexact(item.startAddr() + item.count() - 1);
 
             EncodedTryCatchHandler handler = item.handler();
@@ -61,6 +58,20 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
             code.addTryCatch(new TryCatch(start, end, handlers));
         }
+
+        // insert label instructions
+        for (Label label : ctx.labels().values()) {
+            code.getInstructions().add(label.index(), label);
+        }
+
+        // insert label at beginning and end if not present
+        if (!(code.getInstructions().getFirst() instanceof Label))
+            code.getInstructions().addFirst(new Label(0, 0));
+
+        if (!(code.getInstructions().getLast() instanceof Label)) {
+            code.getInstructions().addLast(new Label(code.getInstructions().size(), ctx.offsets().getLast()));
+        }
+
         return code;
     }
 
