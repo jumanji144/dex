@@ -17,7 +17,7 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
     public static final ClassDefinitionCodec CODEC = new ClassDefinitionCodec();
 
     private final InstanceType type;
-    private final InstanceType superClass;
+    private @Nullable InstanceType superClass;
     private final int access;
     private @Nullable List<InstanceType> interfaces;
     private @Nullable String sourceFile;
@@ -46,6 +46,10 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
 
     public @Nullable InstanceType getSuperClass() {
         return superClass;
+    }
+
+    public void setSuperClass(@Nullable InstanceType superClass) {
+        this.superClass = superClass;
     }
 
     public @NotNull List<InstanceType> getInterfaces() {
