@@ -30,13 +30,16 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         Code code = new Code(input.in(), input.out(), input.registers());
         InstructionContext<DexMap> ctx = new InstructionContext<>(input.instructions(), input.offsets(), context,
                 new HashMap<>(16), null, null, null);
+
+        List<Instruction> instructions = new ArrayList<>(input.instructions().size());
+
         for (Format instruction : input.instructions()) {
             // Skip pseudo instructions
             if (instruction instanceof PseudoFormat)
                 // TODO: These probably need to be tracked in the Code model somehow for round-tripping.
                 continue;
 
-            code.addInstruction(Instruction.CODEC.map(instruction, ctx));
+            instructions.add(Instruction.CODEC.map(instruction, ctx));
         }
         for (TryItem item : input.tries()) {
             Label start = ctx.label(item.startAddr());
@@ -59,18 +62,28 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             code.addTryCatch(new TryCatch(start, end, handlers));
         }
 
-        // insert label instructions
-        for (Label label : ctx.labels().values()) {
-            code.getInstructions().add(label.index(), label);
+        // add labels into instructions
+        List<Instruction> finalInstructions = new ArrayList<>(instructions.size());
+        for (int i = 0; i < instructions.size(); i++) {
+            Instruction instruction = instructions.get(i);
+            Integer offset = input.offsets().get(i);
+            if (ctx.labels().containsKey(offset)) {
+                finalInstructions.add(ctx.labels().get(offset));
+            }
+            finalInstructions.add(instruction);
         }
 
-        // insert label at beginning and end if not present
-        if (!(code.getInstructions().getFirst() instanceof Label))
-            code.getInstructions().addFirst(new Label(0, 0));
-
-        if (!(code.getInstructions().getLast() instanceof Label)) {
-            code.getInstructions().addLast(new Label(code.getInstructions().size(), ctx.offsets().getLast()));
+        // add a label at the beginning if there isn't one
+        if (finalInstructions.isEmpty() || !(finalInstructions.getFirst() instanceof Label)) {
+            finalInstructions.addFirst(new Label(0, 0));
         }
+
+        // if there isn't a label at the end, add one
+        if (!(finalInstructions.getLast() instanceof Label)) {
+            finalInstructions.add(new Label(finalInstructions.size(), input.offsets().getLast()));
+        }
+
+        code.addInstructions(finalInstructions);
 
         return code;
     }
