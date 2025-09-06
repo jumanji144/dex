@@ -10,87 +10,19 @@ import me.darknet.dex.file.annotation.MethodAnnotation;
 import me.darknet.dex.file.annotation.ParameterAnnotation;
 import me.darknet.dex.file.items.*;
 import me.darknet.dex.file.value.Value;
+import me.darknet.dex.tree.definitions.annotation.AnnotationProcessing;
 import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.definitions.*;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
-import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.constant.*;
 import me.darknet.dex.tree.type.InstanceType;
-import me.darknet.dex.tree.type.Type;
 import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
 public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDefItem> {
-
-    private static void processAttribute(@NotNull ClassDefinition definition, @NotNull AnnotationPart anno) {
-        switch (anno.type().internalName()) {
-            case "dalvik/annotation/EnclosingClass" -> {
-                var enclosingClass = anno.element("value");
-                if (enclosingClass instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
-                    definition.setEnclosingClass(it);
-                } else {
-                    throw new IllegalStateException("Invalid EnclosingClass annotation value");
-                }
-            }
-            // TODO: EnclosingMethod
-            case "dalvik/annotation/InnerClass" -> {
-                var name = anno.element("name");
-                var access = anno.element("accessFlags");
-
-                if (access instanceof IntConstant(int a)) {
-                    if (name instanceof StringConstant(String n))
-                        definition.addInnerClass(new InnerClass(n, a));
-                    else if (name instanceof NullConstant)
-                        definition.addInnerClass(new InnerClass(null, a));
-                } else {
-                    throw new IllegalStateException("Invalid InnerClass annotation value");
-                }
-            }
-            case "dalvik/annotation/Signature" -> {
-                var element = anno.element("value");
-                if (element instanceof StringConstant(String value)) {
-                    definition.setSignature(value);
-                } else  if (element instanceof ArrayConstant array) {
-                    StringBuilder sb = new StringBuilder();
-                    for (Constant constant : array.constants()) {
-                        if (constant instanceof StringConstant(String value))
-                            sb.append(value);
-                    }
-                    definition.setSignature(sb.toString());
-                } else {
-                    throw new IllegalStateException("Invalid Signature annotation value");
-                }
-            }
-            case "dalvik/annotation/MemberClasses" -> {
-                var classes = anno.element("value");
-                if (classes instanceof ArrayConstant(List<Constant> constants)) {
-                    for (Constant constant : constants) {
-                        if (constant instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
-                            definition.addMemberClass(it);
-                        } else {
-                            throw new IllegalStateException("Invalid MemberClasses annotation value");
-                        }
-                    }
-                } else {
-                    throw new IllegalStateException("Invalid MemberClasses annotation value");
-                }
-            }
-        }
-    }
-
-    private void processAttributes(@NotNull ClassDefinition definition) {
-        // map attributes
-        for (Annotation annotation : definition.getAnnotations()) {
-            if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
-                var anno = annotation.annotation();
-                processAttribute(definition, anno);
-            }
-        }
-    }
-
     @Override
     public @NotNull ClassDefinition map(@NotNull ClassDefItem input, @NotNull DexMap context) {
         InstanceType type = Types.instanceType(input.type());
@@ -260,4 +192,12 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
                 data, staticValuesItem);
     }
 
+	private void processAttributes(@NotNull ClassDefinition definition) {
+		// map attributes
+		for (Annotation annotation : definition.getAnnotations()) {
+			if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
+				AnnotationProcessing.processAttribute(definition, annotation.annotation());
+			}
+		}
+	}
 }

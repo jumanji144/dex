@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.EncodedMember;
 import me.darknet.dex.file.items.AnnotationOffItem;
 import me.darknet.dex.file.items.AnnotationSetItem;
+import me.darknet.dex.tree.definitions.annotation.AnnotationProcessing;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
@@ -93,19 +94,8 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
         for (AnnotationOffItem entry : set.entries()) {
             Annotation annotation = Annotation.CODEC.map(entry.item(), map);
 
-            if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
-                var anno = annotation.annotation();
-
-                // TODO: Recycle code in ClassDefinitionCodec
-                //  - this doesn't support all signatures, but the CDC does
-
-                if (anno.type().internalName().equals("dalvik/annotation/Signature")) {
-                    var element = anno.element("value");
-                    if (element instanceof StringConstant(String value)) {
-                        setSignature(value);
-                    }
-                }
-            }
+            if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM)
+                AnnotationProcessing.processAttribute(this, annotation.annotation());
 
             addAnnotation(annotation);
         }
