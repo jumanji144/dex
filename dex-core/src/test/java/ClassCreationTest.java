@@ -43,7 +43,7 @@ public class ClassCreationTest {
         );
 
         code.addInstructions(instructions);
-        methodMember.code(code);
+        methodMember.setCode(code);
 
         classDefinition.putMethod(methodMember);
 

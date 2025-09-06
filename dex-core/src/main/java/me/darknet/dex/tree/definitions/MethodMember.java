@@ -11,20 +11,40 @@ import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
 public final class MethodMember extends Member<MethodType> {
 
     private Code code;
+    private List<String> thrownTypes;
 
     public MethodMember(@NotNull String name, @NotNull MethodType type, int access) {
         super(type, access, name);
     }
 
-    public @Nullable Code code() {
+    public @Nullable Code getCode() {
         return code;
     }
 
-    public void code(@Nullable Code code) {
+    public void setCode(@Nullable Code code) {
         this.code = code;
+    }
+
+    public @NotNull List<String> getThrownTypes() {
+        return Objects.requireNonNullElse(thrownTypes, Collections.emptyList());
+    }
+
+    public void addThrownType(@NotNull String thrownType) {
+        if (thrownTypes == null)
+            thrownTypes = new ArrayList<>(2);
+        thrownTypes.add(thrownType);
+    }
+
+    public void setThrownTypes(@Nullable List<String> thrownTypes) {
+        this.thrownTypes = thrownTypes;
     }
 
     public static final MemberCodec<MethodMember, EncodedMethod> CODEC = new MemberCodec<>() {
@@ -41,7 +61,7 @@ public final class MethodMember extends Member<MethodType> {
             if (encoded.code() != null) {
                 Code code = Code.CODEC.map(encoded.code(), context);
 
-                member.code(code);
+                member.setCode(code);
             }
 
             AnnotationSetItem set = annotations.methodAnnotations().get(encoded.method());
@@ -55,7 +75,7 @@ public final class MethodMember extends Member<MethodType> {
         public EncodedMethod unmap(MethodMember member, AnnotationMap annotations, DexMapBuilder context) {
             MethodItem method = context.method(member.getOwner(), member.getName(), member.getType());
 
-            CodeItem code = context.code(member.code());
+            CodeItem code = context.code(member.getCode());
 
             AnnotationSetItem set = context.annotationSet(member.getAnnotations());
 

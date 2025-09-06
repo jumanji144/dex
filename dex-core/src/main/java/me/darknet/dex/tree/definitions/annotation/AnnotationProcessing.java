@@ -43,8 +43,8 @@ public class AnnotationProcessing {
     private static boolean processClassAttribute(@NotNull ClassDefinition definition, @NotNull AnnotationPart anno) {
         return switch (anno.type().internalName()) {
             case "dalvik/annotation/EnclosingClass" -> {
-                var enclosingClass = anno.element("value");
-                if (enclosingClass instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
+                var value = anno.element("value");
+                if (value instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
                     definition.setEnclosingClass(it);
                 } else {
                     throw new IllegalStateException("Invalid EnclosingClass annotation value");
@@ -70,8 +70,8 @@ public class AnnotationProcessing {
                 yield true;
             }
             case "dalvik/annotation/MemberClasses" -> {
-                var classes = anno.element("value");
-                if (classes instanceof ArrayConstant(List<Constant> constants)) {
+                var value = anno.element("value");
+                if (value instanceof ArrayConstant(List<Constant> constants)) {
                     for (Constant constant : constants) {
                         if (constant instanceof TypeConstant(Type t) && t instanceof InstanceType it) {
                             definition.addMemberClass(it);
@@ -111,9 +111,10 @@ public class AnnotationProcessing {
     private static boolean processMethodAttribute(@NotNull MethodMember definition, @NotNull AnnotationPart anno) {
         return switch (anno.type().internalName()) {
             case "dalvik/annotation/AnnotationDefault" -> {
-                var annotation = anno.element("value");
-                if (annotation instanceof AnnotationConstant(AnnotationPart part)) {
-
+                var value = anno.element("value");
+                if (value instanceof AnnotationConstant(AnnotationPart part)) {
+	                // TODO: AnnotationDefault
+	                //  - Should be just one value, not sure how to pick which one if there are multiple provided
                 }
                 yield true;
             }
@@ -123,8 +124,15 @@ public class AnnotationProcessing {
                 yield true;
             }
             case "dalvik/annotation/Throws" -> {
-                // TODO: Throws
-                yield true;
+	            var value = anno.element("value");
+				if (value instanceof ArrayConstant(List<Constant> constants)) {
+					for (Constant constant : constants) {
+						if (constant instanceof TypeConstant(Type type) && type instanceof InstanceType thrownType) {
+							definition.addThrownType(thrownType.internalName());
+						}
+					}
+				}
+	            yield true;
             }
             default -> false;
         };
