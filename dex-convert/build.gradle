@@ -1,0 +1,10 @@
+dependencies {
+    implementation project(':dex-core')
+    implementation 'org.ow2.asm:asm:9.8'
+    implementation 'org.ow2.asm:asm-util:9.8'
+
+    testImplementation testFixtures(project(":dex-core"))
+    testImplementation 'org.benf:cfr:0.152'
+    testImplementation 'software.coley:source-solver:1.1.9'
+    testImplementation 'org.apache.commons:commons-text:1.15.0'
+}

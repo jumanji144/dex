@@ -10,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.HashMap;
 import java.util.Map;
 
-public record SparseSwitchInstruction(Map<Integer, Label> targets) implements Instruction {
+public record SparseSwitchInstruction(int register, Map<Integer, Label> targets) implements Instruction {
     @Override
     public int opcode() {
         return SPARSE_SWITCH;
@@ -18,7 +18,7 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
 
     @Override
     public String toString() {
-        return "sparse-switch " + targets.keySet().stream()
+        return "sparse-switch v" + register + ", " + targets.keySet().stream()
                 .map(Object::toString).reduce((a, b) -> a + " -> " + b).orElse("");
     }
 
@@ -31,14 +31,14 @@ public record SparseSwitchInstruction(Map<Integer, Label> targets) implements In
                 targets.put(payload.keys()[i], context.label(input, payload.targets()[i]));
             }
 
-            return new SparseSwitchInstruction(targets);
+            return new SparseSwitchInstruction(input.a(), targets);
         }
 
         @Override
         public @NotNull FormatAAopBBBB32 unmap(@NotNull SparseSwitchInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int offset = context.sparseSwitchPayloads().get(output);
 
-            return new FormatAAopBBBB32(SPARSE_SWITCH, 0, offset);
+            return new FormatAAopBBBB32(SPARSE_SWITCH, output.register, offset);
         }
     };
 

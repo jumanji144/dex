@@ -8,12 +8,15 @@ import me.darknet.dex.file.instructions.FormatAAopBBBB32;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import org.jetbrains.annotations.NotNull;
 
-public record ConstStringInstruction(int register, String string) implements Instruction {
+public record ConstStringInstruction(int opcode, int register, String string) implements Instruction {
+
+    public ConstStringInstruction(int register, String string) {
+        this(CONST_STRING, register, string);
+    }
 
     @Override
     public int opcode() {
-        // only return CONST_STRING, as CONST_STRING_JUMBO can only be determined at write-time
-        return CONST_STRING;
+        return opcode;
     }
 
     @Override
@@ -26,9 +29,9 @@ public record ConstStringInstruction(int register, String string) implements Ins
         public @NotNull ConstStringInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAAopBBBB(int op, int a, int b) ->
-                        new ConstStringInstruction(a, context.map().strings().get(b).string());
+                        new ConstStringInstruction(op, a, context.map().strings().get(b & 0xffff).string());
                 case FormatAAopBBBB32(int op, int a, int b) ->
-                        new ConstStringInstruction(a, context.map().strings().get(b).string());
+                        new ConstStringInstruction(op, a, context.map().strings().get(b).string());
                 default -> throw new IllegalArgumentException("Unmappable format: " + input);
             };
         }
@@ -36,16 +39,16 @@ public record ConstStringInstruction(int register, String string) implements Ins
         @Override
         public @NotNull Format unmap(@NotNull ConstStringInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int index = context.map().addString(output.string);
-            if (index <= 0xffff) {
-                return new FormatAAopBBBB(CONST_STRING, output.register(), index);
-            } else {
+            if (output.opcode == CONST_STRING_JUMBO || index > 0xffff) {
                 return new FormatAAopBBBB32(CONST_STRING_JUMBO, output.register(), index);
+            } else {
+                return new FormatAAopBBBB(CONST_STRING, output.register(), index);
             }
         }
     };
 
     @Override
     public int byteSize() {
-        return 2; // NOTE: this is not accurate, but the actual size is determined at write-time
+        return opcode == CONST_STRING_JUMBO ? 3 : 2;
     }
 }

@@ -34,7 +34,7 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
         public @NotNull MoveObjectInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatBAop(int op, int a, int b) -> new MoveObjectInstruction(op, a, b);
-                case FormatAAopBBBB(int op, int a, int b) -> new MoveObjectInstruction(op, a, b);
+                case FormatAAopBBBB(int op, int a, int b) -> new MoveObjectInstruction(op, a, b & 0xffff);
                 case Format00opAAAABBBB(int op, int a, int b) -> new MoveObjectInstruction(op, a, b);
                 default -> throw new IllegalArgumentException("Unmappable format: " + input);
             };

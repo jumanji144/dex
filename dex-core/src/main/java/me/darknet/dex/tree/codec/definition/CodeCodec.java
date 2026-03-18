@@ -32,18 +32,26 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                 new HashMap<>(16), null, null, null);
 
         List<Instruction> instructions = new ArrayList<>(input.instructions().size());
+        List<Integer> instructionOffsets = new ArrayList<>(input.instructions().size());
+        int lastInstructionEnd = 0;
 
-        for (Format instruction : input.instructions()) {
+        for (int i = 0; i < input.instructions().size(); i++) {
+            Format instruction = input.instructions().get(i);
+
             // Skip pseudo instructions
             if (instruction instanceof PseudoFormat)
                 // TODO: These probably need to be tracked in the Code model somehow for round-tripping.
                 continue;
 
+            // Add to the instruction list and track offsets for label resolution
+            int offset = input.offsets().get(i);
+            lastInstructionEnd = offset + instruction.size();
             instructions.add(Instruction.CODEC.map(instruction, ctx));
+            instructionOffsets.add(offset);
         }
         for (TryItem item : input.tries()) {
             Label start = ctx.label(item.startAddr());
-            Label end = ctx.labelInexact(item.startAddr() + item.count() - 1);
+            Label end = ctx.labelInexact(item.startAddr() + item.count());
 
             EncodedTryCatchHandler handler = item.handler();
             List<Handler> handlers = new ArrayList<>();
@@ -66,11 +74,12 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         List<Instruction> finalInstructions = new ArrayList<>(instructions.size());
         for (int i = 0; i < instructions.size(); i++) {
             Instruction instruction = instructions.get(i);
-            Integer offset = input.offsets().get(i);
+            Integer offset = instructionOffsets.get(i);
             if (ctx.labels().containsKey(offset)) {
                 finalInstructions.add(ctx.labels().get(offset));
             }
             finalInstructions.add(instruction);
+            code.setInstructionOffset(instruction, offset);
         }
 
         // add a label at the beginning if there isn't one
@@ -80,7 +89,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         // if there isn't a label at the end, add one
         if (!(finalInstructions.getLast() instanceof Label)) {
-            finalInstructions.add(new Label(finalInstructions.size(), input.offsets().getLast()));
+            finalInstructions.add(new Label(finalInstructions.size(), lastInstructionEnd));
         }
 
         code.addInstructions(finalInstructions);
@@ -137,7 +146,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                         targets[i] = ctx.labelOffset(instruction, insn.targets().get(i));
                     }
 
-                    FormatPackedSwitch packedSwitch = new FormatPackedSwitch(insn.first(), targets);
+                    FormatPackedSwitch packedSwitch = new FormatPackedSwitch(insn.firstKey(), targets);
                     packedSwitches.put(insn, position);
                     extra.add(packedSwitch);
                     position += packedSwitch.size();

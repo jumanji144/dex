@@ -12,46 +12,48 @@ import org.jetbrains.annotations.NotNull;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class DexMapCodec implements Codec<DexMap>, ItemTypes {
 
-    private Sections sections;
-    private Map<Object, Integer> offsets;
-    private int dataOffset;
+    private volatile WriteState writeState;
     private static final ItemCodec<?>[] CODECS;
 
     public Sections sections() {
-        return sections;
+        return state().sections();
     }
 
     public Map<Object, Integer> offsets() {
-        return offsets;
+        return state().offsets();
     }
 
     public int dataOffset() {
-        return dataOffset;
+        return state().dataOffset();
     }
 
     @Override
     public @NotNull DexMap read(@NotNull Input input) throws IOException {
-        ItemCodec.clearCache(); // clear the cache
-        DexMapBuilder builder = new DexMapBuilder();
-        long size = input.readUnsignedInt();
-        for (long i = 0; i < size; i++) {
-            int type = input.readUnsignedShort();
-            input.readUnsignedShort(); // unused
-            long amount = input.readUnsignedInt();
-            int offset = input.readInt();
-            if(type == TYPE_HEADER_ITEM || type == TYPE_MAP_LIST) { // is either header or map list
-                continue;
+        return ItemCodec.withFreshCache(() -> {
+            DexMapBuilder builder = new DexMapBuilder();
+            long size = input.readUnsignedInt();
+            for (long i = 0; i < size; i++) {
+                int type = input.readUnsignedShort();
+                input.readUnsignedShort(); // unused
+                long amount = input.readUnsignedInt();
+                int offset = input.readInt();
+                if (type == TYPE_HEADER_ITEM || type == TYPE_MAP_LIST) { // is either header or map list
+                    continue;
+                }
+                Input slice = input.slice(offset);
+                for (long j = 0; j < amount; j++) {
+                    Item item;
+
+                    item = CODECS[index(type)].read(slice, builder);
+                    builder.add(item);
+                }
             }
-            Input slice = input.slice(offset);
-            for (long j = 0; j < amount; j++) {
-                Item item = CODECS[index(type)].read(slice, builder);
-                builder.add(item);
-            }
-        }
-        return builder.build();
+            return builder.build();
+        });
     }
 
     private <T extends Item> void write(T item, @NotNull ItemCodec<T> codec, @NotNull Output output, @NotNull WriteContext context) throws IOException {
@@ -71,9 +73,10 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         output.writeInt(offset);
     }
 
-    private <T> void writeMapEntry(@NotNull Output output, int type, @NotNull ConstantPool<T> objects) throws IOException {
+    private <T> void writeMapEntry(@NotNull Output output, int type, @NotNull ConstantPool<T> objects,
+                                   @NotNull WriteContext context) throws IOException {
         if(!objects.isEmpty()) {
-            writeMapEntry(output, type, objects.size(), offsets.get(objects.get(0)) + dataOffset);
+            writeMapEntry(output, type, objects.size(), context.offsets().get(objects.get(0)) + context.dataOffset());
         }
     }
 
@@ -84,19 +87,19 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
 
     @Override
     public void write(@NotNull DexMap value, @NotNull Output output) throws IOException {
-        this.sections = new Sections(output);
-        this.offsets = new HashMap<>();
-        // figure out the offset of the data section
-        WriteContext context = createContext(value);
+        Sections sections = new Sections(output);
+        Map<Object, Integer> offsets = new HashMap<>();
+        WriteContext context = createContext(value, offsets);
 
-        writeBasic(value, context);
-        writeAnnotations(value, context);
-        writeClasses(value, context);
+        writeBasic(value, sections, context);
+        writeAnnotations(value, sections, context);
+        writeClasses(value, sections, context);
 
         // compute offsets for sections
-        computeOffsets(context);
+        computeOffsets(sections, context);
 
-        writeMap(value, sections().map(), context);
+        writeMap(value, sections, context);
+        writeState = new WriteState(sections, Map.copyOf(offsets), context.dataOffset());
     }
 
     private int computeNumberItems(@NotNull DexMap map) {
@@ -123,7 +126,8 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         return size;
     }
 
-    private void writeMap(@NotNull DexMap value, @NotNull Output output, @NotNull WriteContext context) throws IOException {
+    private void writeMap(@NotNull DexMap value, @NotNull Sections sections, @NotNull WriteContext context) throws IOException {
+        Output output = sections.map();
         output.writeInt(computeNumberItems(value));
 
         var offsets = context.offsets();
@@ -141,22 +145,22 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
                 offsets.get(sections.methodHandles()));
 
         // data section entries
-        writeMapEntry(output, TYPE_STRING_DATA_ITEM, value.stringDatas());
-        writeMapEntry(output, TYPE_TYPE_LIST, value.typeLists());
-        writeMapEntry(output, TYPE_ENCODED_ARRAY_ITEM, value.encodedArrays());
-        writeMapEntry(output, TYPE_ANNOTATION_ITEM, value.annotations());
-        writeMapEntry(output, TYPE_ANNOTATION_SET_ITEM, value.annotationSets());
-        writeMapEntry(output, TYPE_ANNOTATION_SET_REF_LIST, value.annotationSetRefLists());
-        writeMapEntry(output, TYPE_ANNOTATIONS_DIRECTORY_ITEM, value.annotationsDirectories());
-        writeMapEntry(output, TYPE_DEBUG_INFO_ITEM, value.debugInfos());
-        writeMapEntry(output, TYPE_CODE_ITEM, value.codes());
-        writeMapEntry(output, TYPE_CLASS_DATA_ITEM, value.classDatas());
+        writeMapEntry(output, TYPE_STRING_DATA_ITEM, value.stringDatas(), context);
+        writeMapEntry(output, TYPE_TYPE_LIST, value.typeLists(), context);
+        writeMapEntry(output, TYPE_ENCODED_ARRAY_ITEM, value.encodedArrays(), context);
+        writeMapEntry(output, TYPE_ANNOTATION_ITEM, value.annotations(), context);
+        writeMapEntry(output, TYPE_ANNOTATION_SET_ITEM, value.annotationSets(), context);
+        writeMapEntry(output, TYPE_ANNOTATION_SET_REF_LIST, value.annotationSetRefLists(), context);
+        writeMapEntry(output, TYPE_ANNOTATIONS_DIRECTORY_ITEM, value.annotationsDirectories(), context);
+        writeMapEntry(output, TYPE_DEBUG_INFO_ITEM, value.debugInfos(), context);
+        writeMapEntry(output, TYPE_CODE_ITEM, value.codes(), context);
+        writeMapEntry(output, TYPE_CLASS_DATA_ITEM, value.classDatas(), context);
 
         // write myself
         writeMapEntry(output, TYPE_MAP_LIST, 1, offsets.get(sections.map()));
     }
 
-    private void computeOffsets(@NotNull WriteContext context) {
+    private void computeOffsets(@NotNull Sections sections, @NotNull WriteContext context) {
         var offsets = context.offsets();
         int offset = 0x70;
 
@@ -172,7 +176,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         putOffset(sections.map(), offsets, offset);
     }
 
-    private void writeBasic(@NotNull DexMap value, @NotNull WriteContext context) throws IOException {
+    private void writeBasic(@NotNull DexMap value, @NotNull Sections sections, @NotNull WriteContext context) throws IOException {
         // we place the typelists first to avoid having to write extra alignment bytes later
         for (TypeListItem typeList : value.typeLists()) {
             write(typeList, TypeListItem.CODEC, sections.data(), context);
@@ -203,7 +207,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
     }
 
-    private void writeAnnotations(@NotNull DexMap value, @NotNull WriteContext context) throws IOException {
+    private void writeAnnotations(@NotNull DexMap value, @NotNull Sections sections, @NotNull WriteContext context) throws IOException {
         // encoded arrays depend on method handles
         for (MethodHandleItem methodHandle : value.methodHandles()) {
             write(methodHandle, MethodHandleItem.CODEC, sections.methodHandles(), context);
@@ -236,7 +240,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
     }
 
-    private void writeClasses(@NotNull DexMap value, @NotNull WriteContext context) throws IOException {
+    private void writeClasses(@NotNull DexMap value, @NotNull Sections sections, @NotNull WriteContext context) throws IOException {
         for (DebugInfoItem debugInfo : value.debugInfos()) {
             write(debugInfo, DebugInfoItem.CODEC, sections.data(), context);
         }
@@ -252,7 +256,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         }
     }
 
-    private @NotNull WriteContext createContext(@NotNull DexMap value) {
+    private @NotNull WriteContext createContext(@NotNull DexMap value, @NotNull Map<Object, Integer> offsets) {
         int offset = 0x70; // we are after the header
         offset += value.strings().size() * 4; // string ids
         offset += value.types().size() * 4; // type ids
@@ -263,9 +267,11 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         offset += value.callSites().size() * 4; // call sites
         offset += value.methodHandles().size() * 8; // method handles
 
-        this.dataOffset = offset;
+        return new WriteContext(value, offsets, offset);
+    }
 
-        return new WriteContext(value, this.offsets, this.dataOffset);
+    private @NotNull WriteState state() {
+        return Objects.requireNonNull(writeState, "DexMapCodec write state is only available after write()");
     }
 
     private static int index(int type) {
@@ -294,4 +300,6 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         codecs[index(0x2006)] = AnnotationsDirectoryItem.CODEC;
         CODECS = codecs;
     }
+
+    private record WriteState(@NotNull Sections sections, @NotNull Map<Object, Integer> offsets, int dataOffset) {}
 }

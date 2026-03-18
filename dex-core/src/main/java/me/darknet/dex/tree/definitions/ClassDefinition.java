@@ -11,6 +11,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class ClassDefinition implements Typed<InstanceType>, Accessible, Annotated, Signed {
 
@@ -99,8 +100,18 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
     }
 
     public void addInnerClass(@NotNull InnerClass innerClass) {
+        // Sanity check to ensure we only add inner classes that actually belong to this class.
+        if (!innerClass.innerClassName().startsWith(innerClass.outerClassName() + "$"))
+            return;
+
+        // Initialize if null and add the inner class to the list if its not already present.
         if (innerClasses == null)
             innerClasses = new ArrayList<>();
+        for (InnerClass existingInnerClass : innerClasses) {
+            if (Objects.equals(existingInnerClass.innerClassName(), innerClass.innerClassName())
+                    && Objects.equals(existingInnerClass.innerName(), innerClass.innerName()))
+                return;
+        }
         innerClasses.add(innerClass);
     }
 
@@ -144,6 +155,9 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
     }
 
     public void putMethod(@NotNull MethodMember method) {
+        // TODO: Investigate usage and consider if storing in a List for order would be more appropriate
+        //  - Most classes aren't small, so looping to lookup by name+desc is likely not a big deal
+        //  - Same for fields below
         method.setOwner(getType());
         if (methods == null)
             methods = new LinkedHashMap<>();
@@ -188,5 +202,10 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
 
     public void addAnnotations(@NotNull List<Annotation> annotations) {
         annotations.forEach(this::addAnnotation);
+    }
+
+    @Override
+    public String toString() {
+        return type.internalName();
     }
 }

@@ -1,5 +1,5 @@
-import me.darknet.dex.collections.BiMap;
-import me.darknet.dex.collections.HashBiMap;
+package me.darknet.dex.collections;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

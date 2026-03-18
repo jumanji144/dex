@@ -13,14 +13,24 @@ public record ConstInstruction(int opcode, int register, int value) implements I
 
     private static int op(int value) {
         // determine which opcode to use
-        if (value <= 0xf) // 4 bit const
+        if (value >= -8 && value <= 7) // 4 bit signed const
             return CONST_4;
-        if (value <= 0xffff) // 16 bit const
+        if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) // 16 bit signed const
             return CONST_16;
-        final int HIGH16_MASK = 0xffff0000;
-        if ((value & HIGH16_MASK) == value) // bits are only set in the high 16 bits
+        if ((value & 0xFFFF) == 0) // bits are only set in the high 16 bits
             return CONST_HIGH16;
         return CONST;
+    }
+
+    private static int decodeConst4(int value) {
+        return (value << 28) >> 28;
+    }
+
+    private static int decodeConst16(int opcode, int value) {
+        if (opcode == CONST_HIGH16) {
+            return value << 16;
+        }
+        return value;
     }
 
     public ConstInstruction(int register, int value) {
@@ -36,8 +46,8 @@ public record ConstInstruction(int opcode, int register, int value) implements I
         @Override
         public @NotNull ConstInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
-                case FormatBAop(int op, int a, int b) -> new ConstInstruction(op, a, b);
-                case FormatAAopBBBB(int op, int a, int b) -> new ConstInstruction(op, a, b);
+                case FormatBAop(int op, int a, int b) -> new ConstInstruction(op, a, decodeConst4(b));
+                case FormatAAopBBBB(int op, int a, int b) -> new ConstInstruction(op, a, decodeConst16(op, b));
                 case FormatAAopBBBB32(int op, int a, int b) -> new ConstInstruction(op, a, b);
                 default -> throw new IllegalArgumentException("Unmappable format: " + input);
             };
@@ -48,7 +58,7 @@ public record ConstInstruction(int opcode, int register, int value) implements I
             return switch (output.opcode()) {
                 case CONST_4 -> new FormatBAop(CONST_4, output.register(), output.value());
                 case CONST_16 -> new FormatAAopBBBB(CONST_16, output.register(), output.value());
-                case CONST_HIGH16 -> new FormatAAopBBBB(CONST_HIGH16, output.register(), output.value());
+                case CONST_HIGH16 -> new FormatAAopBBBB(CONST_HIGH16, output.register(), output.value() >> 16);
                 case CONST -> new FormatAAopBBBB32(CONST, output.register(), output.value());
                 default -> throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());
             };

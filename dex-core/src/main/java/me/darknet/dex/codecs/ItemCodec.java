@@ -5,7 +5,6 @@ import me.darknet.dex.file.items.Item;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -13,7 +12,7 @@ import java.util.Map;
 
 public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMapAccess, WriteContext> {
 
-    private static Map<Integer, CacheEntry> ITEM_CACHE = new HashMap<>(1 << 16);
+    private static final ThreadLocal<Map<Integer, CacheEntry>> ITEM_CACHE = new ThreadLocal<>();
 
     public abstract I read0(@NotNull Input input, @NotNull DexMapAccess context) throws IOException;
 
@@ -24,23 +23,46 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
     }
 
     public static void clearCache() {
-        ITEM_CACHE = new HashMap<>(1 << 16);
+        Map<Integer, CacheEntry> cache = ITEM_CACHE.get();
+        if (cache != null) {
+            cache.clear();
+        }
+    }
+
+    public static Object getCacheLock() {
+        return ItemCodec.class;
+    }
+
+    static <T> T withFreshCache(@NotNull IOSupplier<T> action) throws IOException {
+        Map<Integer, CacheEntry> previous = ITEM_CACHE.get();
+        ITEM_CACHE.set(new HashMap<>(1 << 16));
+        try {
+            return action.get();
+        } finally {
+            if (previous == null) {
+                ITEM_CACHE.remove();
+            } else {
+                ITEM_CACHE.set(previous);
+            }
+        }
     }
 
     @Override
     public I read(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
+        Map<Integer, CacheEntry> cache = ITEM_CACHE.get();
+        if (cache == null) {
+            return readUncached(input, context);
+        }
+
         int position = input.position();
-        CacheEntry cached = ITEM_CACHE.get(position);
+        CacheEntry cached = cache.get(position);
         if (cached != null) {
             input.position(cached.position);
             return (I) cached.item;
         }
-        I item = read0(input, context);
+        I item = readUncached(input, context);
         int result = input.position();
-        // align
-        result = (result + alignment() - 1) & -alignment();
-        ITEM_CACHE.put(position, new CacheEntry(item, result));
-        input.position(result);
+        cache.put(position, new CacheEntry(item, result));
         return item;
     }
 
@@ -51,6 +73,20 @@ public abstract class ItemCodec<I extends Item> implements ContextCodec<I, DexMa
         position = (position + alignment() - 1) & -alignment();
         output.position(position);
         write0(value, output, context);
+    }
+
+    private I readUncached(@NotNull Input input, @NotNull DexMapAccess context) throws IOException {
+        I item = read0(input, context);
+        int result = input.position();
+        // align
+        result = (result + alignment() - 1) & -alignment();
+        input.position(result);
+        return item;
+    }
+
+    @FunctionalInterface
+    interface IOSupplier<T> {
+        T get() throws IOException;
     }
 
     record CacheEntry(@NotNull Item item, int position) {}

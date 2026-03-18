@@ -1,7 +1,8 @@
+package me.darknet.dex.tree;
+
 import me.darknet.dex.file.DexHeader;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.io.Output;
-import me.darknet.dex.tree.DexFile;
 import me.darknet.dex.tree.definitions.ClassDefinition;
 import me.darknet.dex.tree.definitions.MethodMember;
 import me.darknet.dex.tree.definitions.code.Code;
@@ -57,8 +58,5 @@ public class ClassCreationTest {
         DexHeader.CODEC.write(header, output);
 
         output.pipe(new FileOutputStream("output.dex"));
-
-        return;
     }
-
 }

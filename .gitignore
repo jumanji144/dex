@@ -37,3 +37,7 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Other ###
+test-data/*.*
+!test-data/samples/

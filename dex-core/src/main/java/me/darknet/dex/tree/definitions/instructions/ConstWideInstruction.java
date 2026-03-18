@@ -10,17 +10,24 @@ import me.darknet.dex.tree.codec.definition.InstructionContext;
 import org.jetbrains.annotations.NotNull;
 
 public record ConstWideInstruction(int opcode, int register, long value) implements Instruction {
+    private static final long HIGH16_MASK = 0xffffL << 48;
 
     private static int op(long value) {
-        // determine which opcode to use
-        if (value <= 0xffff) // 16 bit const
+        // Determine which opcode to use
+        if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) // 16 bit signed const
             return CONST_WIDE_16;
-        if (value <= 0xffffffffL) // 32 bit const
+        if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) // 32 bit signed const
             return CONST_WIDE_32;
-        final long HIGH16_MASK = 0xffffL << 48;
-        if ((value & HIGH16_MASK) == value) // bits are only set in the high 16 bits
+        if ((value & ~HIGH16_MASK) == 0) // bits are only set in the high 16 bits
             return CONST_WIDE_HIGH16;
         return CONST_WIDE;
+    }
+
+    private static long decodeConst16(int opcode, int value) {
+        if (opcode == CONST_WIDE_HIGH16) {
+            return ((long) value) << 48;
+        }
+        return value;
     }
 
     public ConstWideInstruction(int register, long value) {
@@ -36,7 +43,7 @@ public record ConstWideInstruction(int opcode, int register, long value) impleme
         @Override
         public @NotNull ConstWideInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
-                case FormatAAopBBBB(int op, int a, int b) -> new ConstWideInstruction(op, a, b);
+                case FormatAAopBBBB(int op, int a, int b) -> new ConstWideInstruction(op, a, decodeConst16(op, b));
                 case FormatAAopBBBB32(int op, int a, int b) -> new ConstWideInstruction(op, a, b);
                 case FormatAAopBBBB64(int op, int a, long b) -> new ConstWideInstruction(op, a, b);
                 default -> throw new IllegalArgumentException("Unmappable format: " + input);
@@ -48,7 +55,7 @@ public record ConstWideInstruction(int opcode, int register, long value) impleme
             return switch (output.opcode()) {
                 case CONST_WIDE_16 -> new FormatAAopBBBB(CONST_WIDE_16, output.register(), (int) output.value());
                 case CONST_WIDE_32 -> new FormatAAopBBBB32(CONST_WIDE_32, output.register(), (int) output.value());
-                case CONST_WIDE_HIGH16 -> new FormatAAopBBBB(CONST_WIDE_HIGH16, output.register(), (int) output.value());
+                case CONST_WIDE_HIGH16 -> new FormatAAopBBBB(CONST_WIDE_HIGH16, output.register(), (int) (output.value() >> 48));
                 case CONST_WIDE -> new FormatAAopBBBB64(CONST_WIDE, output.register(), output.value());
                 default -> throw new IllegalArgumentException("Unmappable opcode: " + output.opcode());
             };

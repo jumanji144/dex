@@ -94,8 +94,15 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
         for (AnnotationOffItem entry : set.entries()) {
             Annotation annotation = Annotation.CODEC.map(entry.item(), map);
 
-            if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM)
-                AnnotationProcessing.processAttribute(this, annotation.annotation());
+            // Process metadata annotations, which are "system" annotations used to store metadata like:
+            // - signatures,
+            // - enclosing class/method info
+            // - etc.
+            // These are not meant to be exposed as "real" annotations.
+            // Drop these when found (the call will fill in the metadata they represent in our model / 'this').
+            if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM
+                    && AnnotationProcessing.processAttribute(Collections.emptyMap(), this, annotation.annotation()))
+               continue;
 
             addAnnotation(annotation);
         }

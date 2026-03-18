@@ -30,13 +30,25 @@ subprojects {
         useJUnitPlatform()
 
         testLogging {
-            events "passed", "skipped", "failed"
+            events = ["passed", "skipped", "failed"]
+            showStandardStreams = true
         }
+
+        systemProperty 'junit.jupiter.execution.parallel.enabled', true
+        systemProperty 'junit.jupiter.execution.parallel.mode.default', 'concurrent'
+
+        jvmArgs "--add-opens", "jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED"
+        jvmArgs "--add-opens", "jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED"
+        jvmArgs "--add-opens", "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED"
     }
 
     dependencies {
         // jetbrains annotations
         implementation 'org.jetbrains:annotations:22.0.0'
+
+        // test dependencies
+        testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 
     publishing {

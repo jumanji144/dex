@@ -93,8 +93,6 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             definition.putMethod(method);
         }
 
-        processAttributes(definition);
-
         return definition;
     }
 
@@ -191,13 +189,4 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         return new ClassDefItem(type, output.getAccess(), superType, interfaces, sourceFile, directory,
                 data, staticValuesItem);
     }
-
-	private void processAttributes(@NotNull ClassDefinition definition) {
-		// map attributes
-		for (Annotation annotation : definition.getAnnotations()) {
-			if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM) {
-				AnnotationProcessing.processAttribute(definition, annotation.annotation());
-			}
-		}
-	}
 }

@@ -22,8 +22,14 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
                                                          @Nullable Map<PackedSwitchInstruction, Integer> packedSwitchPayloads,
                                                          @Nullable Map<SparseSwitchInstruction, Integer> sparseSwitchPayloads) {
 
+    /**
+     * Finds the label for the given instruction and offset, throwing an exception if the instruction is not found in the context or if no instruction is found at the target offset.
+     * @param format Format of the instruction to find the label for.
+     * @param offset Offset from the instruction to the target label.
+     * @return Label for the target offset from the given instruction.
+     */
     public @NotNull Label label(@NotNull Format format, int offset) {
-        int thisIndex = instructions.indexOf(format);
+        int thisIndex = instructionIndex(format);
         int thisPosition = offsets.get(thisIndex);
 
         int targetPosition = thisPosition + offset;
@@ -32,13 +38,17 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
         if (targetIndex == -1)
             throw new IllegalArgumentException("No instruction found for offset: " + offset);
 
-        Label target = new Label(targetIndex, targetPosition);
-        labels.put(targetPosition, target);
-        return target;
+        return computeLabel(targetPosition, targetIndex);
     }
 
+    /**
+     * Finds the offset from the given instruction to the target label, throwing an exception if the instruction is not found in the context.
+     * @param instruction Instruction to find the offset from.
+     * @param label Target label to find the offset to.
+     * @return Offset from the given instruction to the target label.
+     */
     public int labelOffset(@NotNull Instruction instruction, @NotNull Label label) {
-        int thisIndex = instructions.indexOf(instruction);
+        int thisIndex = instructionIndex(instruction);
         int thisPosition = offsets.get(thisIndex);
 
         int targetPosition = label.position();
@@ -46,16 +56,24 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
         return targetPosition - thisPosition;
     }
 
+    /**
+     * Finds the label for the given offset, throwing an exception if no instruction is found at the target offset.
+     * @param offset Target offset.
+     * @return Label for the target offset.
+     */
     public @NotNull Label label(int offset) {
         int targetIndex = offsets.indexOf(offset);
         if (targetIndex == -1)
             throw new IllegalArgumentException("No instruction found for offset: " + offset);
 
-        Label target = new Label(targetIndex, offset);
-        labels.put(offset, target);
-        return target;
+        return computeLabel(offset, targetIndex);
     }
 
+    /**
+     * Finds the label for the given offset, or the closest preceding label if an exact match is not found.
+     * @param offset Target offset.
+     * @return Label for the target offset, or the closest preceding label if an exact match is not found.
+     */
     public @NotNull Label labelInexact(int offset) {
         int targetIndex = offsets.indexOf(offset);
         if (targetIndex == -1) {
@@ -76,9 +94,11 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
             targetIndex = closestIndex;
         }
 
-        Label target = new Label(targetIndex, offset);
-        labels.put(offset, target);
-        return target;
+        return computeLabel(offset, targetIndex);
+    }
+
+    private @NotNull Label computeLabel(int offset, int targetIndex) {
+        return labels.computeIfAbsent(offset, o -> new Label(targetIndex, o));
     }
 
     public @NotNull FormatFilledArrayData arrayPayload(@NotNull Format format, int offset) {
@@ -100,7 +120,7 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
     }
 
     private int lookup(@NotNull Format format, int offset) {
-        int thisIndex = instructions.indexOf(format);
+        int thisIndex = instructionIndex(format);
         int thisPosition = offsets.get(thisIndex);
 
         int targetPosition = thisPosition + offset;
@@ -112,4 +132,10 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
         return targetIndex;
     }
 
+    private int instructionIndex(@NotNull Object instruction) {
+        for (int i = 0; i < instructions.size(); i++)
+            if (instructions.get(i) == instruction)
+                return i;
+        throw new IllegalArgumentException("Instruction '" + instruction + "' not found in context");
+    }
 }

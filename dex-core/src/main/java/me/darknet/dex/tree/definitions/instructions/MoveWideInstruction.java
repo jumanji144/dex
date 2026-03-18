@@ -33,7 +33,7 @@ public record MoveWideInstruction(int opcode, int to, int from) implements Instr
         public @NotNull MoveWideInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatBAop(int op, int a, int b) -> new MoveWideInstruction(op, a, b);
-                case FormatAAopBBBB(int op, int a, int b) -> new MoveWideInstruction(op, a, b);
+                case FormatAAopBBBB(int op, int a, int b) -> new MoveWideInstruction(op, a, b & 0xffff);
                 case Format00opAAAABBBB(int op, int a, int b) -> new MoveWideInstruction(op, a, b);
                 default -> throw new IllegalArgumentException("Unmappable format: " + input);
             };

@@ -10,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-public record PackedSwitchInstruction(int first, List<Label> targets) implements Instruction {
+public record PackedSwitchInstruction(int register, int firstKey, List<Label> targets) implements Instruction {
     @Override
     public int opcode() {
         return PACKED_SWITCH;
@@ -18,7 +18,7 @@ public record PackedSwitchInstruction(int first, List<Label> targets) implements
 
     @Override
     public String toString() {
-        return "packed-switch " + first + " -> " + targets.stream()
+        return "packed-switch v" + register + ", " + firstKey + " -> " + targets.stream()
                 .map(Label::toString).reduce((a, b) -> a + ", " + b).orElse("");
     }
 
@@ -31,14 +31,14 @@ public record PackedSwitchInstruction(int first, List<Label> targets) implements
                 targets.add(context.label(input, target));
             }
 
-            return new PackedSwitchInstruction(input.a(), targets);
+            return new PackedSwitchInstruction(input.a(), payload.first(), targets);
         }
 
         @Override
         public @NotNull FormatAAopBBBB32 unmap(@NotNull PackedSwitchInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int offset = context.packedSwitchPayloads().get(output);
 
-            return new FormatAAopBBBB32(PACKED_SWITCH, output.first, offset);
+            return new FormatAAopBBBB32(PACKED_SWITCH, output.register, offset);
         }
     };
 

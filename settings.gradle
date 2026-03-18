@@ -1,3 +1,5 @@
 rootProject.name = 'dex'
 
 include 'dex-core'
+include 'dex-convert'
+

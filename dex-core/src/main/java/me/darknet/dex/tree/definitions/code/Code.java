@@ -5,14 +5,18 @@ import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.codec.definition.CodeCodec;
 import me.darknet.dex.tree.definitions.instructions.Instruction;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Code {
     public static final TreeCodec<Code, CodeItem> CODEC = new CodeCodec();
 
     private final List<Instruction> instructions = new ArrayList<>();
+    private final Map<Instruction, Integer> instructionOffsets = new IdentityHashMap<>();
     private final List<TryCatch> tryCatches = new ArrayList<>();
     private int in;
     private int out;
@@ -58,6 +62,14 @@ public class Code {
 
     public void addInstructions(@NotNull List<Instruction> instructions) {
         instructions.forEach(this::addInstruction);
+    }
+
+    public void setInstructionOffset(@NotNull Instruction instruction, int offset) {
+        instructionOffsets.put(instruction, offset);
+    }
+
+    public @Nullable Integer offsetOf(@NotNull Instruction instruction) {
+        return instructionOffsets.get(instruction);
     }
 
     public @NotNull List<TryCatch> tryCatch() {
