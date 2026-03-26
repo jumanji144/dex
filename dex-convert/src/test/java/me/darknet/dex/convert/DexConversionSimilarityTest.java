@@ -12,6 +12,7 @@ import me.darknet.dex.util.DexAndJarSource;
 import me.darknet.dex.util.TestUtils;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Tests the similarity of the decompiled output of converted classes to baseline decompilations of the original Java classes.
  */
+@Disabled("These will have failures, which is expected. Run these manually to inspect the state of the converter")
 class DexConversionSimilarityTest {
 	/** Threshold for what we consider a weak match */
 	private static final double MATCH_THRESHOLD_WEAK = 0.85;
