@@ -125,8 +125,6 @@ public class DexConversionIr extends AbstractDexConversion {
 
 		// Inner classes
 		for (InnerClass innerClass : cls.getInnerClasses()) {
-			if (innerClass.outerClassName().startsWith("dev/"))
-				System.out.println();
 			cw.visitInnerClass(innerClass.innerClassName(), innerClass.anonymous() ? null : innerClass.outerClassName(), innerClass.innerName(), innerClass.access());
 		}
 
