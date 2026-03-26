@@ -63,6 +63,8 @@ public class Instructions implements Opcodes {
                 INVOKE_VIRTUAL_RANGE, INVOKE_SUPER_RANGE, INVOKE_DIRECT_RANGE, INVOKE_STATIC_RANGE, INVOKE_INTERFACE_RANGE,
                 INVOKE_POLYMORPHIC, INVOKE_POLYMORPHIC_RANGE);
         register(InvokeCustomInstruction.CODEC, INVOKE_CUSTOM, INVOKE_CUSTOM_RANGE);
+        register(ConstMethodHandleInstruction.CODEC, CONST_METHOD_HANDLE);
+        register(ConstMethodTypeInstruction.CODEC, CONST_METHOD_TYPE);
     }
 
     private static void register(Instruction.InstructionCodec<?, ?> codec, int... opcodes) {

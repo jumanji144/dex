@@ -22,6 +22,8 @@ import me.darknet.dex.tree.definitions.instructions.BranchZeroInstruction;
 import me.darknet.dex.tree.definitions.instructions.CheckCastInstruction;
 import me.darknet.dex.tree.definitions.instructions.CompareInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstInstruction;
+import me.darknet.dex.tree.definitions.instructions.ConstMethodHandleInstruction;
+import me.darknet.dex.tree.definitions.instructions.ConstMethodTypeInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstStringInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstTypeInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstWideInstruction;
@@ -64,6 +66,7 @@ import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
@@ -90,6 +93,8 @@ public class DexConversionSimple extends AbstractDexConversion {
 	private static final InstanceType STRING_TYPE = Types.instanceType(String.class);
 	private static final InstanceType CLASS_TYPE = Types.instanceType(Class.class);
 	private static final InstanceType THROWABLE_TYPE = Types.instanceType(Throwable.class);
+	private static final InstanceType METHODHANDLE_TYPE = Types.instanceType(java.lang.invoke.MethodHandle.class);
+	private static final InstanceType METHODTYPE_TYPE = Types.instanceType(java.lang.invoke.MethodType.class);
 
 	@Override
 	public @NotNull ConversionResult toClasses(@NotNull DexFile dex) {
@@ -251,6 +256,10 @@ public class DexConversionSimple extends AbstractDexConversion {
 						visitCompareInstruction(mv, compareInstruction, layout, state);
 				case ConstInstruction constInstruction -> visitConstInstruction(mv, constInstruction, layout, state,
 						isDeadStoreInLinearTail(instructions, index, constInstruction.register()));
+				case ConstMethodHandleInstruction constMethodHandleInstruction ->
+						visitConstMethodHandleInstruction(mv, constMethodHandleInstruction, layout, state);
+				case ConstMethodTypeInstruction constMethodTypeInstruction ->
+						visitConstMethodTypeInstruction(mv, constMethodTypeInstruction, layout, state);
 				case ConstStringInstruction constStringInstruction ->
 						visitConstStringInstruction(mv, constStringInstruction, layout, state);
 				case ConstTypeInstruction constTypeInstruction ->
@@ -1071,6 +1080,71 @@ public class DexConversionSimple extends AbstractDexConversion {
 
 		pushInt(mv, instruction.value());
 		storeWordRegister(mv, layout, state, instruction.register());
+	}
+
+	/**
+	 * @param mv
+	 * 		Method writing visitor.
+	 * @param instruction
+	 * 		Const instruction to write.
+	 * @param layout
+	 * 		Register layout for the method.
+	 * @param state
+	 * 		Current register state for the method.
+	 */
+	private static void visitConstMethodTypeInstruction(@NotNull MethodVisitor mv,
+	                                                    ConstMethodTypeInstruction instruction,
+	                                                    RegisterLayout layout,
+	                                                    RegisterState state) {
+		Type methodType = Type.getMethodType(instruction.type().descriptor());
+		if (state.canDeferConstants()) {
+			state.setReferenceConstant(instruction.destination(), METHODTYPE_TYPE, new LdcReferenceValue(methodType));
+			return;
+		}
+
+		mv.visitLdcInsn(methodType);
+		storeReferenceRegister(mv, layout, state, instruction.destination(), METHODTYPE_TYPE);
+	}
+	/**
+	 * @param mv
+	 * 		Method writing visitor.
+	 * @param instruction
+	 * 		Const instruction to write.
+	 * @param layout
+	 * 		Register layout for the method.
+	 * @param state
+	 * 		Current register state for the method.
+	 */
+	private static void visitConstMethodHandleInstruction(@NotNull MethodVisitor mv,
+	                                                      ConstMethodHandleInstruction instruction,
+	                                                      RegisterLayout layout,
+	                                                      RegisterState state) {
+		var dexHandle = instruction.handle();
+		int tag = switch (dexHandle.kind()) {
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INVOKE_INTERFACE -> H_INVOKEINTERFACE;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INVOKE_STATIC -> H_INVOKESTATIC;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INVOKE_CONSTRUCTOR -> H_INVOKESPECIAL;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INVOKE_DIRECT -> H_INVOKESPECIAL;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INVOKE_INSTANCE -> H_INVOKEVIRTUAL;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INSTANCE_GET -> H_GETFIELD;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_INSTANCE_PUT -> H_PUTFIELD;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_STATIC_GET -> H_GETSTATIC;
+			case me.darknet.dex.tree.definitions.constant.Handle.KIND_STATIC_PUT -> H_PUTSTATIC;
+			default -> throw new IllegalArgumentException("Unsupported method handle kind: " + dexHandle.kind());
+		};
+		String owner = dexHandle.owner().internalName();
+		String name = dexHandle.name();
+		String desc = dexHandle.type().descriptor();
+		boolean itf = tag == H_INVOKEINTERFACE;
+
+		Handle handle = new Handle(tag, owner, name, desc, itf);
+		if (state.canDeferConstants()) {
+			state.setReferenceConstant(instruction.destination(), METHODHANDLE_TYPE, new LdcReferenceValue(handle));
+			return;
+		}
+
+		mv.visitLdcInsn(handle);
+		storeReferenceRegister(mv, layout, state, instruction.destination(), METHODHANDLE_TYPE);
 	}
 
 	/**

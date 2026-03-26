@@ -3,6 +3,7 @@ package me.darknet.dex.tree.definitions.code;
 import me.darknet.dex.file.items.CodeItem;
 import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.codec.definition.CodeCodec;
+import me.darknet.dex.tree.definitions.debug.DebugInformation;
 import me.darknet.dex.tree.definitions.instructions.Instruction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -18,6 +19,7 @@ public class Code {
     private final List<Instruction> instructions = new ArrayList<>();
     private final Map<Instruction, Integer> instructionOffsets = new IdentityHashMap<>();
     private final List<TryCatch> tryCatches = new ArrayList<>();
+    private DebugInformation debugInfo;
     private int in;
     private int out;
     private int registers;
@@ -78,5 +80,13 @@ public class Code {
 
     public void addTryCatch(@NotNull TryCatch tryCatch) {
         tryCatches.add(tryCatch);
+    }
+
+    public DebugInformation getDebugInfo() {
+        return debugInfo;
+    }
+
+    public void setDebugInfo(DebugInformation debugInfo) {
+        this.debugInfo = debugInfo;
     }
 }

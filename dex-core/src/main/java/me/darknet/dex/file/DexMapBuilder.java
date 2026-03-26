@@ -242,6 +242,10 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         return item;
     }
 
+    public int addMethodHandle(@NotNull Handle handle) {
+        return methodHandles.add(methodHandle(handle));
+    }
+
     public @NotNull CallSiteItem callSite(@NotNull Handle handle, @NotNull String name, @NotNull MethodType type, @NotNull List<Constant> constants) {
         MethodHandleItem methodHandle = methodHandle(handle);
         StringItem nameItem = string(name);

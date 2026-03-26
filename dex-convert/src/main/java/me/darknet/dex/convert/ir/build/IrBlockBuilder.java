@@ -29,6 +29,8 @@ import me.darknet.dex.tree.definitions.instructions.BranchZeroInstruction;
 import me.darknet.dex.tree.definitions.instructions.CheckCastInstruction;
 import me.darknet.dex.tree.definitions.instructions.CompareInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstInstruction;
+import me.darknet.dex.tree.definitions.instructions.ConstMethodHandleInstruction;
+import me.darknet.dex.tree.definitions.instructions.ConstMethodTypeInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstStringInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstTypeInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstWideInstruction;
@@ -60,7 +62,9 @@ import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.objectweb.asm.Handle;
 
+import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -132,6 +136,10 @@ public class IrBlockBuilder {
 			switch (instruction) {
 				case ConstInstruction constInstruction ->
 						state[constInstruction.register()] = constant(Types.INT, constInstruction.value(), constInstruction.value() == 0);
+				case ConstMethodHandleInstruction constMethodHandleInstruction ->
+						state[constMethodHandleInstruction.destination()] = constant(Types.instanceType(Handle.class), constMethodHandleInstruction.handle(), false);
+				case ConstMethodTypeInstruction constMethodTypeInstruction ->
+						state[constMethodTypeInstruction.destination()] = constant(Types.instanceType(MethodType.class), constMethodTypeInstruction.type(), false);
 				case ConstStringInstruction constStringInstruction ->
 						state[constStringInstruction.register()] = constant(Types.instanceType(String.class), constStringInstruction.string(), false);
 				case ConstTypeInstruction constTypeInstruction ->

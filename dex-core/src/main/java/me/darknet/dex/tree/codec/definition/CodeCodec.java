@@ -13,6 +13,8 @@ import me.darknet.dex.tree.codec.TreeCodec;
 import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.code.Handler;
 import me.darknet.dex.tree.definitions.code.TryCatch;
+import me.darknet.dex.tree.definitions.debug.DebugInformation;
+import me.darknet.dex.tree.definitions.debug.DebugStateMachine;
 import me.darknet.dex.tree.definitions.instructions.*;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Types;
@@ -68,6 +70,13 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             }
 
             code.addTryCatch(new TryCatch(start, end, handlers));
+        }
+
+        // execute debug code
+        if (input.debug() != null) {
+            DebugStateMachine debugStateMachine = new DebugStateMachine();
+            DebugInformation debugInfo = debugStateMachine.execute(input.debug(), ctx);
+            code.setDebugInfo(debugInfo);
         }
 
         // add labels into instructions

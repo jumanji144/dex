@@ -8,14 +8,14 @@ import me.darknet.dex.tree.codec.definition.InstructionContext;
 import org.jetbrains.annotations.NotNull;
 
 public sealed interface Instruction extends Opcodes permits ArrayInstruction, ArrayLengthInstruction,
-        Binary2AddrInstruction, BinaryInstruction, BinaryLiteralInstruction, BranchInstruction,
-        BranchZeroInstruction, CheckCastInstruction, CompareInstruction, ConstInstruction, ConstStringInstruction,
-        ConstTypeInstruction, ConstWideInstruction, FillArrayDataInstruction, FilledNewArrayInstruction,
-        GotoInstruction, InstanceFieldInstruction, InstanceOfInstruction, InvokeCustomInstruction,
-        InvokeInstruction, Label, MonitorInstruction, MoveExceptionInstruction, MoveInstruction,
-        MoveObjectInstruction, MoveResultInstruction, MoveWideInstruction, NewArrayInstruction,
-        NewInstanceInstruction, NopInstruction, PackedSwitchInstruction, ReturnInstruction,
-        SparseSwitchInstruction, StaticFieldInstruction, ThrowInstruction, UnaryInstruction {
+		Binary2AddrInstruction, BinaryInstruction, BinaryLiteralInstruction, BranchInstruction, BranchZeroInstruction,
+		CheckCastInstruction, CompareInstruction, ConstInstruction, ConstMethodHandleInstruction,
+		ConstMethodTypeInstruction, ConstStringInstruction, ConstTypeInstruction, ConstWideInstruction,
+		FillArrayDataInstruction, FilledNewArrayInstruction, GotoInstruction, InstanceFieldInstruction,
+		InstanceOfInstruction, InvokeCustomInstruction, InvokeInstruction, Label, MonitorInstruction,
+		MoveExceptionInstruction, MoveInstruction, MoveObjectInstruction, MoveResultInstruction, MoveWideInstruction,
+		NewArrayInstruction, NewInstanceInstruction, NopInstruction, PackedSwitchInstruction, ReturnInstruction,
+		SparseSwitchInstruction, StaticFieldInstruction, ThrowInstruction, UnaryInstruction {
 
     /**
      * @return the opcode of the instruction.

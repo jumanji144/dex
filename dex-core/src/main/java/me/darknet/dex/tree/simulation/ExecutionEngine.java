@@ -20,6 +20,8 @@ public interface ExecutionEngine {
     void execute(@NotNull ConstTypeInstruction instruction);
     void execute(@NotNull ConstWideInstruction instruction);
     void execute(@NotNull ConstStringInstruction instruction);
+    void execute(@NotNull ConstMethodHandleInstruction instruction);
+    void execute(@NotNull ConstMethodTypeInstruction instruction);
     void execute(@NotNull FillArrayDataInstruction instruction);
     void execute(@NotNull FilledNewArrayInstruction instruction);
     void execute(@NotNull GotoInstruction instruction);
@@ -60,6 +62,8 @@ public interface ExecutionEngine {
             case ConstTypeInstruction constTypeInstruction -> engine.execute(constTypeInstruction);
             case ConstWideInstruction constWideInstruction -> engine.execute(constWideInstruction);
             case ConstStringInstruction constStringInstruction -> engine.execute(constStringInstruction);
+            case ConstMethodHandleInstruction constMethodHandleInstruction -> engine.execute(constMethodHandleInstruction);
+            case ConstMethodTypeInstruction constMethodTypeInstruction -> engine.execute(constMethodTypeInstruction);
             case FillArrayDataInstruction fillArrayDataInstruction -> engine.execute(fillArrayDataInstruction);
             case FilledNewArrayInstruction filledNewArrayInstruction -> engine.execute(filledNewArrayInstruction);
             case GotoInstruction gotoInstruction -> engine.execute(gotoInstruction);

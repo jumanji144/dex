@@ -6,6 +6,7 @@ public final class Label implements Instruction {
 
     private int index = UNASSIGNED;
     private int position = UNASSIGNED;
+    private int lineNumber = UNASSIGNED;
 
     public Label() {
     }
@@ -29,6 +30,14 @@ public final class Label implements Instruction {
 
     public void position(int offset) {
         this.position = offset;
+    }
+
+    public int lineNumber() {
+        return lineNumber;
+    }
+
+    public void lineNumber(int lineNumber) {
+        this.lineNumber = lineNumber;
     }
 
     @Override

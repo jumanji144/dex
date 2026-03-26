@@ -34,11 +34,7 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
 
         int targetPosition = thisPosition + offset;
 
-        int targetIndex = offsets.indexOf(targetPosition);
-        if (targetIndex == -1)
-            throw new IllegalArgumentException("No instruction found for offset: " + offset);
-
-        return computeLabel(targetPosition, targetIndex);
+        return label(targetPosition);
     }
 
     /**
@@ -92,6 +88,7 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
             }
 
             targetIndex = closestIndex;
+            offset = closestOffset;
         }
 
         return computeLabel(offset, targetIndex);
