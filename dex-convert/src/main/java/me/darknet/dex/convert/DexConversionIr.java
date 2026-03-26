@@ -158,6 +158,8 @@ public class DexConversionIr extends AbstractDexConversion {
 				ConversionSupport.visitAnnotation(av, annotation);
 				av.visitEnd();
 			}
+			// TODO: In our old R8 based solution we had the option to replace method bodies with stubs if they failed to build,
+			//  which allowed us to at least emit the class and its method signatures even if we couldn't convert the method bodies.
 			if (method.getCode() != null) {
 				// Optimize method IR before lowering.
 				IrMethod irMethod = session.context().getMethod(cls.getType(), method.getIdentifier());
