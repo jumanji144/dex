@@ -3,6 +3,8 @@ package me.darknet.dex.tree.definitions;
 import me.darknet.dex.tree.codec.definition.ClassDefinitionCodec;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.type.InstanceType;
+import me.darknet.dex.tree.visitor.DexClassVisitor;
+import me.darknet.dex.tree.visitor.DexTreeWalker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -202,6 +204,10 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
 
     public void addAnnotations(@NotNull List<Annotation> annotations) {
         annotations.forEach(this::addAnnotation);
+    }
+
+    public void accept(@NotNull DexClassVisitor visitor) {
+        DexTreeWalker.accept(this, visitor);
     }
 
     @Override

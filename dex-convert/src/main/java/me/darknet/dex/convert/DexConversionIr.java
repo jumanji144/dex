@@ -2,7 +2,6 @@ package me.darknet.dex.convert;
 
 import me.darknet.dex.convert.factory.IrBuilderFactory;
 import me.darknet.dex.convert.factory.IrOptimizerFactory;
-import me.darknet.dex.convert.ir.IrLowering;
 import me.darknet.dex.convert.ir.IrMethod;
 import me.darknet.dex.convert.ir.build.IrBuilder;
 import me.darknet.dex.convert.ir.optimize.BaseIrOptimizer;
@@ -10,20 +9,10 @@ import me.darknet.dex.convert.ir.optimize.IrOptimizationContext;
 import me.darknet.dex.convert.ir.optimize.IrOptimizer;
 import me.darknet.dex.tree.DexFile;
 import me.darknet.dex.tree.definitions.ClassDefinition;
-import me.darknet.dex.tree.definitions.FieldMember;
-import me.darknet.dex.tree.definitions.InnerClass;
-import me.darknet.dex.tree.definitions.MemberIdentifier;
 import me.darknet.dex.tree.definitions.MethodMember;
-import me.darknet.dex.tree.definitions.annotation.Annotation;
-import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
-import me.darknet.dex.tree.type.InstanceType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.objectweb.asm.AnnotationVisitor;
-import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.FieldVisitor;
-import org.objectweb.asm.MethodVisitor;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,8 +20,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
-
-import static org.objectweb.asm.Opcodes.V1_8;
 
 /**
  * A Dex/Dalvik to Java class converter that lifts dex code to a simple IR,
@@ -107,72 +94,7 @@ public class DexConversionIr extends AbstractDexConversion {
 	}
 
 	private void emitClass(@NotNull ClassDefinition cls, @NotNull ClassWriter cw, @NotNull IrConversionSession session) {
-		// Base class properties
-		String name = cls.getType().internalName();
-		String superName = cls.getSuperClass() == null ? null : cls.getSuperClass().internalName();
-		String[] interfaces = cls.getInterfaces().stream().map(InstanceType::internalName).toArray(String[]::new);
-		cw.visit(V1_8, cls.getAccess(), name, cls.getSignature(), superName, interfaces);
-
-		// Source metadata
-		cw.visitSource(cls.getSourceFile(), null);
-
-		// Outer class metadata
-		String outerClass = cls.getEnclosingClass() == null ? null : cls.getEnclosingClass().internalName();
-		MemberIdentifier outerMethod = cls.getEnclosingMethod();
-		String outerMethodName = outerMethod == null ? null : outerMethod.name();
-		String outerMethodDesc = outerMethod == null ? null : outerMethod.descriptor();
-		if (outerClass != null) cw.visitOuterClass(outerClass, outerMethodName, outerMethodDesc);
-
-		// Inner classes
-		for (InnerClass innerClass : cls.getInnerClasses()) {
-			cw.visitInnerClass(innerClass.innerClassName(), innerClass.anonymous() ? null : innerClass.outerClassName(), innerClass.innerName(), innerClass.access());
-		}
-
-		// Annotations
-		for (Annotation annotation : cls.getAnnotations()) {
-			AnnotationPart part = annotation.annotation();
-			AnnotationVisitor av = ((ClassVisitor) cw).visitAnnotation(part.type().descriptor(), annotation.visibility() > 0);
-			ConversionSupport.visitAnnotation(av, annotation);
-			av.visitEnd();
-		}
-
-		// Fields & Methods
-		for (FieldMember field : cls.getFields().values()) {
-			FieldVisitor fv = ((ClassVisitor) cw).visitField(field.getAccess(), field.getName(), field.getType().descriptor(),
-					field.getSignature(), ConversionSupport.mapConstant(field.getStaticValue()));
-			for (Annotation annotation : field.getAnnotations()) {
-				AnnotationPart part = annotation.annotation();
-				AnnotationVisitor av = fv.visitAnnotation(part.type().descriptor(), annotation.visibility() > 0);
-				ConversionSupport.visitAnnotation(av, annotation);
-				av.visitEnd();
-			}
-			fv.visitEnd();
-		}
-		for (MethodMember method : cls.getMethods().values()) {
-			String[] exceptions = method.getThrownTypes().isEmpty() ? null : method.getThrownTypes().toArray(String[]::new);
-			MethodVisitor mv = ((ClassVisitor) cw).visitMethod(method.getAccess(), method.getName(), method.getType().descriptor(),
-					method.getSignature(), exceptions);
-			for (Annotation annotation : method.getAnnotations()) {
-				AnnotationPart part = annotation.annotation();
-				AnnotationVisitor av = mv.visitAnnotation(part.type().descriptor(), annotation.visibility() > 0);
-				ConversionSupport.visitAnnotation(av, annotation);
-				av.visitEnd();
-			}
-			// TODO: In our old R8 based solution we had the option to replace method bodies with stubs if they failed to build,
-			//  which allowed us to at least emit the class and its method signatures even if we couldn't convert the method bodies.
-			if (method.getCode() != null) {
-				// Optimize method IR before lowering.
-				IrMethod irMethod = session.context().getMethod(cls.getType(), method.getIdentifier());
-				if (irMethod == null)
-					throw new IllegalStateException("Missing IR for method " + cls.getType().internalName() + "." + method.getIdentifier());
-				session.optimizer().optimizeMethod(session.context(), irMethod);
-				IrLowering.emit(irMethod, mv);
-			} else {
-				mv.visitEnd();
-			}
-		}
-
-		cw.visitEnd();
+		cls.accept(new DexToAsmClassVisitor(cw, session.context(), session.optimizer()));
 	}
 
 	/**
