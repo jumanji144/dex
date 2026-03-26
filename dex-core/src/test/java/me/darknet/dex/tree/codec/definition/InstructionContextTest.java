@@ -36,10 +36,9 @@ class InstructionContextTest {
 
 		// The 'indexact' value of '25' lands between the instructions at offsets 20 and 30.
 		// Since that is the 2nd instruction (index 1), the label should point to that instruction, not the next one.
-		// The label's position retains the original 'inexact' value of 25, even though it points to the instruction at offset 20.
 		Label label = ctx.labelInexact(25);
 		assertEquals(1, label.index());
-		assertEquals(25, label.position());
+		assertEquals(20, label.position());
 	}
 
 	@Test
@@ -67,10 +66,10 @@ class InstructionContextTest {
 		l2 = ctx.labelInexact(15);
 		assertSame(l1, l2);
 
-		// Different for inexact labels of differing offsets, even if they point to the same instruction
+		// Same for inexact labels that land on the same instruction
 		l1 = ctx.labelInexact(40);
 		l2 = ctx.labelInexact(41);
-		assertNotSame(l1, l2);
+		assertSame(l1, l2);
 		assertEquals(l1.index(), l2.index());
 	}
 
