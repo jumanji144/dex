@@ -82,11 +82,11 @@ public class Code {
         tryCatches.add(tryCatch);
     }
 
-    public DebugInformation getDebugInfo() {
+    public @Nullable DebugInformation getDebugInfo() {
         return debugInfo;
     }
 
-    public void setDebugInfo(DebugInformation debugInfo) {
+    public void setDebugInfo(@NotNull DebugInformation debugInfo) {
         this.debugInfo = debugInfo;
     }
 }

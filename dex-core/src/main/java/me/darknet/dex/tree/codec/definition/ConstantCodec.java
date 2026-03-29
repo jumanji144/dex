@@ -45,7 +45,7 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
                 yield new HandleConstant(handle);
             }
             case StringValue(StringItem string) -> new StringConstant(string.string());
-            case TypeValue(TypeItem type) -> new TypeConstant(Types.classType(type));
+            case TypeValue(TypeItem type) -> new TypeConstant(Types.typeFromDescriptor(type.descriptor().string()));
             case FieldValue(FieldItem field) -> {
                 MemberIdentifier identifier = new MemberIdentifier(field.name().string(),
                         Types.classType(field.type()));
@@ -95,7 +95,7 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
                 StringItem item = context.string(value.value());
                 yield new StringValue(item);
             }
-            case TypeConstant(InstanceType type) -> {
+            case TypeConstant(Type type) -> {
                 TypeItem item = context.type(type);
                 yield new TypeValue(item);
             }
@@ -115,7 +115,6 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
             case IntConstant value -> new IntValue(value.value());
             case ShortConstant value -> new ShortValue(value.value());
             case NullConstant ignored -> NullValue.INSTANCE;
-            default -> throw new IllegalStateException("Unexpected value: " + output);
         };
     }
 
