@@ -17,6 +17,7 @@ import me.darknet.dex.tree.definitions.constant.StringConstant;
 import me.darknet.dex.tree.definitions.constant.TypeConstant;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Type;
+import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -185,7 +186,7 @@ public class AnnotationProcessing {
 	                                          @NotNull String outerClassName,
 	                                          int access) {
 		String innerClassName = definition.getType().internalName();
-		String innerName = inferInnerName(innerClassName, outerClassName);
+		String innerName = Types.inferInnerName(innerClassName, outerClassName);
 		addInnerClass(definitionMap, definition, new InnerClass(innerClassName, outerClassName, innerName, access));
 	}
 
@@ -211,23 +212,5 @@ public class AnnotationProcessing {
 		}
 		int boundary = name.lastIndexOf('$');
 		return boundary > 0 ? name.substring(0, boundary) : null;
-	}
-
-	private static @Nullable String inferInnerName(@NotNull String innerClassName, @NotNull String outerClassName) {
-		if (!innerClassName.startsWith(outerClassName + "$"))
-			return null;
-
-		String nestedSegment = innerClassName.substring(outerClassName.length() + 1);
-		if (nestedSegment.isEmpty())
-			return null;
-		if (nestedSegment.chars().allMatch(Character::isDigit))
-			return null;
-
-		int digitPrefix = 0;
-		while (digitPrefix < nestedSegment.length() && Character.isDigit(nestedSegment.charAt(digitPrefix)))
-			digitPrefix++;
-		if (digitPrefix > 0 && digitPrefix < nestedSegment.length())
-			return nestedSegment.substring(digitPrefix);
-		return nestedSegment;
 	}
 }

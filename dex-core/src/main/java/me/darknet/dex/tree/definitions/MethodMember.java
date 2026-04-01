@@ -23,7 +23,7 @@ import java.util.Objects;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class MethodMember extends Member<MethodType> {
+public non-sealed class MethodMember extends Member<MethodType> {
 
     private Code code;
     private List<String> parameterNames = List.of();
@@ -61,6 +61,27 @@ public final class MethodMember extends Member<MethodType> {
 
     public void setParameterNames(@Nullable List<String> parameterNames) {
         this.parameterNames = parameterNames;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof MethodMember that))
+            return false;
+        if (!super.equals(o))
+            return false;
+
+	    return Objects.equals(code, that.code)
+                && Objects.equals(parameterNames, that.parameterNames)
+                && Objects.equals(thrownTypes, that.thrownTypes);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + Objects.hashCode(code);
+        result = 31 * result + Objects.hashCode(parameterNames);
+        result = 31 * result + Objects.hashCode(thrownTypes);
+        return result;
     }
 
     public static final MemberCodec<MethodMember, EncodedMethod> CODEC = new MemberCodec<>() {

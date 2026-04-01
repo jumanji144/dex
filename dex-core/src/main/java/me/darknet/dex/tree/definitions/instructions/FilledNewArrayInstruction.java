@@ -11,6 +11,9 @@ import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 public final class FilledNewArrayInstruction implements Instruction {
 
     private final ClassType componentType;
@@ -68,6 +71,26 @@ public final class FilledNewArrayInstruction implements Instruction {
 
     public int last() {
         return registers == null ? first + size - 1 : registers[size - 1];
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof FilledNewArrayInstruction that))
+            return false;
+
+	    return size == that.size
+                && first == that.first
+                && Objects.equals(componentType, that.componentType)
+                && Arrays.equals(registers, that.registers);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hashCode(componentType);
+        result = 31 * result + Arrays.hashCode(registers);
+        result = 31 * result + size;
+        result = 31 * result + first;
+        return result;
     }
 
     @Override

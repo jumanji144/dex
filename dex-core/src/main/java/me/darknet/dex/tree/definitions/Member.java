@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public sealed class Member<T extends Type> implements Typed<T>, Accessible, Annotated, Signed permits FieldMember, MethodMember {
 
@@ -109,8 +110,11 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
     }
 
     protected void unmapAnnotations(@NotNull DexMapBuilder builder) {
-        // TODO: this is never used, and this should also recycle code in ClassDefinitionCodec
+        // TODO: this is never used which will break round-trip tests with annotations used to convey metadata.
+        //  - This should also delegate to 'AnnotationProcessing' for consistency / reuse
+        //    which should also house unmapping support later.
         if (signature != null) {
+
             // check if we have a signature annotation
             builder.type("dalvik/annotation/Signature");
             AnnotationPart part = new AnnotationPart(Types.instanceTypeFromInternalName("dalvik/annotation/Signature"),
@@ -119,6 +123,37 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
 
             addAnnotation(signatureAnnotation);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof Member<?> member))
+            return false;
+
+        return access == member.access
+                && type.equals(member.type)
+                && name.equals(member.name)
+                && identifier.equals(member.identifier)
+                && Objects.equals(annotations, member.annotations)
+                && Objects.equals(signature, member.signature)
+                && Objects.equals(owner, member.owner);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = type.hashCode();
+        result = 31 * result + access;
+        result = 31 * result + name.hashCode();
+        result = 31 * result + identifier.hashCode();
+        result = 31 * result + Objects.hashCode(annotations);
+        result = 31 * result + Objects.hashCode(signature);
+        result = 31 * result + Objects.hashCode(owner);
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return getType() + " " + getName();
     }
 
     public interface MemberCodec<M extends Member<?>, C extends EncodedMember> {

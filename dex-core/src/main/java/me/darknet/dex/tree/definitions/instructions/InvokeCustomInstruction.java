@@ -17,7 +17,9 @@ import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public final class InvokeCustomInstruction implements Instruction {
 
@@ -100,6 +102,32 @@ public final class InvokeCustomInstruction implements Instruction {
     @Override
     public int opcode() {
         return Opcodes.INVOKE_CUSTOM;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof InvokeCustomInstruction that))
+            return false;
+
+        return size == that.size
+                && first == that.first
+                && Objects.equals(handle, that.handle)
+                && Objects.equals(name, that.name)
+                && Objects.equals(type, that.type)
+                && Objects.equals(arguments, that.arguments)
+                && Arrays.equals(argumentRegisters, that.argumentRegisters);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hashCode(handle);
+        result = 31 * result + Objects.hashCode(name);
+        result = 31 * result + Objects.hashCode(type);
+        result = 31 * result + Objects.hashCode(arguments);
+        result = 31 * result + Arrays.hashCode(argumentRegisters);
+        result = 31 * result + size;
+        result = 31 * result + first;
+        return result;
     }
 
     @Override

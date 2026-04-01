@@ -4,6 +4,7 @@ import me.darknet.dex.file.items.ProtoItem;
 import me.darknet.dex.file.items.TypeItem;
 import me.darknet.dex.file.items.TypeListItem;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -158,5 +159,29 @@ public class Types {
 
     public static @NotNull String externalName(@NotNull String internalName) {
         return internalName.replace('/', '.');
+    }
+
+    public static @Nullable String inferInnerName(@NotNull String innerClassName, @NotNull String outerClassName) {
+        // Skip inner classes that don't follow the standard naming convention of "Outer$Inner".
+        if (!innerClassName.startsWith(outerClassName + "$"))
+            return null;
+
+        // Skip inner classes that don't have a nested segment after the outer class name.
+        String nestedSegment = innerClassName.substring(outerClassName.length() + 1);
+        if (nestedSegment.isEmpty())
+            return null;
+
+        // Skip inner classes with numeric names, which are likely anonymous or local classes.
+        if (nestedSegment.chars().allMatch(Character::isDigit))
+            return null;
+
+        // Check if we need to strip leading digits from the nested segment, often seen with compiler-generated inner classes.
+        int digitPrefix = 0;
+        while (digitPrefix < nestedSegment.length() && Character.isDigit(nestedSegment.charAt(digitPrefix)))
+            digitPrefix++;
+        if (digitPrefix > 0 && digitPrefix < nestedSegment.length())
+            return nestedSegment.substring(digitPrefix);
+
+        return nestedSegment;
     }
 }

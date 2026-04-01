@@ -12,7 +12,9 @@ import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public final class FieldMember extends Member<ClassType> {
+import java.util.Objects;
+
+public non-sealed class FieldMember extends Member<ClassType> {
 
     private Constant staticValue;
 
@@ -26,6 +28,23 @@ public final class FieldMember extends Member<ClassType> {
 
     public void setStaticValue(@Nullable Constant value) {
         this.staticValue = value;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof FieldMember that))
+            return false;
+        if (!super.equals(o))
+            return false;
+
+        return Objects.equals(staticValue, that.staticValue);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + Objects.hashCode(staticValue);
+        return result;
     }
 
     public static final MemberCodec<FieldMember, EncodedField> CODEC = new MemberCodec<>() {

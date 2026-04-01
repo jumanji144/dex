@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class Code {
     public static final TreeCodec<Code, CodeItem> CODEC = new CodeCodec();
@@ -88,5 +89,32 @@ public class Code {
 
     public void setDebugInfo(@NotNull DebugInformation debugInfo) {
         this.debugInfo = debugInfo;
+    }
+
+    @Override
+    public final boolean equals(Object o) {
+        if (!(o instanceof Code code))
+            return false;
+
+	    return in == code.in
+                && out == code.out
+                && registers == code.registers
+                && instructions.equals(code.instructions)
+                // TODO: These are identity maps so they won't be equal... We should probably have a special content comparison here
+                //   && instructionOffsets.equals(code.instructionOffsets)
+                && tryCatches.equals(code.tryCatches)
+                && Objects.equals(debugInfo, code.debugInfo);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = instructions.hashCode();
+        result = 31 * result + instructionOffsets.hashCode();
+        result = 31 * result + tryCatches.hashCode();
+        result = 31 * result + Objects.hashCode(debugInfo);
+        result = 31 * result + in;
+        result = 31 * result + out;
+        result = 31 * result + registers;
+        return result;
     }
 }

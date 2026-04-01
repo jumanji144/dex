@@ -13,6 +13,9 @@ import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 public final class InvokeInstruction implements Instruction, Invoke {
 
     private static final int RANGE_OFFSET = Opcodes.INVOKE_VIRTUAL_RANGE - Opcodes.INVOKE_VIRTUAL;
@@ -105,6 +108,32 @@ public final class InvokeInstruction implements Instruction, Invoke {
             case SUPER -> "invoke-super";
             default -> throw new IllegalArgumentException("Invalid kind: " + kind);
         };
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof InvokeInstruction that))
+            return false;
+
+	    return kind == that.kind
+                && size == that.size
+                && first == that.first
+                && Objects.equals(owner, that.owner)
+                && Objects.equals(name, that.name)
+                && Objects.equals(type, that.type)
+                && Arrays.equals(arguments, that.arguments);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = kind;
+        result = 31 * result + Objects.hashCode(owner);
+        result = 31 * result + Objects.hashCode(name);
+        result = 31 * result + Objects.hashCode(type);
+        result = 31 * result + Arrays.hashCode(arguments);
+        result = 31 * result + size;
+        result = 31 * result + first;
+        return result;
     }
 
     @Override

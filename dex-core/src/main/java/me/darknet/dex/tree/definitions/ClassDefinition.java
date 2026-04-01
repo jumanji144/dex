@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public final class ClassDefinition implements Typed<InstanceType>, Accessible, Annotated, Signed {
+public non-sealed class ClassDefinition implements Typed<InstanceType>, Accessible, Annotated, Signed {
 
     public static final ClassDefinitionCodec CODEC = new ClassDefinitionCodec();
 
@@ -213,5 +213,43 @@ public final class ClassDefinition implements Typed<InstanceType>, Accessible, A
     @Override
     public String toString() {
         return type.internalName();
+    }
+
+	@Override
+	public final boolean equals(Object o) {
+		if (!(o instanceof ClassDefinition that))
+			return false;
+
+		return access == that.access
+				&& type.equals(that.type)
+				&& Objects.equals(superClass, that.superClass)
+				&& Objects.equals(interfaces, that.interfaces)
+				&& Objects.equals(sourceFile, that.sourceFile)
+				&& Objects.equals(enclosingClass, that.enclosingClass)
+				&& Objects.equals(enclosingMethod, that.enclosingMethod)
+				&& Objects.equals(innerClasses, that.innerClasses)
+				&& Objects.equals(signature, that.signature)
+				&& Objects.equals(memberClasses, that.memberClasses)
+				&& Objects.equals(annotations, that.annotations)
+				&& Objects.equals(fields, that.fields)
+				&& Objects.equals(methods, that.methods);
+	}
+
+	@Override
+	public int hashCode() {
+		int result = type.hashCode();
+		result = 31 * result + Objects.hashCode(superClass);
+        result = 31 * result + access;
+        result = 31 * result + Objects.hashCode(interfaces);
+        result = 31 * result + Objects.hashCode(sourceFile);
+        result = 31 * result + Objects.hashCode(enclosingClass);
+        result = 31 * result + Objects.hashCode(enclosingMethod);
+        result = 31 * result + Objects.hashCode(innerClasses);
+        result = 31 * result + Objects.hashCode(signature);
+        result = 31 * result + Objects.hashCode(memberClasses);
+        result = 31 * result + Objects.hashCode(annotations);
+        result = 31 * result + Objects.hashCode(fields);
+        result = 31 * result + Objects.hashCode(methods);
+        return result;
     }
 }
