@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 
 public class CodeCodec implements TreeCodec<Code, CodeItem> {
+    // TODO: Temporary flag which allows disabling debug info parsing.
+    public static boolean readDebug = true;
 
     @Override
     public @NotNull Code map(@NotNull CodeItem input, @NotNull DexMap context) {
@@ -73,7 +75,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         }
 
         // execute debug code
-        if (input.debug() != null) {
+        if (input.debug() != null && readDebug) {
             DebugStateMachine debugStateMachine = new DebugStateMachine();
             DebugInformation debugInfo = debugStateMachine.execute(input.debug(), ctx);
             code.setDebugInfo(debugInfo);
