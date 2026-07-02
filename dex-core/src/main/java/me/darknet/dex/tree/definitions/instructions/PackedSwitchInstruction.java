@@ -36,14 +36,14 @@ public record PackedSwitchInstruction(int register, int firstKey, List<Label> ta
 
         @Override
         public @NotNull FormatAAopBBBB32 unmap(@NotNull PackedSwitchInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            int offset = context.packedSwitchPayloads().get(output);
+            int offset = context.packedSwitchPayloads().get(output) - context.instructionOffset(output);
 
             return new FormatAAopBBBB32(PACKED_SWITCH, output.register, offset);
         }
     };
 
     @Override
-    public int byteSize() {
-        return 4;
+    public int unitSize() {
+        return 3;
     }
 }

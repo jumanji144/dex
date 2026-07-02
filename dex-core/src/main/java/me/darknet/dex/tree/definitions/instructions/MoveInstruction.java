@@ -51,7 +51,7 @@ public record MoveInstruction(int opcode, int to, int from) implements Instructi
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return switch (opcode) {
             case MOVE -> 1;
             case MOVE_FROM16 -> 2;

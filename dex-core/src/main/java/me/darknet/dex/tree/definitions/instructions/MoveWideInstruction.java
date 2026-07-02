@@ -51,7 +51,7 @@ public record MoveWideInstruction(int opcode, int to, int from) implements Instr
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return switch (opcode) {
             case MOVE_WIDE -> 1;
             case MOVE_WIDE_FROM16 -> 2;

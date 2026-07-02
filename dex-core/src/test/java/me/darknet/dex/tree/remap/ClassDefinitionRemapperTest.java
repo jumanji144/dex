@@ -362,7 +362,7 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 			if (!(instruction instanceof Label)) {
 				code.setInstructionOffset(instruction, offset);
 			}
-			offset += instruction.byteSize();
+			offset += instruction.unitSize();
 		}
 
 		code.addTryCatch(new TryCatch(start, exit, List.of(

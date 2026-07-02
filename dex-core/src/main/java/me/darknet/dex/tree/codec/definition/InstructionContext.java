@@ -44,12 +44,21 @@ public record InstructionContext<T extends DexMapAccess>(@NotNull List<? extends
      * @return Offset from the given instruction to the target label.
      */
     public int labelOffset(@NotNull Instruction instruction, @NotNull Label label) {
-        int thisIndex = instructionIndex(instruction);
-        int thisPosition = offsets.get(thisIndex);
+        int thisPosition = instructionOffset(instruction);
 
         int targetPosition = label.position();
 
         return targetPosition - thisPosition;
+    }
+
+    /**
+     * Finds the offset of the given instruction in the context, throwing an exception if the instruction is not found.
+     * @param instruction Instruction to find the offset for.
+     * @return Offset of the given instruction in the context.
+     */
+    public int instructionOffset(@NotNull Instruction instruction) {
+        int thisIndex = instructionIndex(instruction);
+        return offsets.get(thisIndex);
     }
 
     /**

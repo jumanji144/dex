@@ -8,18 +8,14 @@ import me.darknet.dex.file.items.AnnotationSetItem;
 import me.darknet.dex.tree.definitions.annotation.AnnotationProcessing;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
-import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
-import me.darknet.dex.tree.definitions.constant.StringConstant;
 import me.darknet.dex.tree.type.InstanceType;
 import me.darknet.dex.tree.type.Type;
-import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 public sealed class Member<T extends Type> implements Typed<T>, Accessible, Annotated, Signed permits FieldMember, MethodMember {
@@ -102,26 +98,19 @@ public sealed class Member<T extends Type> implements Typed<T>, Accessible, Anno
             // These are not meant to be exposed as "real" annotations.
             // Drop these when found (the call will fill in the metadata they represent in our model / 'this').
             if (annotation.visibility() == Annotation.VISIBILITY_SYSTEM
-                    && AnnotationProcessing.processAttribute(Collections.emptyMap(), this, annotation.annotation()))
-               continue;
+                    ) {
+                switch (AnnotationProcessing.processAttribute(Collections.emptyMap(), this, annotation.annotation())) {
+                    case CONSUMED -> {
+                        continue;
+                    }
+                    case PRESERVE -> {
+                    }
+                    case ERROR -> throw new IllegalStateException(
+                            "Invalid member annotation: " + annotation.annotation().type().internalName());
+                }
+            }
 
             addAnnotation(annotation);
-        }
-    }
-
-    protected void unmapAnnotations(@NotNull DexMapBuilder builder) {
-        // TODO: this is never used which will break round-trip tests with annotations used to convey metadata.
-        //  - This should also delegate to 'AnnotationProcessing' for consistency / reuse
-        //    which should also house unmapping support later.
-        if (signature != null) {
-
-            // check if we have a signature annotation
-            builder.type("dalvik/annotation/Signature");
-            AnnotationPart part = new AnnotationPart(Types.instanceTypeFromInternalName("dalvik/annotation/Signature"),
-                    Map.of("value", new StringConstant(signature)));
-            Annotation signatureAnnotation = new Annotation((byte) Annotation.VISIBILITY_SYSTEM, part);
-
-            addAnnotation(signatureAnnotation);
         }
     }
 

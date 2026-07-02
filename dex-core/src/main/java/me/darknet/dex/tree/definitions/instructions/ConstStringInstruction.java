@@ -48,7 +48,7 @@ public record ConstStringInstruction(int opcode, int register, String string) im
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return opcode == CONST_STRING_JUMBO ? 3 : 2;
     }
 }

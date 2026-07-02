@@ -48,7 +48,7 @@ public class ClassCreationTest {
 
         classDefinition.putMethod(methodMember);
 
-        DexFile dexFile = new DexFile(39, List.of(classDefinition), new byte[0]);
+        DexFile dexFile = new DexFile(39, List.of(classDefinition));
 
         // write to file
         DexHeader header = DexFile.CODEC.unmap(dexFile, new DexMapBuilder());

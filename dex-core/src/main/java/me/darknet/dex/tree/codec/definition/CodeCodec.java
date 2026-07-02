@@ -121,7 +121,6 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         List<Integer> offsets = new ArrayList<>();
 
-        // TODO: account for CONST_STRING_JUMBO
         int position = 0;
         for (Instruction instruction : output.getInstructions()) {
             // labels will have to be resolved
@@ -131,7 +130,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
             offsets.add(position);
 
-            position += instruction.byteSize();
+            position += encodedByteSize(instruction, context);
         }
 
         List<Format> extra = new ArrayList<>();
@@ -141,17 +140,27 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         // now we need to create the formats and special data parts
         for (Instruction instruction : output.getInstructions()) {
-            if (instruction instanceof Label) {
+            if (instruction instanceof Label)
                 continue;
-            }
+
+            // if the instruction is a special instruction, we need to handle it.
+            // arrays and switches must begin on even addresses, so we need to add padding if necessary.
             switch (instruction) {
                 case FillArrayDataInstruction insn -> {
+                    if ((position & 1) != 0) {
+                        extra.add(new Format00op(Opcodes.NOP));
+                        position++;
+                    }
                     FormatFilledArrayData filledArray = new FormatFilledArrayData(insn.elementSize(), insn.data());
                     filledArrayData.put(insn, position);
                     extra.add(filledArray);
                     position += filledArray.size();
                 }
                 case PackedSwitchInstruction insn -> {
+                    if ((position & 1) != 0) {
+                        extra.add(new Format00op(Opcodes.NOP));
+                        position++;
+                    }
                     int[] targets = new int[insn.targets().size()];
                     for (int i = 0; i < targets.length; i++) {
                         targets[i] = ctx.labelOffset(instruction, insn.targets().get(i));
@@ -163,6 +172,10 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                     position += packedSwitch.size();
                 }
                 case SparseSwitchInstruction insn -> {
+                    if ((position & 1) != 0) {
+                        extra.add(new Format00op(Opcodes.NOP));
+                        position++;
+                    }
                     int[] keys = new int[insn.targets().size()];
                     int[] targetOffsets = new int[insn.targets().size()];
                     int i = 0;
@@ -183,7 +196,11 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         instructions.addAll(extra);
 
-        DebugInfoItem debugInfo = null;
+        DebugInfoItem debugInfo = output.getDebugInfo() == null
+                ? null
+                : new DebugStateMachine().compile(output.getDebugInfo(), ctx);
+        if (debugInfo != null)
+            context.debugInfos().add(debugInfo);
         List<TryItem> tries = new ArrayList<>();
         List<EncodedTryCatchHandler> handlers = new ArrayList<>();
         for (TryCatch tryCatch : output.tryCatch()) {
@@ -206,6 +223,15 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         }
         return new CodeItem(output.getRegisters(), output.getIn(), output.getOut(), debugInfo, instructions, List.of(),
                 tries, handlers);
+    }
+
+    private int encodedByteSize(@NotNull Instruction instruction, @NotNull DexMapBuilder context) {
+        if (instruction instanceof ConstStringInstruction constStringInstruction) {
+            int index = context.addString(constStringInstruction.string());
+            if (constStringInstruction.opcode() == ConstStringInstruction.CONST_STRING_JUMBO || index > 0xffff)
+                return 3;
+        }
+        return instruction.unitSize();
     }
 
 }

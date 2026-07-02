@@ -55,9 +55,9 @@ public class IrGraphBuilder {
 			}
 			int offset = instructionOffset(instruction, fallbackOffset);
 			raw.add(new DexInstructionNode(offset, instruction));
-			codeEnd = Math.max(codeEnd, offset + instruction.byteSize());
+			codeEnd = Math.max(codeEnd, offset + instruction.unitSize());
 			if (code.offsetOf(instruction) == null) {
-				fallbackOffset = offset + instruction.byteSize();
+				fallbackOffset = offset + instruction.unitSize();
 			}
 		}
 		raw.sort(Comparator.comparingInt(DexInstructionNode::offset));

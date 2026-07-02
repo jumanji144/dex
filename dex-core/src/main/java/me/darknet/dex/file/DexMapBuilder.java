@@ -44,6 +44,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     private final ConstantPool<AnnotationItem> annotations = new ConstantPool<>();
     private final ConstantPool<EncodedArrayItem> encodedArrays = new ConstantPool<>();
     private final ConstantPool<AnnotationsDirectoryItem> annotationsDirectories = new ConstantPool<>();
+    private HiddenApiData hiddenApi;
 
     public @NotNull DexMapBuilder add(Item item) {
         switch (item) {
@@ -141,6 +142,14 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
 
     public @NotNull ConstantPool<AnnotationsDirectoryItem> annotationsDirectories() {
         return annotationsDirectories;
+    }
+
+    public @Nullable HiddenApiData hiddenApi() {
+        return hiddenApi;
+    }
+
+    public void hiddenApi(@Nullable HiddenApiData hiddenApi) {
+        this.hiddenApi = hiddenApi;
     }
 
     public @NotNull Stream<Item> all() {
@@ -289,6 +298,8 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
         if (code == null)
             return null;
         CodeItem item = Code.CODEC.unmap(code, this);
+        if (item.debug() != null)
+            debugInfos.add(item.debug());
         codes.add(item);
         return item;
     }
@@ -301,7 +312,7 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     public @NotNull DexMap build() {
         return new DexMap(strings, types, protos, fields, methods, classes, callSites, methodHandles, typeLists,
                 annotationSetRefLists, annotationSets, classDatas, codes, stringDatas, debugInfos, annotations,
-                encodedArrays, annotationsDirectories);
+                encodedArrays, annotationsDirectories, hiddenApi);
     }
 
 }

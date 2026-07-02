@@ -6,12 +6,12 @@ import java.io.IOException;
 
 public record Sections(Output stringIds, Output typeIds, Output protoIds, Output fieldIds,
                        Output methodIds, Output classDefs, Output callSiteIds, Output methodHandles,
-                       Output data, Output map, Output link) {
+                       Output data, Output hiddenApi, Output map, Output link) {
 
     public Sections(@NotNull Output output) {
         this(output.newOutput(), output.newOutput(), output.newOutput(), output.newOutput(),
                 output.newOutput(), output.newOutput(), output.newOutput(), output.newOutput(),
-                output.newOutput(), output.newOutput(), output.newOutput());
+                output.newOutput(), output.newOutput(), output.newOutput(), output.newOutput());
     }
 
     public void write(@NotNull Output output) throws IOException {
@@ -24,6 +24,7 @@ public record Sections(Output stringIds, Output typeIds, Output protoIds, Output
         output.write(callSiteIds);
         output.write(methodHandles);
         output.write(data);
+        output.write(hiddenApi);
         output.write(map);
         output.write(link);
     }
@@ -31,7 +32,7 @@ public record Sections(Output stringIds, Output typeIds, Output protoIds, Output
     public int size() {
         return stringIds.position() + typeIds.position() + protoIds.position() + fieldIds.position() +
                 methodIds.position() + classDefs.position() + callSiteIds.position() + methodHandles.position() +
-                data.position() + map.position() + link.position();
+                data.position() + hiddenApi.position() + map.position() + link.position();
     }
 
 

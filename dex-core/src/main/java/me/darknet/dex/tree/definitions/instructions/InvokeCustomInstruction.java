@@ -203,7 +203,7 @@ public final class InvokeCustomInstruction implements Instruction {
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 3;
     }
 }

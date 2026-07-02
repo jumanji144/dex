@@ -27,7 +27,7 @@ public record CompareInstruction(int opcode, int dest, int a, int b) implements 
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

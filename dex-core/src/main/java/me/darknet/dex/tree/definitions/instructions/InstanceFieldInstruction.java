@@ -43,7 +43,7 @@ public record InstanceFieldInstruction(int kind, int value, int instance, Instan
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

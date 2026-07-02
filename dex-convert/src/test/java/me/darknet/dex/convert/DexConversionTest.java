@@ -78,7 +78,7 @@ class DexConversionTest implements Opcodes {
         cls.putMethod(method("catcher", Types.methodTypeFromDescriptor("()I"), tryCatchCode(), ACC_PUBLIC | ACC_STATIC));
 
         // Convert the dex class to Java bytecode and load it.
-        DexFile dex = new DexFile(39, List.of(cls), new byte[0]);
+        DexFile dex = new DexFile(39, List.of(cls));
         DexConversion conversion = new DexConversionIr();
         conversion.setWriterFactory(c -> new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS));
         byte[] bytecode = conversion.toClasses(dex).classes().get("test/IrExec");
@@ -109,7 +109,7 @@ class DexConversionTest implements Opcodes {
                 ACC_PUBLIC | ACC_STATIC));
 
         // Convert the dex class to Java bytecode and verify that there are no redundant astore/aload pairs for the reference being returned.
-        DexFile dex = new DexFile(39, List.of(cls), new byte[0]);
+        DexFile dex = new DexFile(39, List.of(cls));
         byte[] bytecode = Converters.IR.toClasses(dex).classes().get("test/IrExecStack");
 
         // Analyze the bytecode of the boxed method to find any astore/aload instructions that operate on reference variables.
@@ -176,7 +176,7 @@ class DexConversionTest implements Opcodes {
 
         // Converting the dex file should trigger the optimizer factory and run the optimizations,
         // which we verify through the events list and factory call count.
-        DexFile dex = new DexFile(39, List.of(first, second), new byte[0]);
+        DexFile dex = new DexFile(39, List.of(first, second));
         ConversionResult result = conversion.toClasses(dex);
         assertTrue(result.errors().isEmpty(), () -> "Unexpected conversion errors: " + result.errors());
         assertEquals(1, factoryCalls.get());
@@ -480,7 +480,7 @@ class DexConversionTest implements Opcodes {
                 label.index(index++);
                 label.position(offset);
             } else {
-                offset += instruction.byteSize();
+                offset += instruction.unitSize();
             }
             out.add(instruction);
         }

@@ -53,11 +53,11 @@ public record GotoInstruction(int opcode, Label jump) implements Instruction {
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return switch (opcode) {
             case GOTO -> 1;
             case GOTO_16 -> 2;
-            case GOTO_32 -> 4;
+            case GOTO_32 -> 3;
             default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
         };
     }

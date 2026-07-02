@@ -87,7 +87,7 @@ public final class TryCatchSupport {
 				single = instruction;
 			}
 			if (code.offsetOf(instruction) == null) {
-				fallbackOffset = offset + instruction.byteSize();
+				fallbackOffset = offset + instruction.unitSize();
 			}
 		}
 		return new InstructionWindow(previous, single);
@@ -111,7 +111,7 @@ public final class TryCatchSupport {
 			int offset = instructionOffset(code, instruction, fallbackOffset);
 			if (offset == targetOffset) return instruction;
 			if (code.offsetOf(instruction) == null) {
-				fallbackOffset = offset + instruction.byteSize();
+				fallbackOffset = offset + instruction.unitSize();
 			}
 		}
 		return null;

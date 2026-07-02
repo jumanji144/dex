@@ -24,10 +24,18 @@ public sealed interface Instruction extends Opcodes permits ArrayInstruction, Ar
     int opcode();
 
     /**
-     * @return the size of the instruction in bytes.
+     * @return the size of this instruction in code units (16-bit words)
      * @see Format#size()
      */
-    default int byteSize() {
+    default int unitSize() {
+		// Named 'unitSize' to avoid overload conflict with other 'size' methods
+	    // For reference:
+	    //  - https://android.googlesource.com/platform/art/+/3623aa1323/libdexfile/dex/dex_instruction-inl.h
+	    //  - https://android.googlesource.com/platform/dalvik/+/kitkat-release/opcode-gen/bytecode.txt
+	    // Yielding 1 here covers:
+	    //  - 10x
+	    //  - 11x
+	    //  - 12x
         return 1;
     }
 

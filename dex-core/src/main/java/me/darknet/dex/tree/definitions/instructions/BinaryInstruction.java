@@ -33,7 +33,7 @@ public record BinaryInstruction(int opcode, int dest, int a, int b) implements I
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

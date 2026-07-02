@@ -31,7 +31,7 @@ public record ArrayInstruction(int kind, int value, int array, int index) implem
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

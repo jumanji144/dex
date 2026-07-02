@@ -36,14 +36,14 @@ public record SparseSwitchInstruction(int register, Map<Integer, Label> targets)
 
         @Override
         public @NotNull FormatAAopBBBB32 unmap(@NotNull SparseSwitchInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            int offset = context.sparseSwitchPayloads().get(output);
+            int offset = context.sparseSwitchPayloads().get(output) - context.instructionOffset(output);
 
             return new FormatAAopBBBB32(SPARSE_SWITCH, output.register, offset);
         }
     };
 
     @Override
-    public int byteSize() {
-        return 4;
+    public int unitSize() {
+        return 3;
     }
 }

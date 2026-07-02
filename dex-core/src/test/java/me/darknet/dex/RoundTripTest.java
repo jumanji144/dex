@@ -29,7 +29,7 @@ public class RoundTripTest {
         output.pipe(baos);
 
         input = Input.wrap(output.buffer());
-        header = codec.read(input);
+        codec.read(input);
     }
 
     private static List<DexSource> getDexInputs() {

@@ -46,7 +46,7 @@ public final class Label implements Instruction {
     }
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 0;
     }
 

@@ -4,7 +4,6 @@ import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.FormatAAopCCBB;
 import me.darknet.dex.file.instructions.FormatBAopCCCC;
 import me.darknet.dex.file.instructions.Opcodes;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static me.darknet.dex.util.TestUtils.EMPTY_CONTEXT;
@@ -26,7 +25,7 @@ class BinaryLiteralInstructionTest implements Opcodes {
 			assertTrue(instr.opcode() >= ADD_INT_LIT8 && instr.opcode() <= USHR_INT_LIT8,
 					"Opcode should be in range [ADD_INT_LIT8, USHR_INT_LIT8]");
 			assertEquals(value, instr.constant(), "Decoded value should match original");
-			assertEquals(2, instr.byteSize(), "LIT8 should be 2 bytes");
+			assertEquals(2, instr.unitSize(), "LIT8 should be 2 units");
 
 			// Round-trip through codec
 			Format format = BinaryLiteralInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -48,7 +47,7 @@ class BinaryLiteralInstructionTest implements Opcodes {
 			assertTrue(instr.opcode() >= ADD_INT_LIT16 && instr.opcode() <= XOR_INT_LIT16,
 					"Opcode should be in range [ADD_INT_LIT8, USHR_INT_LIT8]");
 			assertEquals(value, instr.constant(), "Decoded value should match original");
-			assertEquals(2, instr.byteSize(), "LIT16 should be 2 bytes");
+			assertEquals(2, instr.unitSize(), "LIT16 should be 2 units");
 
 			// Round-trip through codec
 			Format format = BinaryLiteralInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);

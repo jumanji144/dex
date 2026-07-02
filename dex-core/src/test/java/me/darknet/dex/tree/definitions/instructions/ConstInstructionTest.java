@@ -23,7 +23,7 @@ class ConstInstructionTest {
 			assertEquals(ConstInstruction.CONST_4, instr.opcode(),
 					"Should use CONST_4 for 4-bit signed values");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(1, instr.byteSize(), "CONST_4 should be 1 byte");
+			assertEquals(1, instr.unitSize(), "CONST_4 should be 1 unit");
 
 			// Round-trip through codec
 			Format format = ConstInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -43,7 +43,7 @@ class ConstInstructionTest {
 			assertEquals(ConstInstruction.CONST_16, instr.opcode(),
 					"Should use CONST_16 for 16-bit signed values");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(2, instr.byteSize(), "CONST_16 should be 2 bytes");
+			assertEquals(2, instr.unitSize(), "CONST_16 should be 2 units");
 
 			// Round-trip through codec
 			Format format = ConstInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -62,7 +62,7 @@ class ConstInstructionTest {
 			assertEquals(ConstInstruction.CONST_HIGH16, instr.opcode(),
 					"Should use CONST_HIGH16 for values with only high 16 bits set");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(2, instr.byteSize(), "CONST_HIGH16 should be 2 bytes");
+			assertEquals(2, instr.unitSize(), "CONST_HIGH16 should be 2 units");
 
 			// Round-trip through codec
 			Format format = ConstInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -86,7 +86,7 @@ class ConstInstructionTest {
 			assertEquals(ConstInstruction.CONST, instr.opcode(),
 					"Should use CONST for general 32-bit values");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(4, instr.byteSize(), "CONST should be 4 bytes");
+			assertEquals(3, instr.unitSize(), "CONST should be 3 units");
 
 			// Round-trip through codec
 			Format format = ConstInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -97,8 +97,8 @@ class ConstInstructionTest {
 	}
 
 	@Test
-	void testInvalidOpcodeByteSize() {
+	void testInvalidOpcodeUnitSize() {
 		ConstInstruction instr = new ConstInstruction(99, 0, 0);
-		assertThrows(IllegalArgumentException.class, instr::byteSize);
+		assertThrows(IllegalArgumentException.class, instr::unitSize);
 	}
 }

@@ -33,7 +33,7 @@ public record NewArrayInstruction(int dest, int sizeRegister, ClassType componen
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

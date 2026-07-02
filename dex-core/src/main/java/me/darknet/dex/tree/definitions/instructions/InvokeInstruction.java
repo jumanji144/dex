@@ -228,7 +228,7 @@ public final class InvokeInstruction implements Instruction, Invoke {
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return kind == POLYMORPHIC ? 4 : 3;
     }
 

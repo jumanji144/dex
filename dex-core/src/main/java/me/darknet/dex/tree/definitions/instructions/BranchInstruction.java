@@ -50,7 +50,7 @@ public record BranchInstruction(int test, int a, int b, Label label) implements 
 	};
 
 	@Override
-	public int byteSize() {
+	public int unitSize() {
 		return 2;
 	}
 }

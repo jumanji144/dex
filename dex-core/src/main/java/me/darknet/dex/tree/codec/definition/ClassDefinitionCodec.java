@@ -32,11 +32,6 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
         definition.setSourceFile(input.sourceFile() == null ? null : input.sourceFile().string());
         definition.addInterfaces(interfaces);
 
-        ClassDataItem data = input.classData();
-
-        if (data == null) // abstract method
-            return definition;
-
         AnnotationsDirectoryItem directory = input.directory();
         AnnotationMap annotations = new AnnotationMap(
                 new HashMap<>(16), new HashMap<>(16), new HashMap<>(16));
@@ -59,6 +54,10 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             }
 
         }
+
+        ClassDataItem data = input.classData();
+        if (data == null)
+            return definition;
 
         List<Value> backingValues = input.staticValues() == null
                 ? ImmutableCollections.emptyList(data.staticFields().size())
@@ -105,12 +104,10 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         StringItem sourceFile = output.getSourceFile() == null ? null : context.string(output.getSourceFile());
 
-        AnnotationSetItem classAnnotations;
-        if (!output.getAnnotations().isEmpty()) {
-            classAnnotations = context.annotationSet(output.getAnnotations());
-        } else {
-            classAnnotations = new AnnotationSetItem(new ArrayList<>(0));
-        }
+        List<Annotation> classAnnotationList = AnnotationProcessing.exportClassAnnotations(output);
+        AnnotationSetItem classAnnotations = classAnnotationList.isEmpty()
+                ? new AnnotationSetItem(new ArrayList<>(0))
+                : context.annotationSet(classAnnotationList);
 
         AnnotationMap annotations = new AnnotationMap(
                 new HashMap<>(16), new HashMap<>(16), new HashMap<>(16));
@@ -138,7 +135,7 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         for (MethodMember value : output.getMethods().values()) {
             EncodedMethod method = MethodMember.CODEC.unmap(value, annotations, context);
-            if ((value.getAccess() & AccessFlags.ACC_STATIC) != 0) {
+            if (isDirectMethod(value)) {
                 directMethods.add(method);
             } else {
                 virtualMethods.add(method);
@@ -179,7 +176,10 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         AnnotationsDirectoryItem directory = null;
 
-        if (!fieldAnnotations.isEmpty() || !methodAnnotations.isEmpty() || !parameterAnnotations.isEmpty()) {
+        if (!classAnnotations.entries().isEmpty()
+                || !fieldAnnotations.isEmpty()
+                || !methodAnnotations.isEmpty()
+                || !parameterAnnotations.isEmpty()) {
             directory = new AnnotationsDirectoryItem(classAnnotations, fieldAnnotations, methodAnnotations, parameterAnnotations);
         }
 
@@ -188,5 +188,24 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
 
         return new ClassDefItem(type, output.getAccess(), superType, interfaces, sourceFile, directory,
                 data, staticValuesItem);
+    }
+
+    /**
+     * @param method Method to check.
+     * @return {@code true} for any method that cannot be overridden by subclasses.
+     */
+    private boolean isDirectMethod(@NotNull MethodMember method) {
+        // From spec:
+        /*
+        invoke-direct is used to invoke a non-static direct method
+        (that is, an instance method that is by its nature non-overridable,
+        namely either a private instance method or a constructor)
+         */
+        int access = method.getAccess();
+        String name = method.getName();
+        return "<init>".equals(name)
+                || "<clinit>".equals(name)
+                || (access & AccessFlags.ACC_STATIC) != 0
+                || (access & AccessFlags.ACC_PRIVATE) != 0;
     }
 }

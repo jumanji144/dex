@@ -34,7 +34,7 @@ public record CheckCastInstruction(int register, ClassType type) implements Inst
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

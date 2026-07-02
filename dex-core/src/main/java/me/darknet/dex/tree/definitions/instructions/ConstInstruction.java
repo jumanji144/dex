@@ -66,11 +66,11 @@ public record ConstInstruction(int opcode, int register, int value) implements I
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return switch (opcode) {
             case CONST_4 -> 1;
             case CONST_16, CONST_HIGH16 -> 2;
-            case CONST -> 4;
+            case CONST -> 3;
             default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
         };
     }

@@ -3,6 +3,7 @@ package me.darknet.dex.codecs;
 import me.darknet.dex.collections.ConstantPool;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.DexMap;
+import me.darknet.dex.file.HiddenApiData;
 import me.darknet.dex.file.items.*;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -10,7 +11,9 @@ import me.darknet.dex.io.Sections;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -36,19 +39,35 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         return ItemCodec.withFreshCache(() -> {
             DexMapBuilder builder = new DexMapBuilder();
             long size = input.readUnsignedInt();
+            List<MapEntry> entries = new ArrayList<>((int) size);
             for (long i = 0; i < size; i++) {
                 int type = input.readUnsignedShort();
                 input.readUnsignedShort(); // unused
                 long amount = input.readUnsignedInt();
                 int offset = input.readInt();
-                if (type == TYPE_HEADER_ITEM || type == TYPE_MAP_LIST) { // is either header or map list
+                entries.add(new MapEntry(type, amount, offset));
+            }
+
+            for (int i = 0; i < entries.size(); i++) {
+                MapEntry entry = entries.get(i);
+                if (entry.type == TYPE_HEADER_ITEM || entry.type == TYPE_MAP_LIST) {
                     continue;
                 }
-                Input slice = input.slice(offset);
-                for (long j = 0; j < amount; j++) {
-                    Item item;
+                if (entry.type == TYPE_HIDDENAPI_CLASS_DATA_ITEM) {
+                    int nextOffset = input.size();
+                    for (MapEntry candidate : entries) {
+                        if (candidate.offset > entry.offset && candidate.offset < nextOffset) {
+                            nextOffset = candidate.offset;
+                        }
+                    }
+                    int length = Math.max(0, nextOffset - entry.offset);
+                    builder.hiddenApi(new HiddenApiData((int) entry.amount, input.slice(entry.offset, length).readBytes(length)));
+                    continue;
+                }
 
-                    item = CODECS[index(type)].read(slice, builder);
+                Input slice = input.slice(entry.offset);
+                for (long j = 0; j < entry.amount; j++) {
+                    Item item = CODECS[index(entry.type)].read(slice, builder);
                     builder.add(item);
                 }
             }
@@ -118,6 +137,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         if(!map.annotationSets().isEmpty()) size++;
         if(!map.annotationSetRefLists().isEmpty()) size++;
         if(!map.annotationsDirectories().isEmpty()) size++;
+        if(map.hiddenApi() != null) size++;
         if(!map.debugInfos().isEmpty()) size++;
         if(!map.codes().isEmpty()) size++;
         if(!map.classDatas().isEmpty()) size++;
@@ -152,6 +172,10 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         writeMapEntry(output, TYPE_ANNOTATION_SET_ITEM, value.annotationSets(), context);
         writeMapEntry(output, TYPE_ANNOTATION_SET_REF_LIST, value.annotationSetRefLists(), context);
         writeMapEntry(output, TYPE_ANNOTATIONS_DIRECTORY_ITEM, value.annotationsDirectories(), context);
+        if (value.hiddenApi() != null) {
+            writeMapEntry(output, TYPE_HIDDENAPI_CLASS_DATA_ITEM, value.hiddenApi().itemCount(),
+                    offsets.get(sections.hiddenApi()));
+        }
         writeMapEntry(output, TYPE_DEBUG_INFO_ITEM, value.debugInfos(), context);
         writeMapEntry(output, TYPE_CODE_ITEM, value.codes(), context);
         writeMapEntry(output, TYPE_CLASS_DATA_ITEM, value.classDatas(), context);
@@ -173,6 +197,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         offset = putOffset(sections.callSiteIds(), offsets, offset);
         offset = putOffset(sections.methodHandles(), offsets, offset);
         offset = putOffset(sections.data(), offsets, offset);
+        offset = putOffset(sections.hiddenApi(), offsets, offset);
         putOffset(sections.map(), offsets, offset);
     }
 
@@ -254,6 +279,9 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
                 write(classDef.classData(), ClassDataItem.CODEC, sections.data(), context);
             write(classDef, ClassDefItem.CODEC, sections.classDefs(), context);
         }
+
+        if (value.hiddenApi() != null)
+            sections.hiddenApi().write(value.hiddenApi().payload());
     }
 
     private @NotNull WriteContext createContext(@NotNull DexMap value, @NotNull Map<Object, Integer> offsets) {
@@ -302,4 +330,6 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     }
 
     private record WriteState(@NotNull Sections sections, @NotNull Map<Object, Integer> offsets, int dataOffset) {}
+
+    private record MapEntry(int type, long amount, int offset) {}
 }

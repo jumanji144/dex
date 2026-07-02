@@ -63,11 +63,11 @@ public record ConstWideInstruction(int opcode, int register, long value) impleme
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return switch (opcode) {
             case CONST_WIDE_16 -> 2;
-            case CONST_WIDE_32, CONST_WIDE_HIGH16 -> 4;
-            case CONST_WIDE -> 8;
+            case CONST_WIDE_32, CONST_WIDE_HIGH16 -> 3;
+            case CONST_WIDE -> 5;
             default -> throw new IllegalArgumentException("Invalid opcode: " + opcode);
         };
     }

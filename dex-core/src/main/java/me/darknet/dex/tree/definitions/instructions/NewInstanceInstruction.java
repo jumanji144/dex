@@ -33,7 +33,7 @@ public record NewInstanceInstruction(int dest, InstanceType type) implements Ins
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

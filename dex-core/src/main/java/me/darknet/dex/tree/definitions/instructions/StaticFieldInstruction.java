@@ -42,7 +42,7 @@ public record StaticFieldInstruction(int kind, int value, InstanceType owner, St
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }

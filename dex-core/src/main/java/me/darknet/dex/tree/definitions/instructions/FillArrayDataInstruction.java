@@ -27,14 +27,14 @@ public record FillArrayDataInstruction(int array, byte[] data, int elementSize) 
 
         @Override
         public @NotNull FormatAAopBBBB32 unmap(@NotNull FillArrayDataInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            int offset = context.arrayPayloads().get(output);
+            int offset = context.arrayPayloads().get(output) - context.instructionOffset(output);
 
             return new FormatAAopBBBB32(FILL_ARRAY_DATA, output.array, offset);
         }
     };
 
     @Override
-    public int byteSize() {
-        return 2;
+    public int unitSize() {
+        return 3;
     }
 }

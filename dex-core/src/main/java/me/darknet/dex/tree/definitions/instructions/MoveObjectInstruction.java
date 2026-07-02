@@ -54,7 +54,7 @@ public record MoveObjectInstruction(int opcode, int to, int from) implements Ins
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return switch (opcode) {
             case MOVE_OBJECT -> 1;
             case MOVE_OBJECT_FROM16 -> 2;

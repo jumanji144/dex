@@ -143,7 +143,7 @@ public final class FilledNewArrayInstruction implements Instruction {
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 3;
     }
 }

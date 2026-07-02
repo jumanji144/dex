@@ -24,7 +24,7 @@ class ConstWideInstructionTest {
 			assertEquals(ConstWideInstruction.CONST_WIDE_16, instr.opcode(),
 					"Should use CONST_WIDE_16 for 16-bit signed values");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(2, instr.byteSize(), "CONST_WIDE_16 should be 2 bytes");
+			assertEquals(2, instr.unitSize(), "CONST_WIDE_16 should be 2 units");
 
 			// Round-trip through codec
 			Format format = ConstWideInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -43,7 +43,7 @@ class ConstWideInstructionTest {
 			assertEquals(ConstWideInstruction.CONST_WIDE_32, instr.opcode(),
 					"Should use CONST_WIDE_32 for 32-bit signed values");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(4, instr.byteSize(), "CONST_WIDE_32 should be 4 bytes");
+			assertEquals(3, instr.unitSize(), "CONST_WIDE_32 should be 3 units");
 
 			// Round-trip through codec
 			Format format = ConstWideInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -62,7 +62,7 @@ class ConstWideInstructionTest {
 			assertEquals(ConstWideInstruction.CONST_WIDE_HIGH16, instr.opcode(),
 					"Should use CONST_WIDE_HIGH16 for values with only high 16 bits set");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(4, instr.byteSize(), "CONST_WIDE_HIGH16 should be 4 bytes");
+			assertEquals(3, instr.unitSize(), "CONST_WIDE_HIGH16 should be 3 units");
 
 			// Round-trip through codec
 			Format format = ConstWideInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -87,7 +87,7 @@ class ConstWideInstructionTest {
 			assertEquals(ConstWideInstruction.CONST_WIDE, instr.opcode(),
 					"Should use CONST_WIDE for general 64-bit values");
 			assertEquals(value, instr.value(), "Decoded value should match original");
-			assertEquals(8, instr.byteSize(), "CONST_WIDE should be 8 bytes");
+			assertEquals(5, instr.unitSize(), "CONST_WIDE should be 5 units");
 
 			// Round-trip through codec
 			Format format = ConstWideInstruction.CODEC.unmap(instr, EMPTY_CONTEXT_UN);
@@ -98,8 +98,8 @@ class ConstWideInstructionTest {
 	}
 
 	@Test
-	void testInvalidOpcodeByteSize() {
+	void testInvalidOpcodeUnitSize() {
 		ConstWideInstruction instr = new ConstWideInstruction(99, 0, 0L);
-		assertThrows(IllegalArgumentException.class, instr::byteSize);
+		assertThrows(IllegalArgumentException.class, instr::unitSize);
 	}
 }

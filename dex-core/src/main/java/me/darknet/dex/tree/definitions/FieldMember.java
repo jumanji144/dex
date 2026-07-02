@@ -5,6 +5,7 @@ import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.EncodedField;
 import me.darknet.dex.file.items.AnnotationSetItem;
 import me.darknet.dex.file.items.FieldItem;
+import me.darknet.dex.tree.definitions.annotation.AnnotationProcessing;
 import me.darknet.dex.tree.definitions.annotation.AnnotationMap;
 import me.darknet.dex.tree.definitions.constant.Constant;
 import me.darknet.dex.tree.type.ClassType;
@@ -67,7 +68,7 @@ public non-sealed class FieldMember extends Member<ClassType> {
         public EncodedField unmap(FieldMember member, AnnotationMap annotations, DexMapBuilder context) {
             FieldItem field = context.field(member.getOwner(), member.getName(), member.getType());
 
-            AnnotationSetItem set = context.annotationSet(member.getAnnotations());
+            AnnotationSetItem set = context.annotationSet(AnnotationProcessing.exportFieldAnnotations(member));
 
             if (set != null)
                 annotations.fieldAnnotations().put(field, set);

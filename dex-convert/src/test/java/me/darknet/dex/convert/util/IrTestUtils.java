@@ -46,7 +46,7 @@ public class IrTestUtils {
 				label.index(index++);
 				label.position(offset);
 			} else {
-				offset += instruction.byteSize();
+				offset += instruction.unitSize();
 			}
 			out.add(instruction);
 		}

@@ -32,7 +32,7 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
     };
 
     @Override
-    public int byteSize() {
+    public int unitSize() {
         return 2;
     }
 }
