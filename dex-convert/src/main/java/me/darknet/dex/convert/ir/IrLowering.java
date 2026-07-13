@@ -509,8 +509,15 @@ public final class IrLowering {
 	}
 
 	private boolean canCarryAcrossExceptionalSuccessors(@NotNull IrOp op) {
+		if (op.payload() instanceof InvokeInstruction) {
+			// A receiver-returning invoke is still an effectful operation. Keeping its
+			// result on the operand stack across handler-split blocks can interleave that
+			// stack value with a later receiver chain, producing an invalid JVM stack.
+			// Let the consumer inline the invoke instead; it preserves the original
+			// evaluation order and gives every block a balanced entry stack.
+			return false;
+		}
 		if (op.payload() instanceof StaticFieldInstruction) return true;
-		if (isReceiverReturningInvoke(op)) return true;
 		if (!(op.payload() instanceof InstanceFieldInstruction) || op.inputs().isEmpty()
 				|| !(op.inputs().getFirst().canonical() instanceof IrParameter parameter)
 				|| (method.source().getAccess() & ACC_STATIC) != 0)
