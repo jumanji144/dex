@@ -65,6 +65,7 @@ public final class IrLowering {
 	private final Map<IrBlock, Label> protectedBoundaryLabels = new HashMap<>();
 	private final Label endLabel = new Label();
 	private final Map<HandlerStubKey, Label> handlerStubLabels = new HashMap<>();
+	private final Map<IrBlock, Label> simpleHandlerStubLabels = new HashMap<>();
 	private final Map<IrBlock, HandlerTail> handlerTails = new HashMap<>();
 	private final Set<IrBlock> skippedHandlerTailBlocks = new HashSet<>();
 	private final Set<IrBlock> deferredNormalTailBlocks = new HashSet<>();
@@ -285,19 +286,37 @@ public final class IrLowering {
 
 	private void collectHandlerStubs() {
 		handlerStubLabels.clear();
+		simpleHandlerStubLabels.clear();
 		stubbedHandlers.clear();
 		for (IrExceptionRegion region : method.exceptionRegions()) {
 			for (IrExceptionHandler handler : region.handlers()) {
 				List<IrBlock> sources = coveredSourceBlocks(region, handler);
 				boolean needsStub = sources.stream().anyMatch(source -> hasPhiCopies(source, handler.handlerBlock()));
-			if (!needsStub) continue;
-			for (IrBlock source : sources) {
-				HandlerStubKey key = new HandlerStubKey(source, handler.handlerBlock());
-				handlerStubLabels.computeIfAbsent(key, ignored -> new Label());
-			}
-			stubbedHandlers.add(handler.handlerBlock());
+				boolean needsSimpleStub = !needsStub
+						&& handler.handlerBlock().phis().isEmpty()
+						&& startsImmediatelyAfter(region, handler.handlerBlock())
+						&& !handler.handlerBlock().predecessors().isEmpty()
+						&& handler.handlerBlock().predecessors().stream()
+								.allMatch(predecessor -> predecessor.exceptionalSuccessors().contains(handler.handlerBlock()));
+				if (needsSimpleStub) {
+					simpleHandlerStubLabels.computeIfAbsent(handler.handlerBlock(), ignored -> new Label());
+					stubbedHandlers.add(handler.handlerBlock());
+					continue;
+				}
+				if (!needsStub) continue;
+				for (IrBlock source : sources) {
+					HandlerStubKey key = new HandlerStubKey(source, handler.handlerBlock());
+					handlerStubLabels.computeIfAbsent(key, ignored -> new Label());
+				}
+				stubbedHandlers.add(handler.handlerBlock());
 			}
 		}
+	}
+
+	private boolean startsImmediatelyAfter(@NotNull IrExceptionRegion region, @NotNull IrBlock block) {
+		if (block.startOffset() < region.endOffset()) return false;
+		return method.blocks().stream().noneMatch(candidate -> candidate.startOffset() > region.endOffset()
+				&& candidate.startOffset() < block.startOffset());
 	}
 
 	private void analyzeUses() {
@@ -362,6 +381,8 @@ public final class IrLowering {
 	                                           @Nullable IrTerminator blockTerminator) {
 		IrStmt statement = statements.get(index);
 		if (!(statement instanceof IrOp op) || op.canonical() != op)
+			return false;
+		if (usesActiveOperandStackCarry(op))
 			return false;
 		IrStmt next = index + 1 < statements.size() ? statements.get(index + 1) : blockTerminator;
 		if (shouldInlineConstructedReceiverConstructor(op))
@@ -454,6 +475,10 @@ public final class IrLowering {
 		if (consumerOp != null && !(consumerOp.payload() instanceof InvokeInstruction)
 				&& !(consumerOp.payload() instanceof CheckCastInstruction))
 			return false;
+		if (consumerOp != null && consumerOp.payload() instanceof InvokeInstruction instruction
+				&& ("Z".equals(instruction.type().returnType().descriptor())
+				|| "V".equals(instruction.type().returnType().descriptor())))
+			return false;
 		if (consumer instanceof IrTerminator terminator
 				&& terminator.kind() != IrTerminatorKind.IF && terminator.kind() != IrTerminatorKind.IF_ZERO)
 			return false;
@@ -493,7 +518,9 @@ public final class IrLowering {
 					|| !hasCarriedInvokeInputPrefix(consumerOp, consumerInputIndex))
 				return false;
 		} else {
-			if (consumerInputIndex != 0 || !activeOperandStackCarries.isEmpty())
+			if (consumerInputIndex != 0 || !activeOperandStackCarries.isEmpty()
+					|| (consumerOp != null && consumerOp.stackOnly())
+					|| isTransparentBlock(consumerBlock))
 				return false;
 			carryRegion = operandStackCarryRegion(block, consumerBlock);
 			boolean directConditionCarry = consumer instanceof IrTerminator;
@@ -985,7 +1012,7 @@ public final class IrLowering {
 		switch (terminator.kind()) {
 			case GOTO -> {
 				IrBlock target = gotoTarget(block, terminator.payload());
-				if (target != null) emitEdge(block, target, !isExceptionBoundaryGlue(block));
+				if (target != null) emitEdge(block, target, true);
 			}
 			case IF -> emitIf(block, (BranchInstruction) terminator.payload(), terminator.inputs());
 			case IF_ZERO ->
@@ -1007,7 +1034,8 @@ public final class IrLowering {
 				String catchType = handler == null || handler.isCatchAll() ? null : handler.exceptionType().internalName();
 				List<IrBlock> sources = coveredSourceBlocks(region, exceptionHandler);
 				if (sources.isEmpty()) continue;
-				boolean requiresHandlerStubs = sources.stream()
+				boolean requiresHandlerStubs = simpleHandlerStubLabels.containsKey(exceptionHandler.handlerBlock())
+						|| sources.stream()
 						.anyMatch(source -> handlerStubLabels.containsKey(new HandlerStubKey(source, exceptionHandler.handlerBlock())));
 				if (!requiresHandlerStubs) {
 					Label start = labelAtOrEnd(region.startOffset());
@@ -1043,6 +1071,15 @@ public final class IrLowering {
 	}
 
 	private void emitHandlerStubs() {
+		for (Map.Entry<IrBlock, Label> entry : simpleHandlerStubLabels.entrySet()) {
+			IrBlock target = entry.getKey();
+			mv.visitLabel(entry.getValue());
+			if (target.exceptionValue() != null)
+				store(target.exceptionValue());
+			else
+				mv.visitInsn(POP);
+			mv.visitJumpInsn(GOTO, labels.get(target));
+		}
 		for (Map.Entry<HandlerStubKey, Label> entry : handlerStubLabels.entrySet()) {
 			HandlerStubKey key = entry.getKey();
 			IrBlock target = key.target();
@@ -1106,6 +1143,8 @@ public final class IrLowering {
 	}
 
 	private @NotNull Label handlerEntryLabel(@NotNull IrBlock handler) {
+		Label stub = simpleHandlerStubLabels.get(handler);
+		if (stub != null) return stub;
 		HandlerTail tail = handlerTails.get(handler);
 		return tail == null ? labels.get(handler) : tail.label();
 	}

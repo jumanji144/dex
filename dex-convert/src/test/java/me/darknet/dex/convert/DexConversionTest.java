@@ -435,6 +435,24 @@ class DexConversionTest implements Opcodes {
              assertTrue(method.contains("if (!this.preferences.contains(\"name\"))"),
                      () -> "ensureIdentity did not inline the preference condition:\n" + method);
          }
+
+         @Test
+         void realFileTransferHandleConnectionDecompilesWithoutFailureStub() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             assertNotNull(decompiled, () -> "CFR produced no decompiled output:\n"
+                     + Decompile.bytecode(bytecode));
+             int start = decompiled.indexOf("private void handleConnection");
+             int end = decompiled.indexOf("static /* synthetic */ void lambda$notifyPeersTo$5", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing handleConnection in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.contains("Decompilation failed"),
+                     () -> "CFR emitted a decompilation failure stub for handleConnection:\n"
+                             + method + "\n\nBytecode:\n" + Decompile.bytecode(bytecode));
+         }
     }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {
