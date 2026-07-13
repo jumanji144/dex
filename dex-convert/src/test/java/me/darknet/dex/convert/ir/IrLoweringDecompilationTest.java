@@ -7,12 +7,15 @@ import me.darknet.dex.convert.util.IrTestUtils;
 import me.darknet.dex.tree.definitions.ClassDefinition;
 import me.darknet.dex.tree.definitions.MethodMember;
 import me.darknet.dex.tree.definitions.instructions.BinaryInstruction;
+import me.darknet.dex.tree.definitions.instructions.ConstInstruction;
+import me.darknet.dex.tree.definitions.instructions.Instruction;
 import me.darknet.dex.tree.definitions.instructions.ReturnInstruction;
 import me.darknet.dex.tree.type.Types;
 import me.darknet.dex.util.TestUtils;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Opcodes;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,6 +30,27 @@ class IrLoweringDecompilationTest {
                 new ReturnInstruction(0)));
         String decompiled = Decompile.decompile("TestClass", new IrBuilder(method).build());
         assertTrue(decompiled.contains("return"), decompiled);
+    }
+
+    @Test
+    void deepInlineDecisionChainFallsBackWithoutStackOverflow() {
+        int depth = 1024;
+        Instruction[] instructions = new Instruction[depth + 3];
+        instructions[0] = new ConstInstruction(0, 1);
+        instructions[1] = new ConstInstruction(1, 1);
+        for (int i = 0; i < depth; i++) {
+            int destination = i + 2;
+            int firstInput = i < 2 ? 0 : i;
+            instructions[i + 2] = new BinaryInstruction(me.darknet.dex.file.instructions.Opcodes.ADD_INT,
+                    destination, firstInput, 1);
+        }
+        instructions[depth + 2] = new ReturnInstruction(depth + 1);
+
+        MethodMember method = new MethodMember("deepExpression", Types.methodTypeFromDescriptor("()I"),
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC);
+        method.setCode(IrTestUtils.code(depth + 2, 0, instructions));
+
+        assertDoesNotThrow(() -> Decompile.decompile("TestClass", new IrBuilder(method).build()));
     }
 
     @Test

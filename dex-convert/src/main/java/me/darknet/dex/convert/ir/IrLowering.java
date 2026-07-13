@@ -84,7 +84,10 @@ public final class IrLowering {
 	private final Set<IrEffect> emittedEffects = Collections.newSetFromMap(new IdentityHashMap<>());
 	private final Map<IrOp, IrOp> constructorByReceiver = new HashMap<>();
 	private final Set<IrOp> inlineConstructedReceivers = new HashSet<>();
+	private final Map<SkipSeparateEmissionKey, Boolean> skipSeparateEmissionResults = new HashMap<>();
+	private final Set<SkipSeparateEmissionKey> activeSkipSeparateEmission = new HashSet<>();
 	private LoweringUseGraph useGraph;
+	private boolean cacheSkipSeparateEmission;
 	private final int registerLocalBase;
 	private int nextLocal;
 	private IrStmt currentStatement;
@@ -108,6 +111,35 @@ public final class IrLowering {
 	private record DirectReturn(@NotNull IrTerminator terminator, @NotNull IrValue value) {
 	}
 
+	private static final class SkipSeparateEmissionKey {
+		private final List<IrStmt> statements;
+		private final int index;
+		private final IrTerminator blockTerminator;
+
+		private SkipSeparateEmissionKey(@NotNull List<IrStmt> statements, int index,
+		                                @Nullable IrTerminator blockTerminator) {
+			this.statements = statements;
+			this.index = index;
+			this.blockTerminator = blockTerminator;
+		}
+
+		@Override
+		public boolean equals(Object other) {
+			if (this == other) return true;
+			if (!(other instanceof SkipSeparateEmissionKey key)) return false;
+			return statements == key.statements && index == key.index && blockTerminator == key.blockTerminator;
+		}
+
+		@Override
+		public int hashCode() {
+			int result = System.identityHashCode(statements);
+			result = 31 * result + index;
+			return 31 * result + System.identityHashCode(blockTerminator);
+		}
+	}
+
+	private static final int MAX_SKIP_SEPARATE_EMISSION_DEPTH = 256;
+
 	private IrLowering(@NotNull IrMethod method, @NotNull MethodVisitor mv) {
 		this.method = method;
 		this.mv = mv;
@@ -122,6 +154,9 @@ public final class IrLowering {
 
 	private void emit() {
 		analyzeUses();
+		cacheSkipSeparateEmission = true;
+		skipSeparateEmissionResults.clear();
+		activeSkipSeparateEmission.clear();
 		initializeLabels();
 		nextLocal = JvmLocalAllocator.allocate(method, registerLocalBase);
 		emittedOps.clear();
@@ -481,6 +516,27 @@ public final class IrLowering {
 
 	private boolean shouldSkipSeparateEmission(@NotNull List<IrStmt> statements, int index,
 	                                           @Nullable IrTerminator blockTerminator) {
+		SkipSeparateEmissionKey key = new SkipSeparateEmissionKey(statements, index, blockTerminator);
+		if (cacheSkipSeparateEmission) {
+			Boolean cached = skipSeparateEmissionResults.get(key);
+			if (cached != null) return cached;
+		}
+		// All recursive paths are conservative: if deciding whether an operation can
+		// be deferred becomes cyclic or excessively deep, emit it separately.
+		if (activeSkipSeparateEmission.size() >= MAX_SKIP_SEPARATE_EMISSION_DEPTH
+				|| !activeSkipSeparateEmission.add(key)) return false;
+		boolean result;
+		try {
+			result = computeShouldSkipSeparateEmission(statements, index, blockTerminator);
+		} finally {
+			activeSkipSeparateEmission.remove(key);
+		}
+		if (cacheSkipSeparateEmission) skipSeparateEmissionResults.put(key, result);
+		return result;
+	}
+
+	private boolean computeShouldSkipSeparateEmission(@NotNull List<IrStmt> statements, int index,
+	                                                  @Nullable IrTerminator blockTerminator) {
 		IrStmt statement = statements.get(index);
 		if (!(statement instanceof IrOp op) || op.canonical() != op)
 			return false;
@@ -645,6 +701,7 @@ public final class IrLowering {
 		emittedOps.add(op);
 		OperandStackCarry carry = new OperandStackCarry(op, consumer, consumerBlock);
 		activeOperandStackCarries.addLast(carry);
+		skipSeparateEmissionResults.clear();
 		if (carryRegion != null) {
 			for (IrBlock candidate : carryRegion)
 				if (candidate != block) operandStackCarries.put(candidate, carry);
@@ -709,12 +766,16 @@ public final class IrLowering {
 	}
 
 	private void beginOperandStackCarry(@NotNull IrBlock block) {
+		// shouldSkipSeparateEmission depends on the active carry set. Do not reuse
+		// results computed while inspecting this block before its carry was entered.
+		skipSeparateEmissionResults.clear();
 		OperandStackCarry carry = operandStackCarries.get(block);
 		if (carry != null) activeOperandStackCarries.addLast(carry);
 	}
 
 	private void clearOperandStackCarry() {
 		activeOperandStackCarries.clear();
+		skipSeparateEmissionResults.clear();
 	}
 
 	private boolean hasUnconsumedOperandStackCarry(@NotNull IrBlock block) {
@@ -2225,6 +2286,7 @@ public final class IrLowering {
 			if (currentStatement != carry.consumer())
 				throw new IllegalStateException("Operand-stack value consumed by an unexpected statement");
 			activeOperandStackCarries.remove(carry);
+			skipSeparateEmissionResults.clear();
 			return;
 		}
 		if (canonical instanceof IrOp op && inlineConstructedReceivers.contains(op) && currentStatement != null
