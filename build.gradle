@@ -1,6 +1,6 @@
 allprojects {
     group 'me.darknet'
-    version '0.0.2-alpha'
+    version '0.0.3-alpha'
 }
 
 subprojects {
@@ -40,6 +40,9 @@ subprojects {
         jvmArgs "--add-opens", "jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED"
         jvmArgs "--add-opens", "jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED"
         jvmArgs "--add-opens", "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED"
+
+        minHeapSize = '512m'
+        maxHeapSize = '2048m'
     }
 
     dependencies {
