@@ -2,6 +2,7 @@ package me.darknet.dex.convert.ir.optimize;
 
 import me.darknet.dex.convert.ir.IrBlock;
 import me.darknet.dex.convert.ir.IrMethod;
+import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.statement.IrOp;
 import me.darknet.dex.convert.ir.statement.IrStmt;
 import me.darknet.dex.convert.ir.value.IrConstant;
@@ -25,7 +26,7 @@ public class ConstantFoldingOptimizer implements IrOptimizer {
 	protected void foldConstants(@NotNull IrMethod method) {
 		for (IrBlock block : method.blocks()) {
 			for (IrStmt statement : block.statements()) {
-				if (!(statement instanceof IrOp op) || !op.pure()) continue;
+				if (!(statement instanceof IrOp op) || !IrOpSemantics.isRemovable(op)) continue;
 				IrConstant constant = fold(op);
 				if (constant != null) {
 					op.replaceWith(constant);

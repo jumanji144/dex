@@ -1,5 +1,8 @@
 package me.darknet.dex.convert;
 
+import me.darknet.dex.file.instructions.Opcodes;
+import me.darknet.dex.tree.definitions.ClassDefinition;
+import me.darknet.dex.tree.definitions.FieldMember;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.constant.AnnotationConstant;
@@ -20,7 +23,11 @@ import me.darknet.dex.tree.definitions.constant.NullConstant;
 import me.darknet.dex.tree.definitions.constant.ShortConstant;
 import me.darknet.dex.tree.definitions.constant.StringConstant;
 import me.darknet.dex.tree.definitions.constant.TypeConstant;
+import me.darknet.dex.tree.definitions.instructions.ConstInstruction;
+import me.darknet.dex.tree.definitions.instructions.ConstWideInstruction;
+import me.darknet.dex.tree.definitions.instructions.Instruction;
 import me.darknet.dex.tree.definitions.instructions.Invoke;
+import me.darknet.dex.tree.definitions.instructions.StaticFieldInstruction;
 import me.darknet.dex.tree.type.ArrayType;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.InstanceType;
@@ -34,7 +41,11 @@ import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -116,6 +127,84 @@ public final class ConversionSupport {
 			case TypeConstant constant -> asmType(constant.type());
 			case NullConstant ignored -> null;
 			default -> throw new IllegalStateException("Unexpected value: " + value);
+		};
+	}
+
+	/**
+	 * @param access
+	 * 		Access flags of the field.
+	 * @param value
+	 * 		Constant value of the field.
+	 * @param supersededInClassInitializer
+	 * 		Whether the field is assigned a non-default value in a class initializer.
+	 *
+	 * @return Mapped constant value, or {@code null} if the input is null, a {@link NullConstant}, or a redundant mutable JVM default.
+	 */
+	public static @Nullable Object mapFieldConstant(int access, @Nullable Constant value,
+	                                                boolean supersededInClassInitializer) {
+		if (supersededInClassInitializer && (access & ACC_STATIC) != 0 && (access & ACC_FINAL) == 0
+				&& isJvmDefaultFieldValue(value))
+			return null;
+		return mapConstant(value);
+	}
+
+	/**
+	 * @param definition
+	 * 		Class definition to analyze.
+	 *
+	 * @return Set of static fields that are assigned a non-default value in the class initializer,
+	 * or an empty set if there is no class initializer or if the assignments are ambiguous.
+	 */
+	public static @NotNull Set<FieldMember> staticInitializerAssignments(@NotNull ClassDefinition definition) {
+		for (var method : definition.getMethods().values()) {
+			if (!method.getName().equals("<clinit>") || method.getCode() == null) continue;
+			Map<FieldMember, Boolean> candidates = new HashMap<>();
+			Set<Integer> knownZeroRegisters = new HashSet<>();
+			for (Instruction instruction : method.getCode().getInstructions()) {
+				if (instruction instanceof me.darknet.dex.tree.definitions.instructions.Label) continue;
+				if (instruction instanceof ConstInstruction constant) {
+					knownZeroRegisters.clear();
+					if (constant.value() == 0) knownZeroRegisters.add(constant.register());
+					continue;
+				}
+				if (instruction instanceof ConstWideInstruction constant) {
+					knownZeroRegisters.clear();
+					if (constant.value() == 0) knownZeroRegisters.add(constant.register());
+					continue;
+				}
+				if (instruction instanceof StaticFieldInstruction fieldInstruction
+						&& fieldInstruction.opcode() >= Opcodes.SPUT) {
+					if (fieldInstruction.owner().equals(definition.getType())) {
+						FieldMember field = definition.getField(fieldInstruction.name(), fieldInstruction.type().descriptor());
+						if (field != null) {
+							boolean nonDefaultAssignment = !knownZeroRegisters.contains(fieldInstruction.value());
+							candidates.merge(field, nonDefaultAssignment, (prior, current) -> false);
+						}
+					}
+					continue;
+				}
+				knownZeroRegisters.clear();
+			}
+			if (candidates.size() != 1) return Set.of();
+			Map.Entry<FieldMember, Boolean> candidate = candidates.entrySet().iterator().next();
+			return candidate.getValue() ? Set.of(candidate.getKey()) : Set.of();
+		}
+		return Set.of();
+	}
+
+	private static boolean isJvmDefaultFieldValue(@Nullable Constant value) {
+		return switch (value) {
+			case null -> true;
+			case NullConstant ignored -> true;
+			case BoolConstant constant -> !constant.value();
+			case ByteConstant constant -> constant.value() == 0;
+			case CharConstant constant -> constant.value() == 0;
+			case DoubleConstant constant -> Double.doubleToRawLongBits(constant.value()) == 0;
+			case FloatConstant constant -> Float.floatToRawIntBits(constant.value()) == 0;
+			case IntConstant constant -> constant.value() == 0;
+			case LongConstant constant -> constant.value() == 0;
+			case ShortConstant constant -> constant.value() == 0;
+			default -> false;
 		};
 	}
 

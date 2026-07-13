@@ -8,10 +8,10 @@ import me.darknet.dex.tree.definitions.OpcodeNames;
 import me.darknet.dex.tree.type.PrimitiveType;
 import org.jetbrains.annotations.NotNull;
 
-public record UnaryInstruction(int opcode, int source, int dest) implements Instruction {
+public record UnaryInstruction(int opcode, int dest, int source) implements Instruction {
 
-    public UnaryInstruction(int operation, @NotNull PrimitiveType type, int source, int dest) {
-        this(UnaryOperation.operation(operation, type), source, dest);
+	public UnaryInstruction(int operation, @NotNull PrimitiveType type, int dest, int source) {
+		this(UnaryOperation.operation(operation, type), dest, source);
     }
 
     @Override
@@ -25,9 +25,9 @@ public record UnaryInstruction(int opcode, int source, int dest) implements Inst
             return new UnaryInstruction(input.op(), input.a(), input.b());
         }
 
-        @Override
-        public @NotNull FormatBAop unmap(@NotNull UnaryInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            return new FormatBAop(output.opcode(), output.source(), output.dest());
-        }
+		@Override
+		public @NotNull FormatBAop unmap(@NotNull UnaryInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
+			return new FormatBAop(output.opcode(), output.dest(), output.source());
+		}
     };
 }

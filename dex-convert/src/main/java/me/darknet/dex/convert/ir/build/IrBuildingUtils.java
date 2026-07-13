@@ -3,6 +3,7 @@ package me.darknet.dex.convert.ir.build;
 import me.darknet.dex.convert.ConversionSupport;
 import me.darknet.dex.convert.ir.value.IrConstant;
 import me.darknet.dex.convert.ir.value.IrValue;
+import me.darknet.dex.convert.ir.analysis.InstructionSemantics;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.definitions.code.Handler;
 import me.darknet.dex.tree.definitions.instructions.ArrayInstruction;
@@ -36,30 +37,11 @@ import static me.darknet.dex.convert.ConversionSupport.slotSize;
 
 public class IrBuildingUtils {
 	public static boolean canThrow(@NotNull Instruction instruction) {
-		return switch (instruction) {
-			case ArrayInstruction ignored -> true;
-			case ArrayLengthInstruction ignored -> true;
-			case CheckCastInstruction ignored -> true;
-			case FillArrayDataInstruction ignored -> true;
-			case FilledNewArrayInstruction ignored -> true;
-			case InstanceFieldInstruction ignored -> true;
-			case InstanceOfInstruction ignored -> true;
-			case InvokeInstruction ignored -> true;
-			case InvokeCustomInstruction ignored -> true;
-			case MonitorInstruction ignored -> true;
-			case NewArrayInstruction ignored -> true;
-			case NewInstanceInstruction ignored -> true;
-			case StaticFieldInstruction ignored -> true;
-			case ThrowInstruction ignored -> true;
-			default -> false;
-		};
+		return InstructionSemantics.canThrow(instruction);
 	}
 
 	public static boolean canThrowToHandler(@NotNull Instruction instruction, @NotNull Handler handler) {
-		if (handler.isCatchAll()) return canThrow(instruction);
-		return catchesNullPointerException(handler)
-				? canThrowNullPointerException(instruction)
-				: canThrow(instruction);
+		return InstructionSemantics.canThrowToHandler(instruction, handler);
 	}
 
 	public static boolean catchesNullPointerException(@NotNull Handler handler) {

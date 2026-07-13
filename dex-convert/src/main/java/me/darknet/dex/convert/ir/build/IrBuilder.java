@@ -37,6 +37,6 @@ public class IrBuilder {
 				graphBuilder.buildPrunedGraph() :
 				graphBuilder.buildGraph();
 		blockBuilder.buildBlocks(graph);
-		return new IrMethod(method, code.getRegisters(), graph.blocks(), graph.entry(), graph.tryCatches());
+		return new IrMethod(method, code.getRegisters(), graph.blocks(), graph.entry(), graph.exceptionRegions());
 	}
 }

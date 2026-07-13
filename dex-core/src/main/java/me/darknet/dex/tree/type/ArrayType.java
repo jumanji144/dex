@@ -12,8 +12,7 @@ public final class ArrayType implements ReferenceType {
         this.dimensions = nextDimension(componentType);
         this.componentType = componentType;
 
-        this.descriptor = "[".repeat(Math.max(0, dimensions)) +
-                componentType.descriptor();
+		this.descriptor = "[" + componentType.descriptor();
     }
 
     @Override

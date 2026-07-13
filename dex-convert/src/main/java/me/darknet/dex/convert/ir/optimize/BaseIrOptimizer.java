@@ -2,6 +2,7 @@ package me.darknet.dex.convert.ir.optimize;
 
 import me.darknet.dex.convert.ir.IrBlock;
 import me.darknet.dex.convert.ir.IrMethod;
+import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.statement.IrEffect;
 import me.darknet.dex.convert.ir.statement.IrOp;
 import me.darknet.dex.convert.ir.statement.IrStmt;
@@ -76,7 +77,7 @@ public class BaseIrOptimizer implements IrOptimizer {
 				Iterator<IrStmt> iterator = block.statements().iterator();
 				while (iterator.hasNext()) {
 					IrStmt statement = iterator.next();
-					if (!(statement instanceof IrOp op) || !op.pure())
+					if (!(statement instanceof IrOp op) || !IrOpSemantics.isRemovable(op))
 						continue;
 					if (uses.getOrDefault(op.canonical(), 0) != 0)
 						continue;

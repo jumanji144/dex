@@ -66,9 +66,6 @@ import java.util.function.BiFunction;
 public class Similarity {
 	private static final Parser SHARED_PARSER = new Parser();
 
-	private static final double SEVERE_SIZE_MISMATCH = 0.40;
-	private static final double MILD_SIZE_MISMATCH = 0.75;
-
 	/**
 	 * Computes a similarity score between two Java source code snippets by parsing them into ASTs and comparing their structure and content.
 	 *
@@ -176,7 +173,7 @@ public class Similarity {
 			}
 			case CaseModel cas -> {
 				CaseModel o = (CaseModel) b;
-				double body = cas.getBody() == null || o.getBody() == null ? 0 : visit(cas.getBody(), o.getBody(), ctx);
+				double body = optionalSimilarity(cas.getBody(), o.getBody(), ctx);
 				double labels = compareOrderedChildren(cas.getLabels(), o.getLabels(), ctx);
 				double exprs = compareOrderedChildren(cas.getExpressions(), o.getExpressions(), ctx);
 				double statments = compareOrderedChildren(cas.getStatements(), o.getStatements(), ctx);
@@ -251,7 +248,7 @@ public class Similarity {
 				IfStatementModel o = (IfStatementModel) b;
 				double cond = visit(ifStmt.getCondition(), o.getCondition(), ctx);
 				double thenBranch = visit(ifStmt.getThenCaseStatement(), o.getThenCaseStatement(), ctx);
-				double elseBranch = ifStmt.getElseCaseStatement() == null || o.getElseCaseStatement() == null ? 0 : visit(ifStmt.getElseCaseStatement(), o.getElseCaseStatement(), ctx);
+				double elseBranch = optionalSimilarity(ifStmt.getElseCaseStatement(), o.getElseCaseStatement(), ctx);
 				yield (cond * 0.4 + thenBranch * 0.4 + elseBranch * 0.2);
 			}
 			case ImplementsModel impl -> {
@@ -272,7 +269,7 @@ public class Similarity {
 			}
 			case LabeledStatementModel label -> {
 				LabeledStatementModel o = (LabeledStatementModel) b;
-				double labelName = label.getLabelName() == null || o.getLabelName() == null ? 0 : relaxedNameMatch(label.getLabelName(), o.getLabelName());
+				double labelName = optionalStringSimilarity(label.getLabelName(), o.getLabelName());
 				double stmt = visit(label.getStatement(), o.getStatement(), ctx);
 				yield (labelName * 0.3 + stmt * 0.7);
 			}
@@ -293,7 +290,7 @@ public class Similarity {
 			case MethodInvocationExpressionModel invoke -> {
 				MethodInvocationExpressionModel o = (MethodInvocationExpressionModel) b;
 				double target = visit(invoke.getMethodSelect(), o.getMethodSelect(), ctx);
-				double receiver = invoke.getReceiver() == null || o.getReceiver() == null ? 0 : visit(invoke.getReceiver(), o.getReceiver(), ctx);
+				double receiver = optionalSimilarity(invoke.getReceiver(), o.getReceiver(), ctx);
 				double args = compareOrderedChildren(invoke.getArguments(), o.getArguments(), ctx);
 				yield (target * 0.4 + receiver * 0.3 + args * 0.3);
 			}
@@ -302,8 +299,9 @@ public class Similarity {
 				double name = relaxedNameMatch(method.getName(), o.getName());
 				double desc = descriptorMatch(method, o);
 				double mods = modifiersMatch(method.getModifiers().getModifiers(), o.getModifiers().getModifiers());
-				double code = method.getMethodBody() == null || o.getMethodBody() == null ? 0 : visit(method.getMethodBody(), o.getMethodBody(), ctx);
-				yield (name * 0.2 + desc * 0.1 + mods * 0.1 + code * 0.6);
+				double code = optionalSimilarity(method.getMethodBody(), o.getMethodBody(), ctx);
+				double defaultValue = optionalSimilarity(method.getDefaultValue(), o.getDefaultValue(), ctx);
+				yield (name * 0.2 + desc * 0.1 + mods * 0.1 + code * 0.5 + defaultValue * 0.1);
 			}
 			case MethodReferenceExpressionModel ref -> {
 				MethodReferenceExpressionModel o = (MethodReferenceExpressionModel) b;
@@ -323,8 +321,8 @@ public class Similarity {
 				NewClassExpressionModel o = (NewClassExpressionModel) b;
 				double type = levenshteinSimilarity(newClass.getIdentifier(), o.getIdentifier());
 				double args = compareOrderedChildren(newClass.getArguments(), o.getArguments(), ctx);
-				double enclosing = newClass.getEnclosingExpression() == null || o.getEnclosingExpression() == null ? 0 : visit(newClass.getEnclosingExpression(), o.getEnclosingExpression(), ctx);
-				double body = newClass.getBody() == null || o.getBody() == null ? 0 : visit(newClass.getBody(), o.getBody(), ctx);
+				double enclosing = optionalSimilarity(newClass.getEnclosingExpression(), o.getEnclosingExpression(), ctx);
+				double body = optionalSimilarity(newClass.getBody(), o.getBody(), ctx);
 				yield (type * 0.4 + args * 0.3 + enclosing * 0.2 + body * 0.1);
 			}
 			case PackageModel pack -> {
@@ -337,9 +335,7 @@ public class Similarity {
 			}
 			case ReturnStatementModel ret -> {
 				ReturnStatementModel o = (ReturnStatementModel) b;
-				if (ret.getExpression() == null && o.getExpression() == null) yield 1.0;
-				if (ret.getExpression() == null || o.getExpression() == null) yield 0.0;
-				yield visit(ret.getExpression(), o.getExpression(), ctx);
+				yield optionalSimilarity(ret.getExpression(), o.getExpression(), ctx);
 			}
 			case SwitchExpressionModel switchExpr -> {
 				SwitchExpressionModel o = (SwitchExpressionModel) b;
@@ -367,7 +363,7 @@ public class Similarity {
 				TryStatementModel o = (TryStatementModel) b;
 				double tryBlock = visit(tryStmt.getBlock(), o.getBlock(), ctx);
 				double catches = compareOrderedChildren(tryStmt.getCatches(), o.getCatches(), ctx);
-				double finallyBlock = tryStmt.getFinallyBlock() == null || o.getFinallyBlock() == null ? 0 : visit(tryStmt.getFinallyBlock(), o.getFinallyBlock(), ctx);
+				double finallyBlock = optionalSimilarity(tryStmt.getFinallyBlock(), o.getFinallyBlock(), ctx);
 				yield (tryBlock * 0.5 + catches * 0.3 + finallyBlock * 0.2);
 			}
 			case TypeModel type -> {
@@ -382,14 +378,17 @@ public class Similarity {
 			}
 			case UnaryExpressionModel un -> {
 				UnaryExpressionModel o = (UnaryExpressionModel) b;
-				yield un.getOperator() == o.getOperator() ? 1.0 : 0.0;
+				double operand = visit(un.getExpression(), o.getExpression(), ctx);
+				double operator = un.getOperator() == o.getOperator() ? 1.0 : 0.0;
+				yield operator * 0.5 + operand * 0.5;
 			}
 			case VariableModel v -> {
 				VariableModel o = (VariableModel) b;
 				double name = relaxedNameMatch(v.getName(), o.getName());
 				double type = levenshteinSimilarity(v.getType(), o.getType());
 				double mods = modifiersMatch(v.getModifiers().getModifiers(), o.getModifiers().getModifiers());
-				yield (name * 0.3 + type * 0.4 + mods * 0.3);
+				double value = optionalSimilarity(v.getValue(), o.getValue(), ctx);
+				yield (name * 0.2 + type * 0.3 + mods * 0.2 + value * 0.3);
 			}
 			case WhileLoopStatementModel whileLoop -> {
 				WhileLoopStatementModel o = (WhileLoopStatementModel) b;
@@ -409,8 +408,8 @@ public class Similarity {
 				yield levenshteinSimilarity(unknown.getContent(), o.getContent());
 			}
 			default -> {
-				System.err.println("Warning: No specific comparison logic for " + a.getClass().getSimpleName() + ", using default similarity");
-				yield 1.0;
+				ctx.logMismatch("Fallback comparison for model type %s", a.getClass().getSimpleName());
+				yield levenshteinSimilarity(a.toString(), b.toString());
 			}
 		};
 	}
@@ -543,59 +542,114 @@ public class Similarity {
 		int na = ca.size(), nb = cb.size();
 		if (na == 0 && nb == 0) return 1.0;
 		if (na == 0 || nb == 0) return 0.0;
-
-		if (na != nb) {
-			double ratio = (double) Math.min(na, nb) / Math.max(na, nb);
-			return MILD_SIZE_MISMATCH + (SEVERE_SIZE_MISMATCH - MILD_SIZE_MISMATCH) * (1 - ratio);
-		}
-
-		double sum = 0;
-		for (int i = 0; i < na; i++) {
-			sum += visit(ca.get(i), cb.get(i), ctx);
-		}
-		return sum / na;
+		return alignedScore(matchingScores(ca, cb), ca, cb, ctx);
 	}
 
 	private static double compareBagChildren(List<? extends Model> ca, List<? extends Model> cb, Context ctx) {
 		if (ca.isEmpty() && cb.isEmpty()) return 1.0;
-		if (ca.isEmpty() || cb.isEmpty()) return 0.01;
-
-		// Greedy best-match (for small lists this is fine; for large --> memoize or use better algo)
-		List<Model> aLeft = new ArrayList<>(ca);
-		List<Model> bLeft = new ArrayList<>(cb);
-		double similaritySum = 0;
-		int matched = 0;
-
-		while (!aLeft.isEmpty() && !bLeft.isEmpty()) {
-			double best = -1;
-			int ai = -1, bi = -1;
-
-			for (int i = 0; i < aLeft.size(); i++) {
-				for (int j = 0; j < bLeft.size(); j++) {
-					double s = visit(aLeft.get(i), bLeft.get(j), ctx);
-					if (s > best) {
-						best = s;
-						ai = i;
-						bi = j;
-					}
+		if (ca.isEmpty() || cb.isEmpty()) return 0.0;
+		double[][] scores = matchingScores(ca, cb);
+		int n = Math.max(ca.size(), cb.size());
+		double[] u = new double[n + 1], v = new double[n + 1];
+		int[] p = new int[n + 1], way = new int[n + 1];
+		for (int row = 1; row <= n; row++) {
+			p[0] = row;
+			int col0 = 0;
+			double[] min = new double[n + 1];
+			java.util.Arrays.fill(min, Double.POSITIVE_INFINITY);
+			boolean[] used = new boolean[n + 1];
+			do {
+				used[col0] = true;
+				int row0 = p[col0], col1 = 0;
+				double delta = Double.POSITIVE_INFINITY;
+				for (int col = 1; col <= n; col++) {
+					if (used[col]) continue;
+					double weight = row0 <= ca.size() && col <= cb.size() ? scores[row0 - 1][col - 1] : 0.0;
+					double cur = 1.0 - weight - u[row0] - v[col];
+					if (cur < min[col]) { min[col] = cur; way[col] = col0; }
+					if (min[col] < delta) { delta = min[col]; col1 = col; }
 				}
-			}
-
-			if (best < 0.35) break;  // too different - treat as unmatched
-
-			similaritySum += best;
-			matched++;
-			aLeft.remove(ai);
-			bLeft.remove(bi);
+				for (int col = 0; col <= n; col++) {
+					if (used[col]) { u[p[col]] += delta; v[col] -= delta; }
+					else min[col] -= delta;
+				}
+				col0 = col1;
+			} while (p[col0] != 0);
+			do { int col1 = way[col0]; p[col0] = p[col1]; col0 = col1; } while (col0 != 0);
 		}
+		double total = 0.0;
+		for (int col = 1; col <= cb.size(); col++) {
+			int row = p[col];
+			if (row >= 1 && row <= ca.size() && scores[row - 1][col - 1] > 0.0)
+				total += visit(ca.get(row - 1), cb.get(col - 1), ctx);
+		}
+		return total / n;
+	}
 
-		// Return average similarity of matched pairs, penalized by unmatched items
-		int unmatched = (ca.size() + cb.size()) - (2 * matched);
-		double unmatchedPenalty = unmatched * 0.75; // penalty closer to 0 is harsher, closer to 1 is more lenient
-		double avgSimilarity = matched > 0 ? similaritySum / matched : 0.0;
-		double finalScore = (similaritySum + unmatchedPenalty) / ((ca.size() + cb.size()) / 2.0);
-		double result = Math.clamp(finalScore, 0.0, 1.0);
-		return result;
+	private static double alignedScore(double[][] scores, List<? extends Model> left,
+	                                  List<? extends Model> right, Context ctx) {
+		int na = scores.length, nb = na == 0 ? 0 : scores[0].length;
+		double[][] dp = new double[na + 1][nb + 1];
+		for (int i = 1; i <= na; i++) for (int j = 1; j <= nb; j++)
+			dp[i][j] = Math.max(Math.max(dp[i - 1][j], dp[i][j - 1]), dp[i - 1][j - 1] + scores[i - 1][j - 1]);
+		List<int[]> selected = new ArrayList<>();
+		int i = na, j = nb;
+		while (i > 0 && j > 0) {
+			double match = dp[i - 1][j - 1] + scores[i - 1][j - 1];
+			if (match >= dp[i - 1][j] && match >= dp[i][j - 1] && Math.abs(dp[i][j] - match) < 1e-12)
+				selected.add(new int[]{--i, --j});
+			else if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+			else j--;
+		}
+		double total = 0.0;
+		for (int k = selected.size() - 1; k >= 0; k--) {
+			int[] pair = selected.get(k);
+			if (scores[pair[0]][pair[1]] > 0.0) total += visit(left.get(pair[0]), right.get(pair[1]), ctx);
+		}
+		return total / Math.max(na, nb);
+	}
+
+	private static double[][] matchingScores(List<? extends Model> left, List<? extends Model> right) {
+		String[] leftKeys = left.stream().map(Similarity::matchingKey).toArray(String[]::new);
+		String[] rightKeys = right.stream().map(Similarity::matchingKey).toArray(String[]::new);
+		double[][] scores = new double[left.size()][right.size()];
+		for (int i = 0; i < left.size(); i++) for (int j = 0; j < right.size(); j++)
+			if (left.get(i).getClass() == right.get(j).getClass()) scores[i][j] = matchingHint(leftKeys[i], rightKeys[j]);
+		return scores;
+	}
+
+	private static String matchingKey(Model model) {
+		String text = switch (model) {
+			case MethodModel method -> method.getName() + method.getParameters() + method.getReturnType();
+			case VariableModel variable -> variable.getName() + ":" + variable.getType();
+			case ClassModel classModel -> classModel.getName();
+			case ImportModel importModel -> importModel.getName();
+			default -> model.toString();
+		};
+		return text.length() <= 256 ? text : text.substring(0, 128) + '\0' + text.substring(text.length() - 128);
+	}
+
+	private static double matchingHint(String left, String right) {
+		if (left.equals(right)) return 1.0;
+		int shorter = Math.min(left.length(), right.length()), longer = Math.max(left.length(), right.length());
+		if (longer == 0) return 1.0;
+		int prefix = 0;
+		while (prefix < shorter && left.charAt(prefix) == right.charAt(prefix)) prefix++;
+		int suffix = 0;
+		while (suffix < shorter - prefix && left.charAt(left.length() - suffix - 1) == right.charAt(right.length() - suffix - 1)) suffix++;
+		return 0.25 + (double) (prefix + suffix) / longer * 0.5 + (double) shorter / longer * 0.25;
+	}
+
+	private static double optionalSimilarity(Model a, Model b, Context ctx) {
+		if (a == null && b == null) return 1.0;
+		if (a == null || b == null) return 0.0;
+		return visit(a, b, ctx);
+	}
+
+	private static double optionalStringSimilarity(String a, String b) {
+		if (a == null && b == null) return 1.0;
+		if (a == null || b == null) return 0.0;
+		return relaxedNameMatch(a, b);
 	}
 
 	private static class Context {
@@ -604,7 +658,8 @@ public class Similarity {
 		private final List<String> mismatches = new ArrayList<>();
 
 		void logMismatch(String fmt, Object... args) {
-			mismatches.add(String.format(fmt, args));
+			if (mismatches.size() < 64)
+				mismatches.add(String.format(fmt, args));
 		}
 	}
 }

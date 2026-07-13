@@ -14,11 +14,11 @@ import java.util.List;
  * 		List of basic blocks in the method, in no particular order.
  * @param entry
  * 		The entry block of the method, which is the first block to be executed when the method is called.
- * @param tryCatches
- * 		List of try-catch blocks in the method.
+ * @param exceptionRegions
+ * 		Ordered protected exception regions in the method.
  */
 public record IrMethod(@NotNull MethodMember source,
                        int registerCount,
                        @NotNull List<IrBlock> blocks,
                        @NotNull IrBlock entry,
-                       @NotNull List<IrTryCatch> tryCatches) {}
+                       @NotNull List<IrExceptionRegion> exceptionRegions) {}

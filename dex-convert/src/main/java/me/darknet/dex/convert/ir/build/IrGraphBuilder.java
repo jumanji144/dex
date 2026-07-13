@@ -3,7 +3,8 @@ package me.darknet.dex.convert.ir.build;
 import me.darknet.dex.convert.TryCatchSupport;
 import me.darknet.dex.convert.ir.DexInstructionNode;
 import me.darknet.dex.convert.ir.IrBlock;
-import me.darknet.dex.convert.ir.IrTryCatch;
+import me.darknet.dex.convert.ir.IrExceptionHandler;
+import me.darknet.dex.convert.ir.IrExceptionRegion;
 import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.code.Handler;
 import me.darknet.dex.tree.definitions.code.TryCatch;
@@ -30,7 +31,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-import static me.darknet.dex.convert.ir.build.IrBuildingUtils.canThrow;
+import static me.darknet.dex.convert.ir.analysis.InstructionSemantics.canThrow;
+import static me.darknet.dex.convert.ir.analysis.InstructionSemantics.canThrowToHandler;
 
 public class IrGraphBuilder {
 	private final Code code;
@@ -184,15 +186,32 @@ public class IrGraphBuilder {
 			}
 		}
 
-		List<IrTryCatch> irTryCatches = new ArrayList<>();
+		List<IrExceptionRegion> exceptionRegions = new ArrayList<>(tryCatches.size());
 		for (TryCatch tryCatch : tryCatches) {
+			List<IrBlock> protectedBlocks = protectedBlocksFor(blocks,
+					tryCatch.begin().position(), tryCatch.end().position());
+			List<IrExceptionHandler> handlers = new ArrayList<>(tryCatch.handlers().size());
 			for (Handler handler : tryCatch.handlers()) {
-				irTryCatches.add(new IrTryCatch(tryCatch.begin().position(), tryCatch.end().position(),
+				handlers.add(new IrExceptionHandler(
 						requireBlock(blockByOffset, handler.handler().position()), handler));
 			}
+			exceptionRegions.add(new IrExceptionRegion(tryCatch.begin().position(), tryCatch.end().position(),
+					protectedBlocks, handlers));
 		}
 
-		return new IrGraph(blocks, blocks.getFirst(), blockByOffset, irTryCatches);
+		return new IrGraph(blocks, blocks.getFirst(), blockByOffset, exceptionRegions);
+	}
+
+	private @NotNull List<IrBlock> protectedBlocksFor(@NotNull List<IrBlock> blocks,
+	                                                 int startOffset, int endOffset) {
+		List<IrBlock> protectedBlocks = new ArrayList<>();
+		for (int i = 0; i < blocks.size(); i++) {
+			int blockEnd = i + 1 < blocks.size() ? blocks.get(i + 1).startOffset() : Integer.MAX_VALUE;
+			IrBlock block = blocks.get(i);
+			if (block.startOffset() < endOffset && blockEnd > startOffset)
+				protectedBlocks.add(block);
+		}
+		return protectedBlocks;
 	}
 
 	private @NotNull IrGraph pruneUnreachable(@NotNull IrGraph graph) {
@@ -227,17 +246,26 @@ public class IrGraphBuilder {
 			}
 		}
 
-		List<IrTryCatch> tryCatches = new ArrayList<>();
-		for (IrTryCatch tryCatch : graph.tryCatches()) {
-			if (!reachable.contains(tryCatch.handlerBlock()))
+		List<IrExceptionRegion> exceptionRegions = new ArrayList<>();
+		for (IrExceptionRegion region : graph.exceptionRegions()) {
+			if (!blockByOffset.containsKey(region.startOffset()))
 				continue;
-			if (!blockByOffset.containsKey(tryCatch.startOffset()))
-				continue;
-			tryCatches.add(new IrTryCatch(tryCatch.startOffset(), tryCatch.endOffset(),
-					remapped.get(tryCatch.handlerBlock()), tryCatch.handler()));
+			List<IrExceptionHandler> handlers = new ArrayList<>(region.handlers().size());
+			for (IrExceptionHandler handler : region.handlers()) {
+				if (reachable.contains(handler.handlerBlock()))
+					handlers.add(new IrExceptionHandler(remapped.get(handler.handlerBlock()), handler.handler()));
+			}
+			if (!handlers.isEmpty()) {
+				List<IrBlock> protectedBlocks = region.protectedBlocks().stream()
+						.filter(reachable::contains)
+						.map(remapped::get)
+						.toList();
+				exceptionRegions.add(new IrExceptionRegion(region.startOffset(), region.endOffset(),
+						protectedBlocks, handlers));
+			}
 		}
 
-		return new IrGraph(blocks, remapped.get(graph.entry()), blockByOffset, tryCatches);
+		return new IrGraph(blocks, remapped.get(graph.entry()), blockByOffset, exceptionRegions);
 	}
 
 	private void collectReachable(@NotNull IrBlock block, @NotNull Set<IrBlock> reachable) {
@@ -254,7 +282,7 @@ public class IrGraphBuilder {
 		for (TryCatch tryCatch : tryCatches) {
 			if (node.offset() < tryCatch.begin().position() || node.offset() >= tryCatch.end().position()) continue;
 			for (Handler handler : tryCatch.handlers()) {
-				if (IrBuildingUtils.canThrowToHandler(node.instruction(), handler)) return true;
+				if (canThrowToHandler(node.instruction(), handler)) return true;
 			}
 		}
 		return false;
@@ -276,7 +304,7 @@ public class IrGraphBuilder {
 			for (TryCatch tryCatch : tryCatches) {
 				if (node.offset() < tryCatch.begin().position() || node.offset() >= tryCatch.end().position()) continue;
 				for (Handler handler : tryCatch.handlers()) {
-					if (!IrBuildingUtils.canThrowToHandler(node.instruction(), handler))
+					if (!canThrowToHandler(node.instruction(), handler))
 						continue;
 
 					// TODO: We should be recording exception edge information too for better analysis later on.

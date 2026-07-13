@@ -43,6 +43,8 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.Set;
+
 import static org.objectweb.asm.Opcodes.V1_8;
 
 /**
@@ -53,6 +55,7 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 	private final IrOptimizationContext context;
 	private final IrOptimizer optimizer;
 	private ClassDefinition currentClass;
+	private Set<FieldMember> staticInitializerAssignments = Set.of();
 
 	/**
 	 * @param classVisitor
@@ -73,6 +76,7 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 	@Override
 	public void visit(@NotNull ClassDefinition definition) {
 		currentClass = definition;
+		staticInitializerAssignments = ConversionSupport.staticInitializerAssignments(definition);
 
 		String name = definition.getType().internalName();
 		String superName = definition.getSuperClass() == null ? null : definition.getSuperClass().internalName();
@@ -107,7 +111,8 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 	@Override
 	public @Nullable DexFieldVisitor visitField(@NotNull FieldMember field) {
 		FieldVisitor fieldVisitor = classVisitor.visitField(field.getAccess(), field.getName(),
-				field.getType().descriptor(), field.getSignature(), ConversionSupport.mapConstant(field.getStaticValue()));
+				field.getType().descriptor(), field.getSignature(), ConversionSupport.mapFieldConstant(field.getAccess(),
+						field.getStaticValue(), staticInitializerAssignments.contains(field)));
 		return fieldVisitor == null ? null : new AsmFieldVisitor(fieldVisitor);
 	}
 

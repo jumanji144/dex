@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -164,7 +165,13 @@ class IrBuilderTest implements Opcodes {
 		code.addTryCatch(new TryCatch(start, end, List.of(new Handler(handler, Types.instanceType(Throwable.class)))));
 		method.setCode(code);
 
-		assertDoesNotThrow(() -> new IrBuilder(method).build());
+		IrMethod ir = assertDoesNotThrow(() -> new IrBuilder(method).build());
+		assertEquals(1, ir.exceptionRegions().size());
+		assertEquals(List.of(Types.instanceType(Throwable.class)),
+				ir.exceptionRegions().getFirst().handlers().stream()
+						.map(h -> h.handler().exceptionType())
+						.toList());
+		assertFalse(ir.exceptionRegions().getFirst().protectedBlocks().isEmpty());
 	}
 
 	@Test

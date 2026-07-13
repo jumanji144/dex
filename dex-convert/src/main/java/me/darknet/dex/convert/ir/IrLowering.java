@@ -1,6 +1,7 @@
 package me.darknet.dex.convert.ir;
 
 import me.darknet.dex.convert.ConversionSupport;
+import me.darknet.dex.convert.ir.analysis.InstructionSemantics;
 import me.darknet.dex.convert.ir.statement.IrEffect;
 import me.darknet.dex.convert.ir.statement.IrOp;
 import me.darknet.dex.convert.ir.statement.IrStmt;
@@ -39,7 +40,6 @@ import me.darknet.dex.tree.definitions.instructions.StaticFieldInstruction;
 import me.darknet.dex.tree.definitions.instructions.UnaryInstruction;
 import me.darknet.dex.tree.type.ArrayType;
 import me.darknet.dex.tree.type.ClassType;
-import me.darknet.dex.tree.type.ReferenceType;
 import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -63,24 +63,20 @@ public final class IrLowering {
 	private final Map<IrBlock, Label> protectedBoundaryLabels = new HashMap<>();
 	private final Label endLabel = new Label();
 	private final Map<HandlerStubKey, Label> handlerStubLabels = new HashMap<>();
+	private final Map<IrBlock, OperandStackCarry> operandStackCarries = new HashMap<>();
+	private final ArrayDeque<OperandStackCarry> activeOperandStackCarries = new ArrayDeque<>();
 	private final Set<IrBlock> stubbedHandlers = new HashSet<>();
 	private final Map<Integer, IrBlock> blockByOffset = new HashMap<>();
-	private final Set<IrValue> liveValues = new HashSet<>();
 	private final Set<IrOp> emittedOps = new HashSet<>();
-	private final Map<IrValue, Integer> useCounts = new HashMap<>();
-	private final Map<IrValue, Object> singleConsumers = new HashMap<>();
 	private final Map<IrOp, IrOp> constructorByReceiver = new HashMap<>();
 	private final Set<IrOp> inlineConstructedReceivers = new HashSet<>();
+	private LoweringUseGraph useGraph;
 	private final int registerLocalBase;
 	private int nextLocal;
 	private IrStmt currentStatement;
-	private static final Object NON_STATEMENT_CONSUMER = new Object();
-	private static final Object MULTIPLE_CONSUMERS = new Object();
-	private static final Set<String> INLINE_FLUENT_BUILDERS = Set.of(
-			"java/lang/StringBuilder",
-			"java/lang/StringBuffer"
-	);
-
+	private record OperandStackCarry(@NotNull IrOp value, @NotNull IrStmt consumer,
+	                                 @NotNull IrBlock consumerBlock) {
+	}
 	private enum ResultMode {
 		STORE,
 		DISCARD,
@@ -103,23 +99,25 @@ public final class IrLowering {
 	}
 
 	private void emit() {
-		nextLocal = registerLocalBase + method.source().getCode().getRegisters();
 		analyzeUses();
 		initializeLabels();
-		allocateLocals();
+		nextLocal = JvmLocalAllocator.allocate(method, registerLocalBase);
 		emittedOps.clear();
 		collectHandlerStubs();
 		mv.visitCode();
 		for (IrBlock block : method.blocks()) {
 			if (isTransparentBlock(block))
 				continue;
+			beginOperandStackCarry(block);
 			mv.visitLabel(labels.get(block));
 			if (block.exceptionValue() != null && !stubbedHandlers.contains(block))
 				store(block.exceptionValue());
 			List<IrStmt> statements = block.statements();
 			for (int i = 0; i < statements.size(); i++) {
 				IrStmt statement = statements.get(i);
-				if (shouldSkipSeparateEmission(statements, i))
+				if (tryCarryInvokeInput(block, statements, i, block.terminator()))
+					continue;
+				if (shouldSkipSeparateEmission(statements, i, block.terminator()))
 					continue;
 				int chainLength = emitSpecialChain(statements, i);
 				if (chainLength > 0) {
@@ -128,7 +126,7 @@ public final class IrLowering {
 				}
 				currentStatement = statement;
 				emitStatement(statement);
-				if (statement instanceof IrOp op && op.canonical() == op) {
+				if (statement instanceof IrOp op && op.canonical() == op && !op.stackOnly()) {
 					emittedOps.add(op);
 				}
 				currentStatement = null;
@@ -136,6 +134,9 @@ public final class IrLowering {
 			currentStatement = block.terminator();
 			emitTerminator(block);
 			currentStatement = null;
+			if (hasUnconsumedOperandStackCarry(block))
+				throw new IllegalStateException("Operand-stack value was not consumed in " + block.debugName());
+			clearOperandStackCarry();
 		}
 		mv.visitLabel(endLabel);
 		emitHandlerStubs();
@@ -146,61 +147,39 @@ public final class IrLowering {
 	private void collectHandlerStubs() {
 		handlerStubLabels.clear();
 		stubbedHandlers.clear();
-		for (IrTryCatch tryCatch : method.tryCatches()) {
-			List<IrBlock> sources = coveredSourceBlocks(tryCatch);
-			boolean needsStub = sources.stream().anyMatch(source -> hasPhiCopies(source, tryCatch.handlerBlock()));
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			for (IrExceptionHandler handler : region.handlers()) {
+				List<IrBlock> sources = coveredSourceBlocks(region, handler);
+				boolean needsStub = sources.stream().anyMatch(source -> hasPhiCopies(source, handler.handlerBlock()));
 			if (!needsStub) continue;
 			for (IrBlock source : sources) {
-				HandlerStubKey key = new HandlerStubKey(source, tryCatch.handlerBlock());
+				HandlerStubKey key = new HandlerStubKey(source, handler.handlerBlock());
 				handlerStubLabels.computeIfAbsent(key, ignored -> new Label());
 			}
-			stubbedHandlers.add(tryCatch.handlerBlock());
+			stubbedHandlers.add(handler.handlerBlock());
+			}
 		}
 	}
 
 	private void analyzeUses() {
-		useCounts.clear();
-		singleConsumers.clear();
-		liveValues.clear();
+		useGraph = LoweringUseGraph.analyze(method);
 		constructorByReceiver.clear();
 		inlineConstructedReceivers.clear();
 		for (IrBlock block : method.blocks()) {
 			List<IrStmt> statements = block.statements();
 			for (int i = 0; i < statements.size(); i++) {
-				if (!(statements.get(i) instanceof IrOp op)) continue;
+				if (!(statements.get(i) instanceof IrOp op) || op.canonical() != op) continue;
 				IrOp receiver = constructedReceiver(op);
-				if (receiver == null) continue;
-				constructorByReceiver.put(receiver, op);
-				IrStmt next = i + 1 < statements.size() ? statements.get(i + 1) : null;
-				if (useCount(receiver) == 0 && next == null) {
-					// Usage counts are populated below; defer the inline eligibility check.
-				}
-			}
-			for (IrPhi phi : block.phis()) {
-				for (IrValue input : phi.operands().values()) {
-					recordNonStatementUse(input);
-				}
-			}
-			for (IrStmt statement : block.statements()) {
-				switch (statement) {
-					case IrOp op -> op.inputs().forEach(input -> recordStatementUse(input, statement));
-					case IrEffect effect -> effect.inputs().forEach(input -> recordStatementUse(input, statement));
-					case IrTerminator ignored -> {
-					}
-				}
-			}
-			if (block.terminator() != null) {
-				block.terminator().inputs().forEach(input -> recordStatementUse(input, block.terminator()));
+				if (receiver != null) constructorByReceiver.put(receiver, op);
 			}
 		}
-		analyzeLiveness();
 		for (IrBlock block : method.blocks()) {
 			List<IrStmt> statements = block.statements();
 			for (int i = 0; i < statements.size(); i++) {
-				if (!(statements.get(i) instanceof IrOp op)) continue;
+				if (!(statements.get(i) instanceof IrOp op) || op.canonical() != op) continue;
 				IrOp receiver = constructedReceiver(op);
 				if (receiver == null || useCount(receiver) != 2) continue;
-				IrStmt next = i + 1 < statements.size() ? statements.get(i + 1) : null;
+				IrStmt next = i + 1 < statements.size() ? statements.get(i + 1) : block.terminator();
 				if (consumesConstructedReceiver(next, receiver)) {
 					inlineConstructedReceivers.add(receiver);
 				}
@@ -217,168 +196,21 @@ public final class IrLowering {
 		}
 	}
 
-	private void analyzeLiveness() {
-		ArrayDeque<IrValue> worklist = new ArrayDeque<>();
-		for (IrBlock block : method.blocks()) {
-			for (IrStmt statement : block.statements()) {
-				switch (statement) {
-					case IrOp op -> op.inputs().forEach(input -> markLive(input, worklist));
-					case IrEffect effect -> effect.inputs().forEach(input -> markLive(input, worklist));
-					case IrTerminator ignored -> {
-					}
-				}
-			}
-			if (block.terminator() != null) {
-				block.terminator().inputs().forEach(input -> markLive(input, worklist));
-			}
-		}
-		while (!worklist.isEmpty()) {
-			IrValue value = worklist.removeFirst();
-			if (value instanceof IrPhi phi) {
-				for (IrValue operand : phi.operands().values()) {
-					markLive(operand, worklist);
-				}
-			}
-		}
-	}
-
-	private void markLive(@NotNull IrValue value, @NotNull ArrayDeque<IrValue> worklist) {
-		IrValue canonical = value.canonical();
-		if (liveValues.add(canonical)) {
-			worklist.addLast(canonical);
-		}
-	}
-
 	private int emitSpecialChain(@NotNull List<IrStmt> statements, int index) {
 		if (tryEmitConstructAndPutChain(statements, index)) return 2;
 		return tryEmitArrayStaticPutChain(statements, index);
 	}
 
-	private void recordStatementUse(@NotNull IrValue value, @NotNull IrStmt consumer) {
-		IrValue canonical = value.canonical();
-		useCounts.merge(canonical, 1, Integer::sum);
-		Object existing = singleConsumers.get(canonical);
-		if (existing == null) {
-			singleConsumers.put(canonical, consumer);
-		} else if (existing != consumer) {
-			singleConsumers.put(canonical, MULTIPLE_CONSUMERS);
-		}
-	}
-
-	private void recordNonStatementUse(@NotNull IrValue value) {
-		IrValue canonical = value.canonical();
-		useCounts.merge(canonical, 1, Integer::sum);
-		singleConsumers.put(canonical, NON_STATEMENT_CONSUMER);
-	}
-
-	private void allocateLocals() {
-		assignParameterLocals();
-		for (IrBlock block : method.blocks()) {
-			if (block.exceptionValue() != null) allocate(block.exceptionValue());
-			for (IrPhi phi : block.phis()) if (phi.canonical() == phi) allocatePhi(phi);
-			for (IrStmt statement : block.statements()) {
-				if (statement instanceof IrOp op && op.canonical() == op
-						&& !ConversionSupport.isVoidType(op.type()) && !op.stackOnly()) {
-					allocate(op);
-				}
-			}
-		}
-		IrValue[] entry = method.entry().exitState();
-		if (entry != null) {
-			for (IrValue value : entry) {
-				if (value instanceof IrParameter parameter) allocate(parameter);
-			}
-		}
-	}
-
-	private void allocate(@NotNull IrValue value) {
-		if (value.hasLocal() || value instanceof IrConstant) return;
-		Integer register = preferredRegister(value);
-		if (register != null) {
-			allocateRegisterValue(value, register);
-			return;
-		}
-		value.local(nextLocal);
-		nextLocal += ConversionSupport.slotSize(value.type());
-	}
-
-	private void allocatePhi(@NotNull IrPhi phi) {
-		allocateRegisterValue(phi, phi.register());
-	}
-
-	private void allocateRegisterValue(@NotNull IrValue value, int register) {
-		if (value.hasLocal()) return;
-		value.local(registerLocal(register));
-		nextLocal = Math.max(nextLocal, value.local() + ConversionSupport.slotSize(value.type()));
-	}
-
-	private int registerLocal(int register) {
-		return registerLocalBase + register;
-	}
-
-	private @Nullable Integer preferredRegister(@NotNull IrValue value) {
-		if (value instanceof IrOp op && op.hasRegister()) return op.register();
-		if (value instanceof IrExceptionValue exceptionValue && exceptionValue.hasRegister()) return exceptionValue.register();
-		return null;
-	}
-
-	private void assignParameterLocals() {
-		Map<Integer, IrParameter> parameters = new HashMap<>();
-		for (IrParameter parameter : collectParameters()) {
-			parameters.put(parameter.register(), parameter);
-		}
-		int sourceLocal = 0;
-		int dexRegister = method.source().getCode().getRegisters() - method.source().getCode().getIn();
-		if ((method.source().getAccess() & org.objectweb.asm.Opcodes.ACC_STATIC) == 0) {
-			IrParameter parameter = parameters.get(dexRegister++);
-			if (parameter != null) {
-				parameter.local(sourceLocal);
-			}
-			sourceLocal++;
-		}
-		for (ClassType parameterType : method.source().getType().parameterTypes()) {
-			IrParameter parameter = parameters.get(dexRegister);
-			if (parameter != null) {
-				parameter.local(sourceLocal);
-			}
-			sourceLocal += ConversionSupport.slotSize(parameterType);
-			dexRegister += ConversionSupport.slotSize(parameterType);
-		}
-	}
-
-	private @NotNull List<IrParameter> collectParameters() {
-		Map<Integer, IrParameter> parameters = new HashMap<>();
-		for (IrBlock block : method.blocks()) {
-			for (IrPhi phi : block.phis()) {
-				phi.operands().values().forEach(value -> collectParameter(parameters, value));
-			}
-			for (IrStmt statement : block.statements()) {
-				switch (statement) {
-					case IrOp op -> op.inputs().forEach(value -> collectParameter(parameters, value));
-					case IrEffect effect -> effect.inputs().forEach(value -> collectParameter(parameters, value));
-					case IrTerminator ignored -> {
-					}
-				}
-			}
-			if (block.terminator() != null) {
-				block.terminator().inputs().forEach(value -> collectParameter(parameters, value));
-			}
-		}
-		return parameters.values().stream().sorted(java.util.Comparator.comparingInt(IrParameter::register)).toList();
-	}
-
-	private static void collectParameter(@NotNull Map<Integer, IrParameter> parameters, @NotNull IrValue value) {
-		IrValue canonical = value.canonical();
-		if (canonical instanceof IrParameter parameter) {
-			parameters.put(parameter.register(), parameter);
-		}
-	}
-
 	private boolean shouldSkipSeparateEmission(@NotNull List<IrStmt> statements, int index) {
+		return shouldSkipSeparateEmission(statements, index, null);
+	}
+
+	private boolean shouldSkipSeparateEmission(@NotNull List<IrStmt> statements, int index,
+	                                           @Nullable IrTerminator blockTerminator) {
 		IrStmt statement = statements.get(index);
 		if (!(statement instanceof IrOp op) || op.canonical() != op)
 			return false;
-		IrStmt next = index + 1 < statements.size() ? statements.get(index + 1) : null;
+		IrStmt next = index + 1 < statements.size() ? statements.get(index + 1) : blockTerminator;
 		if (shouldDeferConstructedReceiver(op))
 			return true;
 		if (shouldInlineConstructedReceiver(op, next))
@@ -392,26 +224,198 @@ public final class IrLowering {
 		IrStmt consumer = singleConsumerStatement(op);
 		if (consumer == null)
 			return false;
-		int consumerIndex = statements.indexOf(consumer);
+		int consumerIndex = consumer == blockTerminator ? statements.size() : statements.indexOf(consumer);
 		if (consumerIndex <= index)
 			return false;
 		for (int i = index + 1; i < consumerIndex; i++)
-			if (!shouldSkipSeparateEmission(statements, i))
+			if (!shouldSkipSeparateEmission(statements, i, blockTerminator))
 				return false;
 		return true;
 	}
 
+	private boolean tryCarryInvokeInput(@NotNull IrBlock block, @NotNull List<IrStmt> statements, int index,
+	                                    @Nullable IrTerminator blockTerminator) {
+		IrStmt statement = statements.get(index);
+		if (!(statement instanceof IrOp op) || op.canonical() != op
+				|| ConversionSupport.isVoidType(op.type()) || op.payload() instanceof NewInstanceInstruction
+				|| useCount(op) != 1)
+			return false;
+		IrStmt consumer = singleConsumerStatement(op);
+		if (!(consumer instanceof IrOp consumerOp) || !(consumerOp.payload() instanceof InvokeInstruction))
+			return false;
+		int consumerInputIndex = -1;
+		for (int inputIndex = 0; inputIndex < consumerOp.inputs().size(); inputIndex++) {
+			if (consumerOp.inputs().get(inputIndex).canonical() == op) {
+				consumerInputIndex = inputIndex;
+				break;
+			}
+		}
+		if (consumerInputIndex < 0)
+			return false;
+		boolean carriedNonFirstInput = consumerInputIndex > 0
+				&& hasCarriedInvokeInputPrefix(consumerOp, consumerInputIndex);
+		if (shouldSkipSeparateEmission(statements, index, blockTerminator) && !carriedNonFirstInput)
+			return false;
+		if (op.stackOnly() && !carriedNonFirstInput)
+			return false;
+		IrBlock consumerBlock = method.blocks().stream()
+				.filter(candidate -> candidate.statements().contains(consumer))
+				.findFirst().orElse(null);
+		if (consumerBlock == null)
+			return false;
+		if (consumerBlock != block && method.blocks().indexOf(consumerBlock) < method.blocks().indexOf(block))
+			return false;
+		if (usesActiveOperandStackCarry(op))
+			return false;
+		Set<IrBlock> carryRegion = null;
+		if (consumerBlock == block) {
+			if (statements.indexOf(consumer) <= index || !canNestOperandStackCarry(block, op, consumer)
+					|| !hasCarriedInvokeInputPrefix(consumerOp, consumerInputIndex))
+				return false;
+		} else {
+			if (consumerInputIndex != 0 || !activeOperandStackCarries.isEmpty())
+				return false;
+			carryRegion = operandStackCarryRegion(block, consumerBlock);
+			if (carryRegion == null || carryRegion.stream()
+					.anyMatch(candidate -> candidate != block && operandStackCarries.containsKey(candidate))
+					|| (!canCarryAcrossExceptionalSuccessors(op) && carryRegion.stream()
+					.anyMatch(candidate -> !candidate.exceptionalSuccessors().isEmpty())))
+				return false;
+		}
+
+		IrStmt previousStatement = currentStatement;
+		currentStatement = op;
+		emitOp(op, ResultMode.LEAVE_ON_STACK);
+		currentStatement = previousStatement;
+		emittedOps.add(op);
+		OperandStackCarry carry = new OperandStackCarry(op, consumer, consumerBlock);
+		activeOperandStackCarries.addLast(carry);
+		if (carryRegion != null) {
+			for (IrBlock candidate : carryRegion)
+				if (candidate != block) operandStackCarries.put(candidate, carry);
+		}
+		return true;
+	}
+
+	private boolean canCarryAcrossExceptionalSuccessors(@NotNull IrOp op) {
+		if (op.payload() instanceof StaticFieldInstruction) return true;
+		if (!(op.payload() instanceof InstanceFieldInstruction) || op.inputs().isEmpty()
+				|| !(op.inputs().getFirst().canonical() instanceof IrParameter parameter)
+				|| (method.source().getAccess() & ACC_STATIC) != 0)
+			return false;
+		int receiverRegister = method.source().getCode().getRegisters() - method.source().getCode().getIn();
+		return parameter.register() == receiverRegister;
+	}
+
+	private @Nullable Set<IrBlock> operandStackCarryRegion(@NotNull IrBlock source, @NotNull IrBlock target) {
+		Set<IrBlock> reachable = new HashSet<>();
+		ArrayDeque<IrBlock> worklist = new ArrayDeque<>();
+		reachable.add(source);
+		worklist.add(source);
+		while (!worklist.isEmpty()) {
+			IrBlock block = worklist.removeFirst();
+			if (block == target) continue;
+			for (IrBlock successor : block.successors()) {
+				if (reachable.add(successor)) worklist.addLast(successor);
+			}
+		}
+		if (!reachable.contains(target)) return null;
+
+		Set<IrBlock> reachesTarget = new HashSet<>();
+		reachesTarget.add(target);
+		worklist.add(target);
+		while (!worklist.isEmpty()) {
+			IrBlock block = worklist.removeFirst();
+			for (IrBlock predecessor : block.predecessors()) {
+				if (predecessor.successors().contains(block) && reachesTarget.add(predecessor))
+					worklist.addLast(predecessor);
+			}
+		}
+
+		reachable.retainAll(reachesTarget);
+		for (IrBlock block : reachable) {
+			if (block != source) {
+				for (IrBlock predecessor : block.predecessors()) {
+					if (!reachable.contains(predecessor) || predecessor.exceptionalSuccessors().contains(block)) return null;
+				}
+			}
+			if (block != target && !reachable.containsAll(block.successors())) return null;
+		}
+		return reachable;
+	}
+
+	private void beginOperandStackCarry(@NotNull IrBlock block) {
+		OperandStackCarry carry = operandStackCarries.get(block);
+		if (carry != null) activeOperandStackCarries.addLast(carry);
+	}
+
+	private void clearOperandStackCarry() {
+		activeOperandStackCarries.clear();
+	}
+
+	private boolean hasUnconsumedOperandStackCarry(@NotNull IrBlock block) {
+		for (OperandStackCarry carry : activeOperandStackCarries)
+			if (carry.consumerBlock() == block) return true;
+		return false;
+	}
+
+	private boolean canNestOperandStackCarry(@NotNull IrBlock block, @NotNull IrOp producer,
+	                                         @NotNull IrStmt consumer) {
+		OperandStackCarry outerCarry = activeOperandStackCarries.peekLast();
+		if (outerCarry == null || outerCarry.consumerBlock() != block || outerCarry.consumer() == consumer)
+			return true;
+		if (block.statements().indexOf(consumer) >= block.statements().indexOf(outerCarry.consumer())) return false;
+		if (outerCarry.consumer() instanceof IrOp outerConsumer
+				&& outerConsumer.payload() instanceof InvokeInstruction) {
+			for (int inputIndex = 1; inputIndex < outerConsumer.inputs().size(); inputIndex++) {
+				if (dependsOn(outerConsumer.inputs().get(inputIndex), producer, new HashSet<>()))
+					return hasCarriedInvokeInputPrefix(outerConsumer, inputIndex);
+			}
+		}
+		return true;
+	}
+
+	private boolean dependsOn(@NotNull IrValue value, @NotNull IrOp producer,
+	                          @NotNull Set<IrValue> visited) {
+		IrValue canonical = value.canonical();
+		if (canonical == producer) return true;
+		if (!visited.add(canonical) || !(canonical instanceof IrOp op)) return false;
+		for (IrValue input : op.inputs())
+			if (dependsOn(input, producer, visited)) return true;
+		return false;
+	}
+
+	private boolean hasCarriedInvokeInputPrefix(@NotNull IrOp consumer, int inputIndex) {
+		var carries = activeOperandStackCarries.descendingIterator();
+		for (int index = inputIndex - 1; index >= 0; index--) {
+			if (!carries.hasNext() || carries.next().value() != consumer.inputs().get(index).canonical()) return false;
+		}
+		return true;
+	}
+
+	private boolean usesActiveOperandStackCarry(@NotNull IrOp op) {
+		for (IrValue input : op.inputs())
+			if (activeOperandStackCarry(input) != null) return true;
+		return false;
+	}
+
+	private @Nullable OperandStackCarry activeOperandStackCarry(@NotNull IrValue value) {
+		IrValue canonical = value.canonical();
+		for (OperandStackCarry carry : activeOperandStackCarries)
+			if (carry.value() == canonical) return carry;
+		return null;
+	}
+
 	private IrStmt singleConsumerStatement(@NotNull IrValue value) {
-		Object consumer = singleConsumers.get(value.canonical());
-		return consumer instanceof IrStmt statement ? statement : null;
+		return useGraph.singleStatementConsumer(value);
 	}
 
 	private int useCount(@NotNull IrValue value) {
-		return useCounts.getOrDefault(value.canonical(), 0);
+		return useGraph.useCount(value);
 	}
 
 	private boolean isLive(@NotNull IrValue value) {
-		return liveValues.contains(value.canonical());
+		return useGraph.isLive(value);
 	}
 
 	private boolean shouldStoreResult(@NotNull IrValue value) {
@@ -459,27 +463,24 @@ public final class IrLowering {
 	}
 
 	private static boolean consumesConstructedReceiver(@Nullable IrStmt statement, @NotNull IrOp receiver) {
-		if (!(statement instanceof IrOp op))
-			return false;
-		if (!(op.payload() instanceof InvokeInstruction instruction) || isConstructorInvoke(instruction) || op.inputs().isEmpty())
+		if (statement instanceof IrTerminator terminator) {
+			return (terminator.kind() == IrTerminatorKind.RETURN || terminator.kind() == IrTerminatorKind.THROW)
+					&& !terminator.inputs().isEmpty()
+					&& terminator.inputs().getFirst().canonical() == receiver;
+		}
+		if (!(statement instanceof IrOp op) || !(op.payload() instanceof InvokeInstruction instruction)
+				|| isConstructorInvoke(instruction) || op.inputs().isEmpty())
 			return false;
 		return op.inputs().getFirst().canonical() == receiver;
 	}
 
-	private static boolean isInlineFluentBuilderType(@NotNull ClassType type) {
-		if (!(type instanceof ReferenceType referenceType))
-			return false;
-		return INLINE_FLUENT_BUILDERS.contains(referenceType.internalName());
-	}
-
-	private static boolean isInlineFluentBuilderInvoke(@NotNull InvokeInstruction instruction) {
+	private static boolean isReceiverReturningInvoke(@NotNull InvokeInstruction instruction) {
 		return instruction.opcode() != Invoke.STATIC
-				&& isInlineFluentBuilderType(instruction.owner())
 				&& instruction.type().returnType().descriptor().equals(instruction.owner().descriptor());
 	}
 
-	private static boolean isInlineFluentBuilderInvoke(@NotNull IrOp op) {
-		return op.payload() instanceof InvokeInstruction instruction && isInlineFluentBuilderInvoke(instruction);
+	private static boolean isReceiverReturningInvoke(@NotNull IrOp op) {
+		return op.payload() instanceof InvokeInstruction instruction && isReceiverReturningInvoke(instruction);
 	}
 
 	private boolean tryEmitConstructAndPutChain(@NotNull List<IrStmt> statements, int index) {
@@ -637,32 +638,44 @@ public final class IrLowering {
 	}
 
 	private void emitTryCatches() {
-		for (IrTryCatch tryCatch : method.tryCatches()) {
-			Handler handler = tryCatch.handler();
-			String catchType = handler == null || handler.isCatchAll() ? null : handler.exceptionType().internalName();
-			int effectiveTryCatchEnd = effectiveTryCatchEndOffset(tryCatch);
-			Label rangeStart = null;
-			Label rangeEnd = null;
-			Label rangeHandler = null;
-			for (IrBlock source : coveredSourceBlocks(tryCatch)) {
-				Label start = labels.get(source);
-				Label end = protectedEndLabel(source, effectiveTryCatchEnd);
-				if (start == end) continue;
-				Label handlerLabel = handlerStubLabels.getOrDefault(new HandlerStubKey(source, tryCatch.handlerBlock()),
-						labels.get(tryCatch.handlerBlock()));
-				if (rangeStart != null && rangeEnd == start && rangeHandler == handlerLabel) {
-					rangeEnd = end;
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			int effectiveTryCatchEnd = effectiveTryCatchEndOffset(region);
+			for (IrExceptionHandler exceptionHandler : region.handlers()) {
+				Handler handler = exceptionHandler.handler();
+				String catchType = handler == null || handler.isCatchAll() ? null : handler.exceptionType().internalName();
+				List<IrBlock> sources = coveredSourceBlocks(region, exceptionHandler);
+				if (sources.isEmpty()) continue;
+				boolean requiresHandlerStubs = sources.stream()
+						.anyMatch(source -> handlerStubLabels.containsKey(new HandlerStubKey(source, exceptionHandler.handlerBlock())));
+				if (!requiresHandlerStubs) {
+					Label start = labelAtOrEnd(region.startOffset());
+					Label end = labelAtOrEnd(effectiveTryCatchEnd);
+					if (start != end)
+						mv.visitTryCatchBlock(start, end, labels.get(exceptionHandler.handlerBlock()), catchType);
 					continue;
+				}
+				Label rangeStart = null;
+				Label rangeEnd = null;
+				Label rangeHandler = null;
+				for (IrBlock source : sources) {
+					Label start = labels.get(source);
+					Label end = protectedEndLabel(source, effectiveTryCatchEnd);
+					if (start == end) continue;
+					Label handlerLabel = handlerStubLabels.getOrDefault(new HandlerStubKey(source, exceptionHandler.handlerBlock()),
+							labels.get(exceptionHandler.handlerBlock()));
+					if (rangeStart != null && rangeEnd == start && rangeHandler == handlerLabel) {
+						rangeEnd = end;
+						continue;
+					}
+					if (rangeStart != null)
+						mv.visitTryCatchBlock(rangeStart, rangeEnd, rangeHandler, catchType);
+					rangeStart = start;
+					rangeEnd = end;
+					rangeHandler = handlerLabel;
 				}
 				if (rangeStart != null) {
 					mv.visitTryCatchBlock(rangeStart, rangeEnd, rangeHandler, catchType);
 				}
-				rangeStart = start;
-				rangeEnd = end;
-				rangeHandler = handlerLabel;
-			}
-			if (rangeStart != null) {
-				mv.visitTryCatchBlock(rangeStart, rangeEnd, rangeHandler, catchType);
 			}
 		}
 	}
@@ -706,8 +719,8 @@ public final class IrLowering {
 		return next == null ? Integer.MAX_VALUE : next.startOffset();
 	}
 
-	private int effectiveTryCatchEndOffset(@NotNull IrTryCatch tryCatch) {
-		int endOffset = tryCatch.endOffset();
+	private int effectiveTryCatchEndOffset(@NotNull IrExceptionRegion region) {
+		int endOffset = region.endOffset();
 		IrBlock boundary = blockByOffset.get(endOffset);
 		while (boundary != null && isNonThrowingGlueBlock(boundary)) {
 			IrBlock next = nextBlock(boundary);
@@ -717,12 +730,11 @@ public final class IrLowering {
 		return endOffset;
 	}
 
-	private @NotNull List<IrBlock> coveredSourceBlocks(@NotNull IrTryCatch tryCatch) {
+	private @NotNull List<IrBlock> coveredSourceBlocks(@NotNull IrExceptionRegion region,
+	                                                  @NotNull IrExceptionHandler handler) {
 		List<IrBlock> sources = new ArrayList<>();
-		for (IrBlock block : method.blocks()) {
-			if (!block.exceptionalSuccessors().contains(tryCatch.handlerBlock())) continue;
-			if (block.startOffset() >= tryCatch.endOffset()) continue;
-			if (blockEndOffset(block) <= tryCatch.startOffset()) continue;
+		for (IrBlock block : region.protectedBlocks()) {
+			if (!block.exceptionalSuccessors().contains(handler.handlerBlock())) continue;
 			sources.add(block);
 		}
 		return sources;
@@ -765,7 +777,7 @@ public final class IrLowering {
 	private boolean hasEmittableStatements(@NotNull IrBlock block) {
 		List<IrStmt> statements = block.statements();
 		for (int i = 0; i < statements.size(); i++) {
-			if (shouldSkipSeparateEmission(statements, i)) continue;
+			if (shouldSkipSeparateEmission(statements, i, block.terminator())) continue;
 			IrStmt statement = statements.get(i);
 			switch (statement) {
 				case IrOp op -> {
@@ -1358,15 +1370,23 @@ public final class IrLowering {
 			pushConstant(constant, expectedType);
 			return;
 		}
+		OperandStackCarry carry = activeOperandStackCarry(canonical);
+		if (carry != null) {
+			if (currentStatement != carry.consumer())
+				throw new IllegalStateException("Operand-stack value consumed by an unexpected statement");
+			activeOperandStackCarries.remove(carry);
+			return;
+		}
 		if (canonical instanceof IrOp op && inlineConstructedReceivers.contains(op) && currentStatement != null
 				&& consumesConstructedReceiver(currentStatement, op)) {
 			emitConstructedReceiver(op);
 			return;
 		}
 		if (canonical instanceof IrOp op
+				&& !emittedOps.contains(op)
 				&& canInlineIntoCurrentStatement(op)
 				&& currentStatement != null
-				&& singleConsumers.get(op.canonical()) == currentStatement
+				&& singleConsumerStatement(op) == currentStatement
 				&& canInlineValue(op)) {
 			IrStmt previousStatement = currentStatement;
 			currentStatement = op;
@@ -1382,12 +1402,20 @@ public final class IrLowering {
 			return true;
 		if (op.payload() instanceof FilledNewArrayInstruction)
 			return true;
-		if (isInlineFluentBuilderInvoke(op))
+		if (op.payload() instanceof CompareInstruction)
 			return true;
-		return op.payload() instanceof StaticFieldInstruction;
+		if (op.payload() instanceof BinaryInstruction instruction && !InstructionSemantics.canThrow(instruction))
+			return true;
+		if (op.payload() instanceof InstanceOfInstruction)
+			return true;
+		if (isReceiverReturningInvoke(op))
+			return true;
+		return op.payload() instanceof StaticFieldInstruction || op.payload() instanceof InstanceFieldInstruction;
 	}
 
 	private boolean canDeferEmissionToConsumer(@NotNull IrOp op) {
+		if (op.payload() instanceof InstanceFieldInstruction)
+			return singleConsumerStatement(op) instanceof IrTerminator;
 		return canInlineIntoCurrentStatement(op);
 	}
 

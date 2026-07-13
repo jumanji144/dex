@@ -145,9 +145,11 @@ public class DexConversionSimple extends AbstractDexConversion {
 		}
 
 		// Fields & Methods
+		Set<FieldMember> staticInitializerAssignments = ConversionSupport.staticInitializerAssignments(cls);
 		for (FieldMember field : cls.getFields().values()) {
 			FieldVisitor fv = ((ClassVisitor) cw).visitField(field.getAccess(), field.getName(), field.getType().descriptor(),
-					field.getSignature(), mapConstant(field.getStaticValue()));
+					field.getSignature(), ConversionSupport.mapFieldConstant(field.getAccess(), field.getStaticValue(),
+							staticInitializerAssignments.contains(field)));
 			for (Annotation annotation : field.getAnnotations()) {
 				AnnotationPart part = annotation.annotation();
 				AnnotationVisitor av = fv.visitAnnotation(part.type().descriptor(), annotation.visibility() > 0);

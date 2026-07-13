@@ -463,7 +463,7 @@ public class ClassDefinitionRemapper {
 					);
 					case ThrowInstruction instruction -> new ThrowInstruction(instruction.value());
 					case UnaryInstruction instruction ->
-							new UnaryInstruction(instruction.opcode(), instruction.source(), instruction.dest());
+							new UnaryInstruction(instruction.opcode(), instruction.dest(), instruction.source());
 				};
 			}
 

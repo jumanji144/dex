@@ -69,6 +69,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static me.darknet.dex.convert.ConversionSupport.slotSize;
+import static me.darknet.dex.convert.ir.analysis.InstructionSemantics.canThrow;
 import static me.darknet.dex.convert.ir.build.IrBuildingUtils.*;
 
 public class IrBlockBuilder {
@@ -130,7 +131,7 @@ public class IrBlockBuilder {
 			Instruction instruction = node.instruction();
 			if (!(instruction instanceof MoveResultInstruction)) pendingResult = null;
 			IrValue[] stateBeforeInstruction = null;
-			if (!block.exceptionalSuccessors().isEmpty() && IrBuildingUtils.canThrow(instruction)) {
+			if (!block.exceptionalSuccessors().isEmpty() && canThrow(instruction)) {
 				stateBeforeInstruction = state.clone();
 			}
 			switch (instruction) {
@@ -161,7 +162,7 @@ public class IrBlockBuilder {
 					IrOp op = new IrOp(nextValueId++, resultTypeForBinary(binaryInstruction.opcode()), IrOpKind.BINARY,
 							List.of(readTyped(state, binaryInstruction.a(), operandTypeForBinary(binaryInstruction.opcode(), true)),
 									readTyped(state, binaryInstruction.b(), operandTypeForBinary(binaryInstruction.opcode(), false))),
-							binaryInstruction, true);
+							binaryInstruction);
 					op.register(binaryInstruction.dest());
 					block.statements().add(op);
 					state[binaryInstruction.dest()] = op;
@@ -171,14 +172,14 @@ public class IrBlockBuilder {
 					IrOp op = new IrOp(nextValueId++, resultTypeForBinary(normalized.opcode()), IrOpKind.BINARY,
 							List.of(readTyped(state, normalized.a(), operandTypeForBinary(normalized.opcode(), true)),
 									readTyped(state, normalized.b(), operandTypeForBinary(normalized.opcode(), false))),
-							normalized, true);
+							normalized);
 					op.register(binary2AddrInstruction.a());
 					block.statements().add(op);
 					state[binary2AddrInstruction.a()] = op;
 				}
 				case BinaryLiteralInstruction binaryLiteralInstruction -> {
 					IrOp op = new IrOp(nextValueId++, Types.INT, IrOpKind.BINARY_LITERAL,
-							List.of(readTyped(state, binaryLiteralInstruction.src(), Types.INT)), binaryLiteralInstruction, true);
+							List.of(readTyped(state, binaryLiteralInstruction.src(), Types.INT)), binaryLiteralInstruction);
 					op.register(binaryLiteralInstruction.dest());
 					block.statements().add(op);
 					state[binaryLiteralInstruction.dest()] = op;
@@ -186,7 +187,7 @@ public class IrBlockBuilder {
 				case UnaryInstruction unaryInstruction -> {
 					IrOp op = new IrOp(nextValueId++, resultTypeForUnary(unaryInstruction.opcode()), IrOpKind.UNARY,
 							List.of(readTyped(state, unaryInstruction.source(), operandTypeForUnary(unaryInstruction.opcode()))),
-							unaryInstruction, true);
+							unaryInstruction);
 					op.register(unaryInstruction.dest());
 					block.statements().add(op);
 					state[unaryInstruction.dest()] = op;
@@ -195,14 +196,14 @@ public class IrBlockBuilder {
 					IrOp op = new IrOp(nextValueId++, Types.INT, IrOpKind.COMPARE,
 							List.of(readTyped(state, compareInstruction.a(), operandTypeForCompare(compareInstruction.opcode())),
 									readTyped(state, compareInstruction.b(), operandTypeForCompare(compareInstruction.opcode()))),
-							compareInstruction, true);
+							compareInstruction);
 					op.register(compareInstruction.dest());
 					block.statements().add(op);
 					state[compareInstruction.dest()] = op;
 				}
 				case ArrayLengthInstruction arrayLengthInstruction -> {
 					IrOp op = new IrOp(nextValueId++, Types.INT, IrOpKind.ARRAY_LENGTH,
-							List.of(read(state, arrayLengthInstruction.array())), arrayLengthInstruction, true);
+							List.of(read(state, arrayLengthInstruction.array())), arrayLengthInstruction);
 					op.register(arrayLengthInstruction.dest());
 					block.statements().add(op);
 					state[arrayLengthInstruction.dest()] = op;
@@ -210,46 +211,46 @@ public class IrBlockBuilder {
 				case ArrayInstruction arrayInstruction -> buildArrayInstruction(block, state, arrayInstruction);
 				case CheckCastInstruction checkCastInstruction -> {
 					IrOp op = new IrOp(nextValueId++, checkCastInstruction.type(), IrOpKind.CHECK_CAST,
-							List.of(read(state, checkCastInstruction.register())), checkCastInstruction, true);
+							List.of(read(state, checkCastInstruction.register())), checkCastInstruction);
 					op.register(checkCastInstruction.register());
 					block.statements().add(op);
 					state[checkCastInstruction.register()] = op;
 				}
 				case InstanceOfInstruction instanceOfInstruction -> {
 					IrOp op = new IrOp(nextValueId++, Types.BOOLEAN, IrOpKind.INSTANCE_OF,
-							List.of(read(state, instanceOfInstruction.register())), instanceOfInstruction, true);
+							List.of(read(state, instanceOfInstruction.register())), instanceOfInstruction);
 					op.register(instanceOfInstruction.destination());
 					block.statements().add(op);
 					state[instanceOfInstruction.destination()] = op;
 				}
 				case NewInstanceInstruction newInstanceInstruction -> {
-					IrOp op = new IrOp(nextValueId++, newInstanceInstruction.type(), IrOpKind.NEW_INSTANCE, List.of(), newInstanceInstruction, false);
+					IrOp op = new IrOp(nextValueId++, newInstanceInstruction.type(), IrOpKind.NEW_INSTANCE, List.of(), newInstanceInstruction);
 					op.register(newInstanceInstruction.dest());
 					block.statements().add(op);
 					state[newInstanceInstruction.dest()] = op;
 				}
 				case NewArrayInstruction newArrayInstruction -> {
 					IrOp op = new IrOp(nextValueId++, ConversionSupport.normalizeArrayType(newArrayInstruction.componentType()),
-							IrOpKind.NEW_ARRAY, List.of(readTyped(state, newArrayInstruction.sizeRegister(), Types.INT)), newArrayInstruction, true);
+							IrOpKind.NEW_ARRAY, List.of(readTyped(state, newArrayInstruction.sizeRegister(), Types.INT)), newArrayInstruction);
 					op.register(newArrayInstruction.dest());
 					block.statements().add(op);
 					state[newArrayInstruction.dest()] = op;
 				}
 				case FilledNewArrayInstruction filledNewArrayInstruction -> {
 					IrOp op = new IrOp(nextValueId++, ConversionSupport.normalizeArrayType(filledNewArrayInstruction.componentType()),
-							IrOpKind.FILLED_NEW_ARRAY, loadFilledInputs(state, filledNewArrayInstruction), filledNewArrayInstruction, true);
+							IrOpKind.FILLED_NEW_ARRAY, loadFilledInputs(state, filledNewArrayInstruction), filledNewArrayInstruction);
 					block.statements().add(op);
 					pendingResult = op;
 				}
 				case InvokeInstruction invokeInstruction -> {
 					IrOp op = new IrOp(nextValueId++, invokeInstruction.type().returnType(), IrOpKind.INVOKE,
-							loadInvokeInputs(state, invokeInstruction), invokeInstruction, false);
+							loadInvokeInputs(state, invokeInstruction), invokeInstruction);
 					block.statements().add(op);
 					pendingResult = op;
 				}
 				case InvokeCustomInstruction invokeCustomInstruction -> {
 					IrOp op = new IrOp(nextValueId++, invokeCustomInstruction.type().returnType(), IrOpKind.INVOKE_CUSTOM,
-							loadInvokeInputs(state, invokeCustomInstruction), invokeCustomInstruction, false);
+							loadInvokeInputs(state, invokeCustomInstruction), invokeCustomInstruction);
 					block.statements().add(op);
 					pendingResult = op;
 				}
@@ -366,7 +367,7 @@ public class IrBlockBuilder {
 		ClassType elementType = arrayElementType(instruction, state);
 		if (instruction.opcode() < Opcodes.APUT) {
 			IrOp op = new IrOp(nextValueId++, elementType, IrOpKind.ARRAY_GET,
-					List.of(read(state, instruction.array()), readTyped(state, instruction.index(), Types.INT)), instruction, true);
+					List.of(read(state, instruction.array()), readTyped(state, instruction.index(), Types.INT)), instruction);
 			op.register(instruction.value());
 			block.statements().add(op);
 			state[instruction.value()] = op;
@@ -381,7 +382,7 @@ public class IrBlockBuilder {
 	private void buildInstanceField(@NotNull IrBlock block, @NotNull IrValue[] state, @NotNull InstanceFieldInstruction instruction) {
 		if (instruction.opcode() < Opcodes.IPUT) {
 			IrOp op = new IrOp(nextValueId++, instruction.type(), IrOpKind.INSTANCE_GET,
-					List.of(read(state, instruction.instance())), instruction, true);
+					List.of(read(state, instruction.instance())), instruction);
 			op.register(instruction.value());
 			block.statements().add(op);
 			state[instruction.value()] = op;
@@ -393,7 +394,7 @@ public class IrBlockBuilder {
 
 	private void buildStaticField(@NotNull IrBlock block, @NotNull IrValue[] state, @NotNull StaticFieldInstruction instruction) {
 		if (instruction.opcode() < Opcodes.SPUT) {
-			IrOp op = new IrOp(nextValueId++, instruction.type(), IrOpKind.STATIC_GET, List.of(), instruction, true);
+			IrOp op = new IrOp(nextValueId++, instruction.type(), IrOpKind.STATIC_GET, List.of(), instruction);
 			op.register(instruction.value());
 			block.statements().add(op);
 			state[instruction.value()] = op;

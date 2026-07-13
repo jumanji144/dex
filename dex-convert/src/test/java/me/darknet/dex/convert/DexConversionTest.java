@@ -2,6 +2,7 @@ package me.darknet.dex.convert;
 
 import me.darknet.dex.codecs.DexHeaderCodec;
 import me.darknet.dex.convert.ir.IrMethod;
+import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.optimize.IrOptimizationContext;
 import me.darknet.dex.convert.ir.optimize.IrOptimizer;
 import me.darknet.dex.convert.ir.optimize.NoopIrOptimizer;
@@ -19,6 +20,7 @@ import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.code.Handler;
 import me.darknet.dex.tree.definitions.code.TryCatch;
 import me.darknet.dex.tree.definitions.instructions.BinaryInstruction;
+import me.darknet.dex.tree.definitions.instructions.ArrayInstruction;
 import me.darknet.dex.tree.definitions.instructions.BranchZeroInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstInstruction;
 import me.darknet.dex.tree.definitions.instructions.GotoInstruction;
@@ -28,6 +30,7 @@ import me.darknet.dex.tree.definitions.instructions.InvokeInstruction;
 import me.darknet.dex.tree.definitions.instructions.Label;
 import me.darknet.dex.tree.definitions.instructions.MoveExceptionInstruction;
 import me.darknet.dex.tree.definitions.instructions.MoveResultInstruction;
+import me.darknet.dex.tree.definitions.instructions.NewArrayInstruction;
 import me.darknet.dex.tree.definitions.instructions.NewInstanceInstruction;
 import me.darknet.dex.tree.definitions.instructions.PackedSwitchInstruction;
 import me.darknet.dex.tree.definitions.instructions.Result;
@@ -64,6 +67,30 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class DexConversionTest implements Opcodes {
     @Test
+    void executesNestedArrayConstructionAndStores() throws Exception {
+        ClassDefinition cls = new ClassDefinition(
+                Types.instanceTypeFromInternalName("test/NestedArray"), Types.instanceType(Object.class), ACC_PUBLIC);
+        cls.putMethod(method("make", Types.methodTypeFromDescriptor("()[[I"),
+                code(4, 0,
+                        new ConstInstruction(0, 1),
+                        new NewArrayInstruction(1, 0, Types.arrayTypeFromDescriptor("[[I")),
+                        new NewArrayInstruction(2, 0, Types.arrayTypeFromDescriptor("[I")),
+                        new ConstInstruction(3, 0),
+                        new ArrayInstruction(me.darknet.dex.file.instructions.Opcodes.APUT_OBJECT
+                                - me.darknet.dex.file.instructions.Opcodes.AGET, 2, 1, 3),
+                        new ReturnInstruction(1, Return.OBJECT)),
+                ACC_PUBLIC | ACC_STATIC));
+
+        DexFile dex = new DexFile(39, List.of(cls));
+        byte[] bytecode = Converters.IR.toClasses(dex).classes().get("test/NestedArray");
+        Class<?> loaded = new ByteArrayClassLoader().define("test.NestedArray", bytecode);
+        Object result = invokeStatic(loaded, "make");
+        assertEquals(1, java.lang.reflect.Array.getLength(result));
+        assertTrue(java.lang.reflect.Array.get(result, 0) instanceof int[],
+                () -> result.getClass() + " inner=" + java.lang.reflect.Array.get(result, 0));
+    }
+
+    @Test
     void executesArithmeticBranchInvokeSwitchAndTryCatch() throws Exception {
         // Create a class with a variety of methods that test different control flow constructs and instructions.
         ClassDefinition cls = new ClassDefinition(
@@ -76,6 +103,7 @@ class DexConversionTest implements Opcodes {
         cls.putMethod(method("boxed", Types.methodTypeFromDescriptor("(I)Ljava/lang/Integer;"), boxedCode(), ACC_PUBLIC | ACC_STATIC));
         cls.putMethod(method("packed", Types.methodTypeFromDescriptor("(I)I"), packedSwitchCode(), ACC_PUBLIC | ACC_STATIC));
         cls.putMethod(method("catcher", Types.methodTypeFromDescriptor("()I"), tryCatchCode(), ACC_PUBLIC | ACC_STATIC));
+        cls.putMethod(method("divide", Types.methodTypeFromDescriptor("()I"), divisionCatchCode(), ACC_PUBLIC | ACC_STATIC));
 
         // Convert the dex class to Java bytecode and load it.
         DexFile dex = new DexFile(39, List.of(cls));
@@ -94,6 +122,7 @@ class DexConversionTest implements Opcodes {
         assertEquals(20, invokeStatic(loaded, "packed", 2));
         assertEquals(30, invokeStatic(loaded, "packed", 8));
         assertEquals(7, invokeStatic(loaded, "catcher"));
+        assertEquals(7, invokeStatic(loaded, "divide"));
     }
 
     @Test
@@ -464,6 +493,26 @@ class DexConversionTest implements Opcodes {
         return code;
     }
 
+    private static Code divisionCatchCode() {
+        Label start = new Label();
+        Label end = new Label();
+        Label handler = new Label();
+        Code code = code(2, 0,
+                start,
+                new ConstInstruction(0, 1),
+                new ConstInstruction(1, 0),
+                new BinaryInstruction(me.darknet.dex.file.instructions.Opcodes.DIV_INT, 0, 0, 1),
+                end,
+                new ReturnInstruction(0),
+                handler,
+                new MoveExceptionInstruction(1),
+                new ConstInstruction(0, 7),
+                new ReturnInstruction(0));
+        code.addTryCatch(new TryCatch(start, end,
+                List.of(new Handler(handler, Types.instanceType(ArithmeticException.class)))));
+        return code;
+    }
+
     private static Code code(int registers, int in, Instruction... instructions) {
         Code code = new Code(in, 0, registers);
         List<Instruction> assigned = assignLabels(List.of(instructions));
@@ -490,7 +539,7 @@ class DexConversionTest implements Opcodes {
     private static void replaceFirstPureOpWithIntConstant(IrMethod method, int value) {
         for (var block : method.blocks()) {
             for (IrStmt statement : block.statements()) {
-                if (statement instanceof IrOp op && op.pure()) {
+                if (statement instanceof IrOp op && IrOpSemantics.isRemovable(op)) {
                     op.replaceWith(new IrConstant(-1, Types.INT, value, value == 0));
                     return;
                 }

@@ -97,7 +97,8 @@ class IrReconstructPatternTest {
 		assertFalse(decomp.contains("class Main$1"), "Anonymous class should be reconstructed inline");
 		assertFalse(decomp.contains("class Main$2"), "Anonymous class should be reconstructed inline");
 		assertTrue(decomp.contains("static Runnable theRunnable = new Runnable(){"));
-		assertTrue(decomp.contains("Runnable runnable = new Runnable(){") && decomp.contains("return runnable;"));
+		assertTrue(decomp.contains("return new Runnable(){")
+				|| (decomp.contains("Runnable runnable = new Runnable(){") && decomp.contains("return runnable;")));
 	}
 
 	@Test

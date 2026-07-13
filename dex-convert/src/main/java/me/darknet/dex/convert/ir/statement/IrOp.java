@@ -1,5 +1,6 @@
 package me.darknet.dex.convert.ir.statement;
 
+import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.value.IrValue;
 import me.darknet.dex.tree.type.ClassType;
 import org.jetbrains.annotations.NotNull;
@@ -14,16 +15,14 @@ public final class IrOp extends IrValue implements IrStmt {
 	private final IrOpKind kind;
 	private final List<IrValue> inputs;
 	private final Object payload;
-	private final boolean pure;
 	private int register = -1;
 
 	public IrOp(int id, @NotNull ClassType type, @NotNull IrOpKind kind, @NotNull List<IrValue> inputs,
-	            @Nullable Object payload, boolean pure) {
+	            @Nullable Object payload) {
 		super(id, type);
 		this.kind = kind;
 		this.inputs = inputs;
 		this.payload = payload;
-		this.pure = pure;
 	}
 
 	public @NotNull IrOpKind kind() {
@@ -39,7 +38,7 @@ public final class IrOp extends IrValue implements IrStmt {
 	}
 
 	public boolean pure() {
-		return pure;
+		return IrOpSemantics.isRemovable(this);
 	}
 
 	public int register() {
