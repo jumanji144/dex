@@ -63,7 +63,11 @@ public final class IrLowering {
 	private final Map<IrBlock, Label> protectedBoundaryLabels = new HashMap<>();
 	private final Label endLabel = new Label();
 	private final Map<HandlerStubKey, Label> handlerStubLabels = new HashMap<>();
+	private final Map<IrBlock, HandlerTail> handlerTails = new HashMap<>();
+	private final Set<IrBlock> skippedHandlerTailBlocks = new HashSet<>();
+	private final Set<IrBlock> deferredNormalTailBlocks = new HashSet<>();
 	private final Map<IrBlock, OperandStackCarry> operandStackCarries = new HashMap<>();
+	private final Map<IrPhi, IrValue> initializedPhiValues = new HashMap<>();
 	private final ArrayDeque<OperandStackCarry> activeOperandStackCarries = new ArrayDeque<>();
 	private final Set<IrBlock> stubbedHandlers = new HashSet<>();
 	private final Map<Integer, IrBlock> blockByOffset = new HashMap<>();
@@ -86,6 +90,9 @@ public final class IrLowering {
 	private record HandlerStubKey(@NotNull IrBlock source, @NotNull IrBlock target) {
 	}
 
+	private record HandlerTail(@NotNull IrBlock root, @NotNull IrBlock target, @NotNull Label label) {
+	}
+
 	private IrLowering(@NotNull IrMethod method, @NotNull MethodVisitor mv) {
 		this.method = method;
 		this.mv = mv;
@@ -104,8 +111,13 @@ public final class IrLowering {
 		nextLocal = JvmLocalAllocator.allocate(method, registerLocalBase);
 		emittedOps.clear();
 		collectHandlerStubs();
+		collectHandlerTails();
+		collectDeferredNormalTails();
 		mv.visitCode();
+		emitInitializedPhiValues();
 		for (IrBlock block : method.blocks()) {
+			if (skippedHandlerTailBlocks.contains(block) || deferredNormalTailBlocks.contains(block))
+				continue;
 			if (isTransparentBlock(block))
 				continue;
 			beginOperandStackCarry(block);
@@ -139,9 +151,127 @@ public final class IrLowering {
 			clearOperandStackCarry();
 		}
 		mv.visitLabel(endLabel);
+		emitHandlerTails();
 		emitHandlerStubs();
+		emitDeferredNormalTails();
 		emitTryCatches();
 		mv.visitMaxs(0xFF, nextLocal);
+	}
+
+	private void collectHandlerTails() {
+		handlerTails.clear();
+		skippedHandlerTailBlocks.clear();
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			for (IrExceptionHandler handler : region.handlers()) {
+				IrBlock root = handler.handlerBlock();
+				if (handlerTails.containsKey(root) || root.exceptionValue() == null
+						|| hasHandlerStubs(root)) continue;
+				IrBlock target = handlerTailTarget(root);
+				if (target == null) continue;
+				HandlerTail tail = new HandlerTail(root, target, new Label());
+				handlerTails.put(root, tail);
+				skippedHandlerTailBlocks.add(root);
+				skippedHandlerTailBlocks.add(target);
+			}
+		}
+	}
+
+	private void collectDeferredNormalTails() {
+		deferredNormalTailBlocks.clear();
+		Set<IrBlock> handlerBlocks = new HashSet<>();
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			for (IrExceptionHandler handler : region.handlers())
+				handlerBlocks.add(handler.handlerBlock());
+		}
+		for (IrBlock block : method.blocks()) {
+			if (!isExceptionBoundaryGlue(block)) continue;
+			IrTerminator terminator = block.terminator();
+			if (terminator == null || terminator.kind() != IrTerminatorKind.GOTO) continue;
+			IrBlock target = gotoTarget(block, terminator.payload());
+			if (target == null || handlerBlocks.contains(target) || target.exceptionValue() != null
+					|| !target.exceptionalSuccessors().isEmpty() || target.terminator() == null
+					|| target.terminator().kind() != IrTerminatorKind.RETURN
+					|| target.predecessors().stream().anyMatch(handlerBlocks::contains)
+					|| target.predecessors().stream().filter(this::isExceptionBoundaryGlue).count() != 1) continue;
+			deferredNormalTailBlocks.add(target);
+		}
+	}
+
+	private boolean hasHandlerStubs(@NotNull IrBlock target) {
+		return handlerStubLabels.keySet().stream().anyMatch(key -> key.target() == target);
+	}
+
+	private @Nullable IrBlock handlerTailTarget(@NotNull IrBlock root) {
+		IrTerminator terminator = root.terminator();
+		if (terminator == null || terminator.kind() != IrTerminatorKind.GOTO) return null;
+		IrBlock target = gotoTarget(root, terminator.payload());
+		if (target == null || target.predecessors().size() != 1 || !target.predecessors().contains(root)
+				|| !target.exceptionalSuccessors().isEmpty()
+				|| target.terminator() == null || target.terminator().kind() != IrTerminatorKind.THROW)
+			return null;
+		return target;
+	}
+
+	private void emitInitializedPhiValues() {
+		// DEX condition-result registers commonly carry an implicit false value into a join.
+		// Seed only zero-valued integer phis so edge copies are needed only for the exceptional true edge.
+		initializedPhiValues.clear();
+		Map<Integer, IrValue> initializedLocals = new HashMap<>();
+		Map<Integer, IrPhi> initializedPhisByLocal = new HashMap<>();
+		for (IrBlock block : method.blocks()) {
+			for (IrPhi phi : block.phis()) {
+				if (phi.canonical() != phi || !isLive(phi) || !phi.hasLocal()
+						|| phi.local() < registerLocalBase || !phi.type().equals(Types.INT)) continue;
+				IrValue baseline = majorityConstant(phi);
+				if (baseline == null || !baseline.isZeroConstant()) continue;
+				IrValue existing = initializedLocals.get(phi.local());
+				if (existing != null && !sameConstant(existing, baseline)) {
+					initializedPhiValues.remove(initializedPhisByLocal.get(phi.local()));
+					initializedLocals.remove(phi.local());
+					initializedPhisByLocal.remove(phi.local());
+					continue;
+				}
+				initializedLocals.put(phi.local(), baseline);
+				initializedPhisByLocal.put(phi.local(), phi);
+				initializedPhiValues.put(phi, baseline);
+			}
+		}
+		for (Map.Entry<IrPhi, IrValue> entry : initializedPhiValues.entrySet()) {
+			load(entry.getValue(), entry.getKey().type());
+			store(entry.getKey());
+		}
+	}
+
+	private @Nullable IrValue majorityConstant(@NotNull IrPhi phi) {
+		Map<Object, Integer> counts = new HashMap<>();
+		Map<Object, IrValue> values = new HashMap<>();
+		for (IrValue input : phi.operands().values()) {
+			IrValue canonical = input.canonical();
+			Object key = constantKey(canonical);
+			if (key == null) return null;
+			counts.merge(key, 1, Integer::sum);
+			values.putIfAbsent(key, canonical);
+		}
+		Object bestKey = null;
+		int bestCount = 1;
+		for (Map.Entry<Object, Integer> entry : counts.entrySet()) {
+			if (entry.getValue() > bestCount) {
+				bestKey = entry.getKey();
+				bestCount = entry.getValue();
+			}
+		}
+		return bestKey == null ? null : values.get(bestKey);
+	}
+
+	private @Nullable Object constantKey(@NotNull IrValue value) {
+		Object constant = value.constantValue();
+		return constant != null ? constant : value.isZeroConstant() ? 0 : null;
+	}
+
+	private boolean sameConstant(@NotNull IrValue first, @NotNull IrValue second) {
+		Object firstKey = constantKey(first);
+		Object secondKey = constantKey(second);
+		return firstKey != null && firstKey.equals(secondKey);
 	}
 
 	private void collectHandlerStubs() {
@@ -623,7 +753,7 @@ public final class IrLowering {
 		switch (terminator.kind()) {
 			case GOTO -> {
 				IrBlock target = gotoTarget(block, terminator.payload());
-				if (target != null) emitEdge(block, target, true);
+				if (target != null) emitEdge(block, target, !isExceptionBoundaryGlue(block));
 			}
 			case IF -> emitIf(block, (BranchInstruction) terminator.payload(), terminator.inputs());
 			case IF_ZERO ->
@@ -651,7 +781,7 @@ public final class IrLowering {
 					Label start = labelAtOrEnd(region.startOffset());
 					Label end = labelAtOrEnd(effectiveTryCatchEnd);
 					if (start != end)
-						mv.visitTryCatchBlock(start, end, labels.get(exceptionHandler.handlerBlock()), catchType);
+						mv.visitTryCatchBlock(start, end, handlerEntryLabel(exceptionHandler.handlerBlock()), catchType);
 					continue;
 				}
 				Label rangeStart = null;
@@ -662,7 +792,7 @@ public final class IrLowering {
 					Label end = protectedEndLabel(source, effectiveTryCatchEnd);
 					if (start == end) continue;
 					Label handlerLabel = handlerStubLabels.getOrDefault(new HandlerStubKey(source, exceptionHandler.handlerBlock()),
-							labels.get(exceptionHandler.handlerBlock()));
+							handlerEntryLabel(exceptionHandler.handlerBlock()));
 					if (rangeStart != null && rangeEnd == start && rangeHandler == handlerLabel) {
 						rangeEnd = end;
 						continue;
@@ -691,8 +821,59 @@ public final class IrLowering {
 				mv.visitInsn(POP);
 			}
 			emitPhiCopies(key.source(), target);
-			mv.visitJumpInsn(GOTO, labels.get(target));
+			mv.visitJumpInsn(GOTO, handlerEntryLabel(target));
 		}
+	}
+
+	private void emitHandlerTails() {
+		for (HandlerTail tail : handlerTails.values()) {
+			mv.visitLabel(tail.label());
+			store(tail.root().exceptionValue());
+			emitPhiCopies(tail.root(), tail.target());
+			emitTailBlock(tail.target());
+		}
+	}
+
+	private void emitDeferredNormalTails() {
+		for (IrBlock block : method.blocks()) {
+			if (deferredNormalTailBlocks.contains(block)) {
+				mv.visitLabel(labels.get(block));
+				emitTailBlock(block);
+			}
+		}
+	}
+
+	private void emitTailBlock(@NotNull IrBlock block) {
+		beginOperandStackCarry(block);
+		List<IrStmt> statements = block.statements();
+		for (int i = 0; i < statements.size(); i++) {
+			IrStmt statement = statements.get(i);
+			if (tryCarryInvokeInput(block, statements, i, block.terminator()))
+				continue;
+			if (shouldSkipSeparateEmission(statements, i, block.terminator()))
+				continue;
+			int chainLength = emitSpecialChain(statements, i);
+			if (chainLength > 0) {
+				i += chainLength - 1;
+				continue;
+			}
+			currentStatement = statement;
+			emitStatement(statement);
+			if (statement instanceof IrOp op && op.canonical() == op && !op.stackOnly())
+				emittedOps.add(op);
+			currentStatement = null;
+		}
+		currentStatement = block.terminator();
+		emitTerminator(block);
+		currentStatement = null;
+		if (hasUnconsumedOperandStackCarry(block))
+			throw new IllegalStateException("Operand-stack value was not consumed in " + block.debugName());
+		clearOperandStackCarry();
+	}
+
+	private @NotNull Label handlerEntryLabel(@NotNull IrBlock handler) {
+		HandlerTail tail = handlerTails.get(handler);
+		return tail == null ? labels.get(handler) : tail.label();
 	}
 
 	private Label labelAtOrEnd(int offset) {
@@ -750,7 +931,8 @@ public final class IrLowering {
 	}
 
 	private void emitEdge(@NotNull IrBlock source, @NotNull IrBlock target, boolean allowFallthrough) {
-		if (allowFallthrough && target == nextBlock(source)) {
+		if (allowFallthrough && !deferredNormalTailBlocks.contains(source)
+				&& !deferredNormalTailBlocks.contains(target) && target == nextBlock(source)) {
 			emitEdgeFallthrough(source, target);
 			return;
 		}
@@ -765,6 +947,7 @@ public final class IrLowering {
 	private boolean isTransparentBlock(@NotNull IrBlock block) {
 		if (!block.phis().isEmpty()) return false;
 		if (block.exceptionValue() != null) return false;
+		if (isExceptionBoundaryGlue(block)) return false;
 		if (hasEmittableStatements(block)) return false;
 		IrBlock next = nextBlock(block);
 		if (next == null) return false;
@@ -772,6 +955,15 @@ public final class IrLowering {
 		IrTerminator terminator = block.terminator();
 		if (terminator == null) return true;
 		return terminator.kind() == IrTerminatorKind.GOTO && gotoTarget(block, terminator.payload()) == next;
+	}
+
+	private boolean isExceptionBoundaryGlue(@NotNull IrBlock block) {
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			IrBlock boundary = blockByOffset.get(region.endOffset());
+			if (boundary != null && boundary.successors().contains(block))
+				return true;
+		}
+		return false;
 	}
 
 	private boolean hasEmittableStatements(@NotNull IrBlock block) {
@@ -836,6 +1028,9 @@ public final class IrLowering {
 		if (input == null)
 			return false;
 		IrValue canonicalInput = input.canonical();
+		IrValue initializedValue = initializedPhiValues.get(phi);
+		if (initializedValue != null && sameConstant(canonicalInput, initializedValue))
+			return false;
 		if (canonicalInput == phi)
 			return false;
 		return !canonicalInput.hasLocal() || !phi.hasLocal() || canonicalInput.local() != phi.local();

@@ -347,6 +347,24 @@ class DexConversionTest implements Opcodes {
          void npeSampleDecompilesWithoutFailureStub() throws Exception {
              assertSampleDecompilesWithoutFailureStub("122-npe", "Main");
          }
+
+         @Test
+         void realFileTransferAwaitPairingUsesStructuredShortCircuit() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("private boolean awaitPairing");
+             int end = decompiled.indexOf("private Notification", start);
+             assertTrue(start >= 0 && end > start, () -> "Missing awaitPairing in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("if (bl2 && (bl2 = ((AtomicBoolean)(object = pendingPairing.accepted)).get()))"),
+                     () -> "Short-circuit control flow was not recovered:\n" + method);
+             assertFalse(method.contains("block4:"),
+                     () -> "IR lowering left a synthetic control-flow block in awaitPairing:\n" + method);
+             assertFalse(method.contains("finally {\n        }"),
+                     () -> "IR lowering emitted an empty finally block in awaitPairing:\n" + method);
+         }
     }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {
@@ -356,10 +374,14 @@ class DexConversionTest implements Opcodes {
     }
 
     private static ClassDefinition loadSampleClass(String sample, String owner) throws Exception {
+        return loadSampleClass(sample, "classes.dex", owner);
+    }
+
+    private static ClassDefinition loadSampleClass(String sample, String dexName, String owner) throws Exception {
         Path cwd = Paths.get(System.getProperty("user.dir"));
-        Path path = cwd.resolve("test-data").resolve("samples").resolve(sample).resolve("classes.dex");
+        Path path = cwd.resolve("test-data").resolve("samples").resolve(sample).resolve(dexName);
         if (!Files.exists(path)) {
-            path = cwd.resolve("..").resolve("test-data").resolve("samples").resolve(sample).resolve("classes.dex").normalize();
+            path = cwd.resolve("..").resolve("test-data").resolve("samples").resolve(sample).resolve(dexName).normalize();
         }
         Input dexInput = Input.wrap(Files.readAllBytes(path));
         DexHeaderCodec codec = DexHeader.CODEC;
