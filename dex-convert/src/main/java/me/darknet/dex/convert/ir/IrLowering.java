@@ -371,7 +371,9 @@ public final class IrLowering {
 				|| useCount(op) != 1)
 			return false;
 		IrStmt consumer = singleConsumerStatement(op);
-		if (!(consumer instanceof IrOp consumerOp) || !(consumerOp.payload() instanceof InvokeInstruction))
+		if (!(consumer instanceof IrOp consumerOp)
+				|| (!(consumerOp.payload() instanceof InvokeInstruction)
+				&& !(consumerOp.payload() instanceof CheckCastInstruction)))
 			return false;
 		int consumerInputIndex = -1;
 		for (int inputIndex = 0; inputIndex < consumerOp.inputs().size(); inputIndex++) {
@@ -383,6 +385,7 @@ public final class IrLowering {
 		if (consumerInputIndex < 0)
 			return false;
 		boolean carriedNonFirstInput = consumerInputIndex > 0
+				&& consumerOp.payload() instanceof InvokeInstruction
 				&& hasCarriedInvokeInputPrefix(consumerOp, consumerInputIndex);
 		if (shouldSkipSeparateEmission(statements, index, blockTerminator) && !carriedNonFirstInput)
 			return false;
@@ -408,7 +411,8 @@ public final class IrLowering {
 			carryRegion = operandStackCarryRegion(block, consumerBlock);
 			if (carryRegion == null || carryRegion.stream()
 					.anyMatch(candidate -> candidate != block && operandStackCarries.containsKey(candidate))
-					|| (!canCarryAcrossExceptionalSuccessors(op) && carryRegion.stream()
+					|| (!(consumerOp.payload() instanceof CheckCastInstruction)
+					&& !canCarryAcrossExceptionalSuccessors(op) && carryRegion.stream()
 					.anyMatch(candidate -> !candidate.exceptionalSuccessors().isEmpty())))
 				return false;
 		}
@@ -429,6 +433,7 @@ public final class IrLowering {
 
 	private boolean canCarryAcrossExceptionalSuccessors(@NotNull IrOp op) {
 		if (op.payload() instanceof StaticFieldInstruction) return true;
+		if (isReceiverReturningInvoke(op)) return true;
 		if (!(op.payload() instanceof InstanceFieldInstruction) || op.inputs().isEmpty()
 				|| !(op.inputs().getFirst().canonical() instanceof IrParameter parameter)
 				|| (method.source().getAccess() & ACC_STATIC) != 0)
@@ -1597,11 +1602,15 @@ public final class IrLowering {
 			return true;
 		if (op.payload() instanceof FilledNewArrayInstruction)
 			return true;
+		if (op.payload() instanceof CheckCastInstruction)
+			return true;
 		if (op.payload() instanceof CompareInstruction)
 			return true;
 		if (op.payload() instanceof BinaryInstruction instruction && !InstructionSemantics.canThrow(instruction))
 			return true;
 		if (op.payload() instanceof InstanceOfInstruction)
+			return true;
+		if (op.payload() instanceof InvokeInstruction)
 			return true;
 		if (isReceiverReturningInvoke(op))
 			return true;

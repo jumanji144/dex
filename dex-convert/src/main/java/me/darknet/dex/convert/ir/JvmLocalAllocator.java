@@ -77,7 +77,7 @@ final class JvmLocalAllocator {
 	}
 
 	private void allocateRegisterValue(@NotNull IrValue value, int register) {
-		RegisterLocalKey key = new RegisterLocalKey(register, localCategory(value.type()));
+		RegisterLocalKey key = new RegisterLocalKey(register, localCategory(value.type()), referenceType(value.type()));
 		Integer local = registerLocals.get(key);
 		if (local == null && value.hasLocal()) {
 			local = value.local();
@@ -98,6 +98,10 @@ final class JvmLocalAllocator {
 		if (ConversionSupport.isFloatType(type)) return 'F';
 		if (ConversionSupport.isWideType(type)) return type.equals(Types.DOUBLE) ? 'D' : 'J';
 		return 'I';
+	}
+
+	private static @Nullable ClassType referenceType(@NotNull ClassType type) {
+		return ConversionSupport.isReferenceType(type) ? type : null;
 	}
 
 	private static @Nullable Integer preferredRegister(@NotNull IrValue value) {
@@ -149,6 +153,6 @@ final class JvmLocalAllocator {
 		if (canonical instanceof IrParameter parameter) parameters.put(parameter.register(), parameter);
 	}
 
-	private record RegisterLocalKey(int register, char category) {
+	private record RegisterLocalKey(int register, char category, @Nullable ClassType referenceType) {
 	}
 }

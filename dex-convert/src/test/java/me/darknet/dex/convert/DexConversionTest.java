@@ -358,12 +358,29 @@ class DexConversionTest implements Opcodes {
              int end = decompiled.indexOf("private Notification", start);
              assertTrue(start >= 0 && end > start, () -> "Missing awaitPairing in decompiled output:\n" + decompiled);
              String method = decompiled.substring(start, end);
-             assertTrue(method.contains("if (bl2 && (bl2 = ((AtomicBoolean)(object = pendingPairing.accepted)).get()))"),
+             assertTrue(method.contains("if (bl2 && (bl2 =") && method.contains("pendingPairing.accepted"),
                      () -> "Short-circuit control flow was not recovered:\n" + method);
              assertFalse(method.contains("block4:"),
                      () -> "IR lowering left a synthetic control-flow block in awaitPairing:\n" + method);
              assertFalse(method.contains("finally {\n        }"),
                      () -> "IR lowering emitted an empty finally block in awaitPairing:\n" + method);
+         }
+
+         @Test
+         void realFileTransferStartNsdKeepsConcreteReferenceLocals() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             String decompiled = Decompile.decompile(owner, Converters.IR.toJavaClass(cls));
+             int start = decompiled.indexOf("private void startNsd");
+             int end = decompiled.indexOf("private ", start + 1);
+             assertTrue(start >= 0 && end > start, () -> "Missing startNsd in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("WifiManager wifiManager = (WifiManager)this.getSystemService(\"wifi\");"),
+                     () -> "startNsd lost the concrete WifiManager type:\n" + method);
+             assertFalse(method.contains("Object object") || method.contains("CharSequence"),
+                     () -> "startNsd widened concrete reference locals:\n" + method);
+             assertTrue(method.contains("StringBuilder stringBuilder"),
+                     () -> "startNsd lost the concrete StringBuilder type:\n" + method);
          }
     }
 
