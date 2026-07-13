@@ -48,8 +48,10 @@ import org.objectweb.asm.MethodVisitor;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +74,7 @@ public final class IrLowering {
 	private final Set<IrBlock> stubbedHandlers = new HashSet<>();
 	private final Map<Integer, IrBlock> blockByOffset = new HashMap<>();
 	private final Set<IrOp> emittedOps = new HashSet<>();
+	private final Set<IrEffect> emittedEffects = Collections.newSetFromMap(new IdentityHashMap<>());
 	private final Map<IrOp, IrOp> constructorByReceiver = new HashMap<>();
 	private final Set<IrOp> inlineConstructedReceivers = new HashSet<>();
 	private LoweringUseGraph useGraph;
@@ -110,6 +113,7 @@ public final class IrLowering {
 		initializeLabels();
 		nextLocal = JvmLocalAllocator.allocate(method, registerLocalBase);
 		emittedOps.clear();
+		emittedEffects.clear();
 		collectHandlerStubs();
 		collectHandlerTails();
 		collectDeferredNormalTails();
@@ -127,6 +131,8 @@ public final class IrLowering {
 			List<IrStmt> statements = block.statements();
 			for (int i = 0; i < statements.size(); i++) {
 				IrStmt statement = statements.get(i);
+				if (statement instanceof IrEffect effect && emittedEffects.contains(effect))
+					continue;
 				if (tryCarryInvokeInput(block, statements, i, block.terminator()))
 					continue;
 				if (shouldSkipSeparateEmission(statements, i, block.terminator()))
@@ -309,8 +315,9 @@ public final class IrLowering {
 				if (!(statements.get(i) instanceof IrOp op) || op.canonical() != op) continue;
 				IrOp receiver = constructedReceiver(op);
 				if (receiver == null || useCount(receiver) != 2) continue;
-				IrStmt next = i + 1 < statements.size() ? statements.get(i + 1) : block.terminator();
-				if (consumesConstructedReceiver(next, receiver)) {
+				IrStmt consumer = constructedReceiverConsumer(receiver, op);
+				if (consumer != null && consumesConstructedReceiver(consumer, receiver)
+						&& canInlineConstructedReceiver(op, consumer)) {
 					inlineConstructedReceivers.add(receiver);
 				}
 			}
@@ -328,6 +335,7 @@ public final class IrLowering {
 
 	private int emitSpecialChain(@NotNull List<IrStmt> statements, int index) {
 		if (tryEmitConstructAndPutChain(statements, index)) return 2;
+		if (tryEmitConstructAndPutChainAcrossBlocks(statements, index)) return 1;
 		return tryEmitArrayStaticPutChain(statements, index);
 	}
 
@@ -341,6 +349,8 @@ public final class IrLowering {
 		if (!(statement instanceof IrOp op) || op.canonical() != op)
 			return false;
 		IrStmt next = index + 1 < statements.size() ? statements.get(index + 1) : blockTerminator;
+		if (shouldInlineConstructedReceiverConstructor(op))
+			return true;
 		if (shouldDeferConstructedReceiver(op))
 			return true;
 		if (shouldInlineConstructedReceiver(op, next))
@@ -355,19 +365,71 @@ public final class IrLowering {
 		if (consumer == null)
 			return false;
 		int consumerIndex = consumer == blockTerminator ? statements.size() : statements.indexOf(consumer);
-		if (consumerIndex <= index)
-			return false;
+		if (consumerIndex <= index) {
+			return consumerIndex < 0 && canDeferEmissionAcrossBlocks(op, statements, index, consumer, blockTerminator);
+		}
 		for (int i = index + 1; i < consumerIndex; i++)
 			if (!shouldSkipSeparateEmission(statements, i, blockTerminator))
 				return false;
 		return true;
 	}
 
+	private boolean canDeferEmissionAcrossBlocks(@NotNull IrOp op, @NotNull List<IrStmt> statements, int index,
+	                                             @NotNull IrStmt consumer, @Nullable IrTerminator blockTerminator) {
+		if (!(op.payload() instanceof InvokeInstruction)
+				&& !(op.payload() instanceof InstanceFieldInstruction)
+				&& !(op.payload() instanceof StaticFieldInstruction)) return false;
+		IrBlock sourceBlock = method.blocks().stream()
+				.filter(block -> block.statements() == statements)
+				.findFirst().orElse(null);
+		IrBlock consumerBlock = method.blocks().stream()
+				.filter(block -> block.statements().contains(consumer))
+				.findFirst().orElse(null);
+		if (sourceBlock == null || consumerBlock == null || sourceBlock == consumerBlock)
+			return false;
+		int sourceIndex = method.blocks().indexOf(sourceBlock);
+		int consumerBlockIndex = method.blocks().indexOf(consumerBlock);
+		if (consumerBlockIndex <= sourceIndex || sourceBlock.successors().size() != 1
+				|| sourceBlock.successors().getFirst() != nextBlock(sourceBlock))
+			return false;
+		for (int i = index + 1; i < statements.size(); i++)
+			if (!shouldSkipSeparateEmission(statements, i, blockTerminator))
+				return false;
+		for (int i = sourceIndex + 1; i < consumerBlockIndex; i++) {
+			IrBlock block = method.blocks().get(i);
+			if (!block.phis().isEmpty() || block.exceptionValue() != null
+					|| (!block.exceptionalSuccessors().isEmpty() && !canMoveAcrossExceptionalGlue(op))
+					|| hasEmittableStatements(block) || block.successors().size() != 1
+					|| block.successors().getFirst() != nextBlock(block))
+				return false;
+		}
+		boolean safe = sourceBlock.exceptionalSuccessors().equals(consumerBlock.exceptionalSuccessors());
+		if (safe) op.stackOnly(true);
+		return safe;
+	}
+
+	private boolean canMoveConstructedReceiverOp(@NotNull IrOp op) {
+		if (!(op.payload() instanceof InvokeInstruction) || op.inputs().isEmpty()) return false;
+		return op.inputs().getFirst().canonical() instanceof IrOp receiver
+				&& receiver.payload() instanceof NewInstanceInstruction
+				&& inlineConstructedReceivers.contains(receiver);
+	}
+
+	private boolean canMoveAcrossExceptionalGlue(@NotNull IrOp op) {
+		if (canMoveConstructedReceiverOp(op)) return true;
+		if (!(op.payload() instanceof InstanceFieldInstruction) || op.inputs().isEmpty()
+				|| !(op.inputs().getFirst().canonical() instanceof IrParameter parameter)
+				|| (method.source().getAccess() & ACC_STATIC) != 0) return false;
+		int receiverRegister = method.source().getCode().getRegisters() - method.source().getCode().getIn();
+		return parameter.register() == receiverRegister;
+	}
+
 	private boolean tryCarryInvokeInput(@NotNull IrBlock block, @NotNull List<IrStmt> statements, int index,
 	                                    @Nullable IrTerminator blockTerminator) {
 		IrStmt statement = statements.get(index);
-		if (!(statement instanceof IrOp op) || op.canonical() != op
-				|| ConversionSupport.isVoidType(op.type()) || op.payload() instanceof NewInstanceInstruction
+		if (!(statement instanceof IrOp op) || op.canonical() != op)
+			return false;
+		if (ConversionSupport.isVoidType(op.type()) || op.payload() instanceof NewInstanceInstruction
 				|| useCount(op) != 1)
 			return false;
 		IrStmt consumer = singleConsumerStatement(op);
@@ -569,6 +631,79 @@ public final class IrLowering {
 		return instruction.opcode() == Invoke.DIRECT && "<init>".equals(instruction.name());
 	}
 
+	private @Nullable IrStmt constructedReceiverConsumer(@NotNull IrOp receiver, @NotNull IrOp constructor) {
+		IrStmt consumer = null;
+		for (IrBlock block : method.blocks()) {
+			for (IrStmt statement : block.statements()) {
+				if (statement == constructor || !usesValue(statement, receiver)) continue;
+				if (consumer != null) return null;
+				consumer = statement;
+			}
+			IrTerminator terminator = block.terminator();
+			if (terminator != null && usesValue(terminator, receiver)) {
+				if (consumer != null) return null;
+				consumer = terminator;
+			}
+		}
+		return consumer;
+	}
+
+	private static boolean usesValue(@NotNull IrStmt statement, @NotNull IrValue value) {
+		List<IrValue> inputs = switch (statement) {
+			case IrOp op -> op.canonical() == op ? op.inputs() : List.of();
+			case IrEffect effect -> effect.inputs();
+			case IrTerminator terminator -> terminator.inputs();
+		};
+		for (IrValue input : inputs)
+			if (input.canonical() == value.canonical()) return true;
+		return false;
+	}
+
+	private boolean shouldInlineConstructedReceiverConstructor(@NotNull IrOp op) {
+		if (!(op.payload() instanceof InvokeInstruction instruction) || !isConstructorInvoke(instruction)
+				|| op.inputs().isEmpty()) return false;
+		IrValue receiver = op.inputs().getFirst().canonical();
+		boolean result = receiver instanceof IrOp receiverOp && inlineConstructedReceivers.contains(receiverOp)
+				&& constructedReceiverConsumer(receiverOp, op) != null;
+		return result;
+	}
+
+	private boolean canInlineConstructedReceiver(@NotNull IrOp constructor, @NotNull IrStmt consumer) {
+		IrBlock sourceBlock = blockContaining(constructor);
+		IrBlock consumerBlock = blockContaining(consumer);
+		if (sourceBlock == null || consumerBlock == null) return false;
+		int sourceIndex = method.blocks().indexOf(sourceBlock);
+		int consumerBlockIndex = method.blocks().indexOf(consumerBlock);
+		int constructorIndex = sourceBlock.statements().indexOf(constructor);
+		if (sourceBlock == consumerBlock) {
+			int consumerIndex = consumer instanceof IrTerminator
+					? sourceBlock.statements().size() : sourceBlock.statements().indexOf(consumer);
+			if (constructorIndex < 0 || consumerIndex <= constructorIndex) return false;
+			for (int i = constructorIndex + 1; i < consumerIndex; i++)
+				if (!shouldSkipSeparateEmission(sourceBlock.statements(), i, sourceBlock.terminator())) return false;
+			return true;
+		}
+		if (consumerBlockIndex <= sourceIndex || sourceBlock.successors().size() != 1
+				|| sourceBlock.successors().getFirst() != nextBlock(sourceBlock) || constructorIndex < 0)
+			return false;
+		for (int i = constructorIndex + 1; i < sourceBlock.statements().size(); i++)
+			if (!shouldSkipSeparateEmission(sourceBlock.statements(), i, sourceBlock.terminator())) return false;
+		for (int i = sourceIndex + 1; i < consumerBlockIndex; i++) {
+			IrBlock block = method.blocks().get(i);
+			if (!block.phis().isEmpty() || block.exceptionValue() != null || !block.exceptionalSuccessors().isEmpty()
+					|| hasEmittableStatements(block) || block.successors().size() != 1
+					|| block.successors().getFirst() != nextBlock(block)) return false;
+		}
+		return sourceBlock.exceptionalSuccessors().equals(consumerBlock.exceptionalSuccessors());
+	}
+
+	private @Nullable IrBlock blockContaining(@NotNull IrStmt statement) {
+		for (IrBlock block : method.blocks()) {
+			if (block.statements().contains(statement) || block.terminator() == statement) return block;
+		}
+		return null;
+	}
+
 	private static boolean isConstructorReceiverPair(@NotNull IrOp producer, IrStmt consumer) {
 		if (!(producer.payload() instanceof NewInstanceInstruction))
 			return false;
@@ -676,6 +811,61 @@ public final class IrLowering {
 		}
 		currentStatement = previousStatement;
 		return true;
+	}
+
+	private boolean tryEmitConstructAndPutChainAcrossBlocks(@NotNull List<IrStmt> statements, int index) {
+		if (!(statements.get(index) instanceof IrOp invokeOp)
+				|| !(invokeOp.payload() instanceof InvokeInstruction invokeInstruction)
+				|| !isConstructorInvoke(invokeInstruction) || invokeOp.inputs().isEmpty()) return false;
+		IrValue receiver = invokeOp.inputs().getFirst().canonical();
+		if (!(receiver instanceof IrOp receiverOp) || !(receiverOp.payload() instanceof NewInstanceInstruction newInstanceInstruction)
+				|| useCount(receiverOp) != 2) return false;
+		IrStmt consumer = constructedReceiverConsumer(receiverOp, invokeOp);
+		if (!(consumer instanceof IrEffect effect) || blockContaining(invokeOp) == blockContaining(consumer)
+				|| !canInlineConstructedReceiver(invokeOp, consumer)) return false;
+		if (effect.payload() instanceof InstanceFieldInstruction fieldInstruction) {
+			if (effect.inputs().size() < 2 || effect.inputs().get(1).canonical() != receiverOp) return false;
+			IrStmt previousStatement = currentStatement;
+			currentStatement = invokeOp;
+			load(effect.inputs().getFirst(), fieldInstruction.owner());
+			emitConstructAndPut(invokeOp, invokeInstruction, newInstanceInstruction, fieldInstruction);
+			currentStatement = previousStatement;
+		} else if (effect.payload() instanceof StaticFieldInstruction fieldInstruction) {
+			if (effect.inputs().isEmpty() || effect.inputs().getFirst().canonical() != receiverOp) return false;
+			IrStmt previousStatement = currentStatement;
+			currentStatement = invokeOp;
+			emitConstructAndPut(invokeOp, invokeInstruction, newInstanceInstruction, fieldInstruction);
+			currentStatement = previousStatement;
+		} else {
+			return false;
+		}
+		emittedOps.add(invokeOp);
+		emittedEffects.add(effect);
+		return true;
+	}
+
+	private void emitConstructAndPut(@NotNull IrOp invokeOp, @NotNull InvokeInstruction invokeInstruction,
+	                                 @NotNull NewInstanceInstruction newInstanceInstruction,
+	                                 @NotNull InstanceFieldInstruction fieldInstruction) {
+		mv.visitTypeInsn(NEW, newInstanceInstruction.type().internalName());
+		mv.visitInsn(DUP);
+		for (int inputIndex = 1; inputIndex < invokeOp.inputs().size(); inputIndex++)
+			load(invokeOp.inputs().get(inputIndex), invokeInputType(invokeInstruction, inputIndex));
+		mv.visitMethodInsn(INVOKESPECIAL, ConversionSupport.asmOwner(invokeInstruction.owner()),
+				invokeInstruction.name(), invokeInstruction.type().descriptor(), false);
+		mv.visitFieldInsn(PUTFIELD, fieldInstruction.owner().internalName(), fieldInstruction.name(), fieldInstruction.type().descriptor());
+	}
+
+	private void emitConstructAndPut(@NotNull IrOp invokeOp, @NotNull InvokeInstruction invokeInstruction,
+	                                 @NotNull NewInstanceInstruction newInstanceInstruction,
+	                                 @NotNull StaticFieldInstruction fieldInstruction) {
+		mv.visitTypeInsn(NEW, newInstanceInstruction.type().internalName());
+		mv.visitInsn(DUP);
+		for (int inputIndex = 1; inputIndex < invokeOp.inputs().size(); inputIndex++)
+			load(invokeOp.inputs().get(inputIndex), invokeInputType(invokeInstruction, inputIndex));
+		mv.visitMethodInsn(INVOKESPECIAL, ConversionSupport.asmOwner(invokeInstruction.owner()),
+				invokeInstruction.name(), invokeInstruction.type().descriptor(), false);
+		mv.visitFieldInsn(PUTSTATIC, fieldInstruction.owner().internalName(), fieldInstruction.name(), fieldInstruction.type().descriptor());
 	}
 
 	private int tryEmitArrayStaticPutChain(@NotNull List<IrStmt> statements, int index) {
@@ -1612,14 +1802,10 @@ public final class IrLowering {
 			return true;
 		if (op.payload() instanceof InvokeInstruction)
 			return true;
-		if (isReceiverReturningInvoke(op))
-			return true;
 		return op.payload() instanceof StaticFieldInstruction || op.payload() instanceof InstanceFieldInstruction;
 	}
 
 	private boolean canDeferEmissionToConsumer(@NotNull IrOp op) {
-		if (op.payload() instanceof InstanceFieldInstruction)
-			return singleConsumerStatement(op) instanceof IrTerminator;
 		return canInlineIntoCurrentStatement(op);
 	}
 

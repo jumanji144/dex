@@ -379,8 +379,16 @@ class DexConversionTest implements Opcodes {
                      () -> "startNsd lost the concrete WifiManager type:\n" + method);
              assertFalse(method.contains("Object object") || method.contains("CharSequence"),
                      () -> "startNsd widened concrete reference locals:\n" + method);
-             assertTrue(method.contains("StringBuilder stringBuilder"),
-                     () -> "startNsd lost the concrete StringBuilder type:\n" + method);
+             assertFalse(method.contains("StringBuilder"),
+                     () -> "startNsd retained StringBuilder concatenation scaffolding:\n" + method);
+             assertTrue(method.contains("this.registeredService.setPort(this.serverSocket.getLocalPort());"),
+                     () -> "startNsd retained a redundant server socket local:\n" + method);
+             assertTrue(method.contains("this.registeredService.setServiceName(\"ImageServer-\" + this.deviceId.substring(0, 8));"),
+                     () -> "startNsd retained the StringBuilder concatenation scaffolding:\n" + method);
+             assertFalse(method.contains("NsdServiceInfo nsdServiceInfo;")
+                             || method.contains("RegistrationListener registrationListener;")
+                             || method.contains("DiscoveryListener discoveryListener;"),
+                     () -> "startNsd declared listener/service temporaries too early:\n" + method);
          }
     }
 
