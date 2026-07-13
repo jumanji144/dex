@@ -1,4 +1,6 @@
-package me.darknet.dex.convert.ir;
+package me.darknet.dex.convert.ir.lowering;
+
+import me.darknet.dex.convert.ir.*;
 
 import me.darknet.dex.convert.ConversionSupport;
 import me.darknet.dex.convert.ir.statement.IrEffect;
@@ -156,3 +158,4 @@ final class JvmLocalAllocator {
 	private record RegisterLocalKey(int register, char category, @Nullable ClassType referenceType) {
 	}
 }
+

@@ -1,4 +1,6 @@
-package me.darknet.dex.convert.ir;
+package me.darknet.dex.convert.ir.lowering;
+
+import me.darknet.dex.convert.ir.*;
 
 import me.darknet.dex.convert.ir.statement.IrEffect;
 import me.darknet.dex.convert.ir.statement.IrOp;
@@ -112,3 +114,4 @@ final class LoweringUseGraph {
 		consumers.put(canonical, NON_STATEMENT_CONSUMER);
 	}
 }
+
