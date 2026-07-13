@@ -165,10 +165,10 @@ public final class IrLowering {
 				throw new IllegalStateException("Operand-stack value was not consumed in " + block.debugName());
 			clearOperandStackCarry();
 		}
+		emitDeferredNormalTails();
 		mv.visitLabel(endLabel);
 		emitHandlerTails();
 		emitHandlerStubs();
-		emitDeferredNormalTails();
 		emitTryCatches();
 		mv.visitMaxs(0xFF, nextLocal);
 	}
@@ -206,6 +206,7 @@ public final class IrLowering {
 			if (target == null || handlerBlocks.contains(target) || target.exceptionValue() != null
 					|| !target.exceptionalSuccessors().isEmpty() || target.terminator() == null
 					|| target.terminator().kind() != IrTerminatorKind.RETURN
+					|| target.predecessors().size() != 1
 					|| target.predecessors().stream().anyMatch(handlerBlocks::contains)
 					|| target.predecessors().stream().filter(this::isExceptionBoundaryGlue).count() != 1) continue;
 			deferredNormalTailBlocks.add(target);
@@ -1050,6 +1051,7 @@ public final class IrLowering {
 		for (IrExceptionRegion region : method.exceptionRegions()) {
 			int effectiveTryCatchEnd = effectiveTryCatchEndOffset(region);
 			for (IrExceptionHandler exceptionHandler : region.handlers()) {
+				if (isSyntheticRethrowRegion(region, exceptionHandler)) continue;
 				Handler handler = exceptionHandler.handler();
 				String catchType = handler == null || handler.isCatchAll() ? null : handler.exceptionType().internalName();
 				List<IrBlock> sources = coveredSourceBlocks(region, exceptionHandler);
@@ -1088,6 +1090,21 @@ public final class IrLowering {
 				}
 			}
 		}
+	}
+
+	private boolean isSyntheticRethrowRegion(@NotNull IrExceptionRegion region,
+	                                         @NotNull IrExceptionHandler exceptionHandler) {
+		IrBlock handlerBlock = exceptionHandler.handlerBlock();
+		boolean hasRethrow = region.protectedBlocks().stream()
+				.anyMatch(block -> block.terminator() != null && block.terminator().kind() == IrTerminatorKind.THROW);
+		if (!hasRethrow) return false;
+		boolean continuesHandler = region.protectedBlocks().stream()
+				.anyMatch(block -> block.predecessors().stream()
+						.anyMatch(predecessor -> predecessor.exceptionValue() != null));
+		if (!continuesHandler) return false;
+		return method.exceptionRegions().stream()
+				.anyMatch(other -> other != region && other.startOffset() < region.startOffset()
+						&& other.handlers().stream().anyMatch(handler -> handler.handlerBlock() == handlerBlock));
 	}
 
 	private void emitHandlerStubs() {

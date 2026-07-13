@@ -471,6 +471,20 @@ class DexConversionTest implements Opcodes {
                              && method.contains("\"_imageserver._tcp.\".equals(string)"),
                      () -> "sameServiceType lost one of its service-type checks:\n" + method);
          }
+
+         @Test
+         void realFileTransferDisplayNameStructuresTryCatch() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String displayName");
+             int end = decompiled.indexOf("public static ", start + 1);
+             assertTrue(start >= 0 && end > start, () -> "Missing displayName in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.contains("Unable to fully structure code") || method.contains("** GOTO"),
+                     () -> "displayName retained unstructured exception control flow:\n" + method);
+         }
      }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {
