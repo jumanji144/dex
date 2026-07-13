@@ -448,13 +448,20 @@ public final class IrLowering {
 				|| useCount(op) != 1)
 			return false;
 		IrStmt consumer = singleConsumerStatement(op);
-		if (!(consumer instanceof IrOp consumerOp)
-				|| (!(consumerOp.payload() instanceof InvokeInstruction)
-				&& !(consumerOp.payload() instanceof CheckCastInstruction)))
+		if (!(consumer instanceof IrOp) && !(consumer instanceof IrTerminator))
+			return false;
+		IrOp consumerOp = consumer instanceof IrOp invokeConsumer ? invokeConsumer : null;
+		if (consumerOp != null && !(consumerOp.payload() instanceof InvokeInstruction)
+				&& !(consumerOp.payload() instanceof CheckCastInstruction))
+			return false;
+		if (consumer instanceof IrTerminator terminator
+				&& terminator.kind() != IrTerminatorKind.IF && terminator.kind() != IrTerminatorKind.IF_ZERO)
 			return false;
 		int consumerInputIndex = -1;
-		for (int inputIndex = 0; inputIndex < consumerOp.inputs().size(); inputIndex++) {
-			if (consumerOp.inputs().get(inputIndex).canonical() == op) {
+		List<IrValue> consumerInputs = consumer instanceof IrOp
+				? consumerOp.inputs() : ((IrTerminator) consumer).inputs();
+		for (int inputIndex = 0; inputIndex < consumerInputs.size(); inputIndex++) {
+			if (consumerInputs.get(inputIndex).canonical() == op) {
 				consumerInputIndex = inputIndex;
 				break;
 			}
@@ -462,14 +469,15 @@ public final class IrLowering {
 		if (consumerInputIndex < 0)
 			return false;
 		boolean carriedNonFirstInput = consumerInputIndex > 0
-				&& consumerOp.payload() instanceof InvokeInstruction
+				&& consumerOp != null && consumerOp.payload() instanceof InvokeInstruction
 				&& hasCarriedInvokeInputPrefix(consumerOp, consumerInputIndex);
-		if (shouldSkipSeparateEmission(statements, index, blockTerminator) && !carriedNonFirstInput)
+		boolean skipSeparate = shouldSkipSeparateEmission(statements, index, blockTerminator);
+		if (skipSeparate && !carriedNonFirstInput)
 			return false;
 		if (op.stackOnly() && !carriedNonFirstInput)
 			return false;
 		IrBlock consumerBlock = method.blocks().stream()
-				.filter(candidate -> candidate.statements().contains(consumer))
+				.filter(candidate -> candidate.statements().contains(consumer) || candidate.terminator() == consumer)
 				.findFirst().orElse(null);
 		if (consumerBlock == null)
 			return false;
@@ -479,6 +487,8 @@ public final class IrLowering {
 			return false;
 		Set<IrBlock> carryRegion = null;
 		if (consumerBlock == block) {
+			if (consumerOp == null)
+				return false;
 			if (statements.indexOf(consumer) <= index || !canNestOperandStackCarry(block, op, consumer)
 					|| !hasCarriedInvokeInputPrefix(consumerOp, consumerInputIndex))
 				return false;
@@ -486,11 +496,16 @@ public final class IrLowering {
 			if (consumerInputIndex != 0 || !activeOperandStackCarries.isEmpty())
 				return false;
 			carryRegion = operandStackCarryRegion(block, consumerBlock);
-			if (carryRegion == null || carryRegion.stream()
+			boolean directConditionCarry = consumer instanceof IrTerminator;
+			boolean hasIntermediateExceptionalBlock = carryRegion != null && carryRegion.stream()
+					.anyMatch(candidate -> candidate != block && !candidate.exceptionalSuccessors().isEmpty());
+			boolean hasExceptionalBlock = carryRegion != null && carryRegion.stream()
+					.anyMatch(candidate -> !candidate.exceptionalSuccessors().isEmpty());
+			if (consumerInputIndex != 0 || carryRegion == null || carryRegion.stream()
 					.anyMatch(candidate -> candidate != block && operandStackCarries.containsKey(candidate))
-					|| (!(consumerOp.payload() instanceof CheckCastInstruction)
-					&& !canCarryAcrossExceptionalSuccessors(op) && carryRegion.stream()
-					.anyMatch(candidate -> !candidate.exceptionalSuccessors().isEmpty())))
+					|| (directConditionCarry ? hasIntermediateExceptionalBlock
+					: (!(consumerOp != null && consumerOp.payload() instanceof CheckCastInstruction)
+					&& !canCarryAcrossExceptionalSuccessors(op) && hasExceptionalBlock)))
 				return false;
 		}
 

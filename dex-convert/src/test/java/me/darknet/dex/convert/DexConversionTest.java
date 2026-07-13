@@ -358,7 +358,7 @@ class DexConversionTest implements Opcodes {
              int end = decompiled.indexOf("private Notification", start);
              assertTrue(start >= 0 && end > start, () -> "Missing awaitPairing in decompiled output:\n" + decompiled);
              String method = decompiled.substring(start, end);
-             assertTrue(method.contains("if (bl2 && (bl2 =") && method.contains("pendingPairing.accepted"),
+             assertTrue(method.contains("&&") && method.contains("pendingPairing.accepted"),
                      () -> "Short-circuit control flow was not recovered:\n" + method);
              assertFalse(method.contains("block4:"),
                      () -> "IR lowering left a synthetic control-flow block in awaitPairing:\n" + method);
@@ -417,6 +417,23 @@ class DexConversionTest implements Opcodes {
              assertFalse(decompiled.contains("Decompilation failed"),
                      () -> "CFR emitted a decompilation failure stub for ensureIdentity:\n"
                              + decompiled + "\n\nBytecode:\n" + Decompile.bytecode(bytecode));
+             int start = decompiled.indexOf("public void ensureIdentity");
+             int end = decompiled.indexOf("public String fingerprint", start + 1);
+             assertTrue(start >= 0 && end > start, () -> "Missing ensureIdentity in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.matches("(?s).*boolean \\w+ = .*containsAlias.*"),
+                     () -> "ensureIdentity materialized a boolean condition:\n" + method);
+             assertFalse(method.contains("if (bl ="),
+                     () -> "ensureIdentity reused a boolean local for a condition:\n" + method);
+             assertTrue(method.contains("if (keyStore.containsAlias("),
+                     () -> "ensureIdentity did not inline the legacy EC alias condition:\n" + method);
+             assertTrue(method.indexOf("if (keyStore.containsAlias(")
+                             != method.lastIndexOf("if (keyStore.containsAlias("),
+                     () -> "ensureIdentity did not inline the legacy RSA alias condition:\n" + method);
+             assertTrue(method.contains("if (!keyStore.containsAlias("),
+                     () -> "ensureIdentity did not inline the key-generation condition:\n" + method);
+             assertTrue(method.contains("if (!this.preferences.contains(\"name\"))"),
+                     () -> "ensureIdentity did not inline the preference condition:\n" + method);
          }
     }
 
