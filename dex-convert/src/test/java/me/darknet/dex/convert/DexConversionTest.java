@@ -390,6 +390,34 @@ class DexConversionTest implements Opcodes {
                              || method.contains("DiscoveryListener discoveryListener;"),
                      () -> "startNsd declared listener/service temporaries too early:\n" + method);
          }
+
+         @Test
+         void realFileTransferGetDestinationTreeKeepsConcreteUriAtJoin() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             String decompiled = Decompile.decompile(owner, Converters.IR.toJavaClass(cls));
+             int start = decompiled.indexOf("public Uri getDestinationTree");
+             int end = decompiled.indexOf("public void sendFile", start + 1);
+             assertTrue(start >= 0 && end > start, () -> "Missing getDestinationTree in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("String string = this.preferences.getString(\"destination_tree\", null);"),
+                     () -> "getDestinationTree lost its preference lookup:\n" + method);
+             assertFalse(method.contains("Uri uri ="),
+                     () -> "getDestinationTree retained a temporary used only by the return:\n" + method);
+             assertTrue(method.contains("return null;") && method.contains("return Uri.parse((String)string);"),
+                     () -> "getDestinationTree lost its direct conditional result:\n" + method);
+         }
+
+         @Test
+         void realFileTransferEnsureIdentityDecompilesWithoutFailureStub() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             assertFalse(decompiled.contains("Decompilation failed"),
+                     () -> "CFR emitted a decompilation failure stub for ensureIdentity:\n"
+                             + decompiled + "\n\nBytecode:\n" + Decompile.bytecode(bytecode));
+         }
     }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {

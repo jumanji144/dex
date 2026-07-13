@@ -420,7 +420,10 @@ public class IrBlockBuilder {
 			if (value == null)
 				value = constant(Types.INT, 0, true);
 			phi.putOperand(predecessor, value);
-			if (phi.type().equals(Types.INT) && !value.type().equals(Types.INT)) {
+			// A zero constant can be contextually typed by an unrelated use of the
+			// same DEX register. Do not let that null/default value determine the
+			// phi type before a real value reaches the join.
+			if (!value.isZeroConstant() && phi.type().equals(Types.INT) && !value.type().equals(Types.INT)) {
 				phi.type(value.type());
 			}
 		}

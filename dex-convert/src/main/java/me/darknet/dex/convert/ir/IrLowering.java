@@ -74,6 +74,7 @@ public final class IrLowering {
 	private final Set<IrBlock> stubbedHandlers = new HashSet<>();
 	private final Map<Integer, IrBlock> blockByOffset = new HashMap<>();
 	private final Set<IrOp> emittedOps = new HashSet<>();
+	private final Set<IrOp> directReturnOperands = new HashSet<>();
 	private final Set<IrEffect> emittedEffects = Collections.newSetFromMap(new IdentityHashMap<>());
 	private final Map<IrOp, IrOp> constructorByReceiver = new HashMap<>();
 	private final Set<IrOp> inlineConstructedReceivers = new HashSet<>();
@@ -134,6 +135,8 @@ public final class IrLowering {
 				if (statement instanceof IrEffect effect && emittedEffects.contains(effect))
 					continue;
 				if (tryCarryInvokeInput(block, statements, i, block.terminator()))
+					continue;
+				if (isDirectPhiReturnOperand(block, statement))
 					continue;
 				if (shouldSkipSeparateEmission(statements, i, block.terminator()))
 					continue;
@@ -301,6 +304,18 @@ public final class IrLowering {
 		useGraph = LoweringUseGraph.analyze(method);
 		constructorByReceiver.clear();
 		inlineConstructedReceivers.clear();
+		directReturnOperands.clear();
+		for (IrBlock block : method.blocks()) {
+			IrTerminator terminator = block.terminator();
+			if (terminator == null || terminator.kind() != IrTerminatorKind.RETURN || terminator.inputs().isEmpty()) continue;
+			IrValue input = terminator.inputs().getFirst().canonical();
+			if (input instanceof IrPhi phi) {
+				for (IrValue operand : phi.operands().values())
+					if (operand.canonical() instanceof IrOp op && useCount(op) == 1) directReturnOperands.add(op);
+			} else if (input instanceof IrOp op && useCount(op) == 1) {
+				directReturnOperands.add(op);
+			}
+		}
 		for (IrBlock block : method.blocks()) {
 			List<IrStmt> statements = block.statements();
 			for (int i = 0; i < statements.size(); i++) {
@@ -1045,6 +1060,8 @@ public final class IrLowering {
 			IrStmt statement = statements.get(i);
 			if (tryCarryInvokeInput(block, statements, i, block.terminator()))
 				continue;
+			if (isDirectPhiReturnOperand(block, statement))
+				continue;
 			if (shouldSkipSeparateEmission(statements, i, block.terminator()))
 				continue;
 			int chainLength = emitSpecialChain(statements, i);
@@ -1117,12 +1134,56 @@ public final class IrLowering {
 	}
 
 	private void emitEdgeGoto(@NotNull IrBlock source, @NotNull IrBlock target) {
+		if (tryEmitDirectPhiReturn(source, target)) return;
 		emitPhiCopies(source, target);
 		mv.visitJumpInsn(GOTO, labels.get(target));
 	}
 
 	private void emitEdgeFallthrough(@NotNull IrBlock source, @NotNull IrBlock target) {
+		if (tryEmitDirectPhiReturn(source, target)) return;
 		emitPhiCopies(source, target);
+	}
+
+	private boolean isDirectPhiReturnOperand(@NotNull IrBlock source, @NotNull IrStmt statement) {
+		if (!ConversionSupport.isReferenceType(method.source().getType().returnType()))
+			return false;
+		if (source.exceptionValue() != null || !source.exceptionalSuccessors().isEmpty())
+			return false;
+		if (!(statement instanceof IrOp op) || op.canonical() != op)
+			return false;
+		IrBlock target = source.terminator() == null ? null : gotoTarget(source, source.terminator().payload());
+		if (target == null || target.terminator() == null || target.terminator().kind() != IrTerminatorKind.RETURN)
+			return false;
+		IrValue input = target.terminator().inputs().isEmpty() ? null : target.terminator().inputs().getFirst().canonical();
+		if (input instanceof IrOp inputOp) {
+			return inputOp == op && directReturnOperands.contains(op);
+		}
+		return directReturnOperands.contains(op) && input instanceof IrPhi phi && phi.operands().get(source) != null
+				&& phi.operands().get(source).canonical() == op;
+	}
+
+	private boolean tryEmitDirectPhiReturn(@NotNull IrBlock source, @NotNull IrBlock target) {
+		if (!ConversionSupport.isReferenceType(method.source().getType().returnType()))
+			return false;
+		if (source.exceptionValue() != null || !source.exceptionalSuccessors().isEmpty())
+			return false;
+		IrTerminator terminator = target.terminator();
+		if (terminator == null || terminator.kind() != IrTerminatorKind.RETURN || terminator.inputs().isEmpty())
+			return false;
+		IrValue input = terminator.inputs().getFirst().canonical();
+		IrValue operand = input instanceof IrPhi phi ? phi.operands().get(source) : input instanceof IrOp ? input : null;
+		if (operand == null) return false;
+		IrValue canonicalOperand = operand.canonical();
+		if (canonicalOperand instanceof IrOp op && useCount(op) != 1) return false;
+		IrStmt previousStatement = currentStatement;
+		currentStatement = terminator;
+		if (canonicalOperand instanceof IrOp op)
+			emitOp(op, ResultMode.LEAVE_ON_STACK);
+		else
+			load(canonicalOperand, method.source().getType().returnType());
+		emitReturnOpcode((ReturnInstruction) terminator.payload());
+		currentStatement = previousStatement;
+		return true;
 	}
 
 	private void emitEdge(@NotNull IrBlock source, @NotNull IrBlock target, boolean allowFallthrough) {
@@ -1461,6 +1522,14 @@ public final class IrLowering {
 		}
 		IrValue value = inputs.getFirst().canonical();
 		load(value, method.source().getType().returnType());
+		emitReturnOpcode(instruction);
+	}
+
+	private void emitReturnOpcode(@NotNull ReturnInstruction instruction) {
+		if (instruction.type() == me.darknet.dex.tree.definitions.instructions.Return.VOID) {
+			mv.visitInsn(RETURN);
+			return;
+		}
 		if (ConversionSupport.isReferenceType(method.source().getType().returnType())) {
 			mv.visitInsn(ARETURN);
 		} else if (ConversionSupport.isLongType(method.source().getType().returnType())) {
