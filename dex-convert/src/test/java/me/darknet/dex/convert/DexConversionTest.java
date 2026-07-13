@@ -485,6 +485,30 @@ class DexConversionTest implements Opcodes {
              assertFalse(method.contains("Unable to fully structure code") || method.contains("** GOTO"),
                      () -> "displayName retained unstructured exception control flow:\n" + method);
          }
+
+         @Test
+         void realFileTransferSha256StructuresTryWithResources() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String sha256");
+             int end = decompiled.indexOf("public static ", start + 1);
+             assertTrue(start >= 0 && end > start, () -> "Missing sha256 in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             int trailingComment = method.indexOf("\n    /*");
+             if (trailingComment >= 0) method = method.substring(0, trailingComment);
+             String sha256Method = method;
+             assertFalse(method.contains("Unable to fully structure code") || method.contains("** GOTO")
+                             || method.contains("This method has failed to decompile")
+                             || method.contains("Exception decompiling")
+                             || method.contains("Decompilation failed")
+                             || method.contains("block5:"),
+                     () -> "sha256 retained unstructured try-with-resources control flow:\n" + sha256Method
+                             + "\nBYTECODE:\n" + Decompile.bytecode(bytecode));
+             assertFalse(method.contains("if (inputStream == null) return"),
+                     () -> "sha256 retained an impossible null branch after the read loop:\n" + sha256Method);
+         }
      }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {

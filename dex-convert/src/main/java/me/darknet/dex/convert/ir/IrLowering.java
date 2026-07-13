@@ -8,7 +8,6 @@ import me.darknet.dex.convert.ir.statement.IrStmt;
 import me.darknet.dex.convert.ir.statement.IrTerminator;
 import me.darknet.dex.convert.ir.statement.IrTerminatorKind;
 import me.darknet.dex.convert.ir.value.IrConstant;
-import me.darknet.dex.convert.ir.value.IrExceptionValue;
 import me.darknet.dex.convert.ir.value.IrParameter;
 import me.darknet.dex.convert.ir.value.IrPhi;
 import me.darknet.dex.convert.ir.value.IrValue;
@@ -49,6 +48,7 @@ import org.objectweb.asm.MethodVisitor;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -68,6 +68,10 @@ public final class IrLowering {
 	private final Map<IrBlock, Label> simpleHandlerStubLabels = new HashMap<>();
 	private final Map<IrBlock, HandlerTail> handlerTails = new HashMap<>();
 	private final Set<IrBlock> skippedHandlerTailBlocks = new HashSet<>();
+	private final Set<IrBlock> deferredNullThrowBlocks = new HashSet<>();
+	private final Map<IrBlock, List<IrBlock>> deferredNullThrowInsertions = new HashMap<>();
+	private final Map<IrExceptionRegion, Label> tryStartLabels = new IdentityHashMap<>();
+	private final Map<IrBlock, Label> tryStartLabelsByBlock = new HashMap<>();
 	private final Set<IrBlock> deferredNormalTailBlocks = new HashSet<>();
 	private final Map<IrBlock, OperandStackCarry> operandStackCarries = new HashMap<>();
 	private final Map<IrPhi, IrValue> initializedPhiValues = new HashMap<>();
@@ -84,9 +88,11 @@ public final class IrLowering {
 	private final int registerLocalBase;
 	private int nextLocal;
 	private IrStmt currentStatement;
+
 	private record OperandStackCarry(@NotNull IrOp value, @NotNull IrStmt consumer,
 	                                 @NotNull IrBlock consumerBlock) {
 	}
+
 	private enum ResultMode {
 		STORE,
 		DISCARD,
@@ -122,11 +128,23 @@ public final class IrLowering {
 		emittedEffects.clear();
 		collectHandlerStubs();
 		collectHandlerTails();
+		// A DEX try-with-resources lowering can leave the null-resource throw in a
+		// separate nested region.  Plan its relocation before labels are emitted so
+		// the JVM try range covers the same source statements as the Java try block.
+		collectDeferredNullThrowBlocks();
 		collectDeferredNormalTails();
 		mv.visitCode();
 		emitInitializedPhiValues();
 		for (IrBlock block : method.blocks()) {
-			if (skippedHandlerTailBlocks.contains(block) || deferredNormalTailBlocks.contains(block)
+			// Some blocks are emitted at a different point in bytecode layout while retaining their original IR edges.
+			// The deferred null-throw blocks are emitted immediately after the block that branches to them,
+			// so the try range is not split before the null check.
+			List<IrBlock> deferredNullThrow = deferredNullThrowInsertions.get(block);
+			if (deferredNullThrow != null)
+				for (IrBlock deferredBlock : deferredNullThrow)
+					emitDeferredNullThrowBlock(deferredBlock);
+			if (skippedHandlerTailBlocks.contains(block)
+					|| deferredNormalTailBlocks.contains(block) || deferredNullThrowBlocks.contains(block)
 					|| fullyInlinedReturnBlocks.contains(block))
 				continue;
 			if (isTransparentBlock(block))
@@ -158,6 +176,12 @@ public final class IrLowering {
 				}
 				currentStatement = null;
 			}
+			// The custom start label is placed immediately before the branch's
+			// terminator.  Thus the branch itself, including its null -> throw path,
+			// belongs to the outer protected range.
+			Label tryStart = tryStartLabelsByBlock.get(block);
+			if (tryStart != null)
+				mv.visitLabel(tryStart);
 			currentStatement = block.terminator();
 			emitTerminator(block);
 			currentStatement = null;
@@ -174,6 +198,9 @@ public final class IrLowering {
 	}
 
 	private void collectHandlerTails() {
+		// A handler that only stores the caught exception and jumps to a terminal
+		// throw is emitted as one shared tail.  Keeping that bookkeeping out of the
+		// normal block order avoids duplicate ATHROW paths in the class file.
 		handlerTails.clear();
 		skippedHandlerTailBlocks.clear();
 		for (IrExceptionRegion region : method.exceptionRegions()) {
@@ -192,6 +219,9 @@ public final class IrLowering {
 	}
 
 	private void collectDeferredNormalTails() {
+		// Exception-boundary glue can otherwise make a normal return appear to be
+		// part of the handler. Such a unique return tail is emitted after the main
+		// block order, where decompilers can recognize it as the method's normal exit.
 		deferredNormalTailBlocks.clear();
 		Set<IrBlock> handlerBlocks = new HashSet<>();
 		for (IrExceptionRegion region : method.exceptionRegions()) {
@@ -210,6 +240,56 @@ public final class IrLowering {
 					|| target.predecessors().stream().anyMatch(handlerBlocks::contains)
 					|| target.predecessors().stream().filter(this::isExceptionBoundaryGlue).count() != 1) continue;
 			deferredNormalTailBlocks.add(target);
+		}
+	}
+
+	private void collectDeferredNullThrowBlocks() {
+		/*
+		 * The DEX form of try (resource) often looks like this in the IR:
+		 *
+		 *     if (resource == null) goto nullThrow;
+		 *     ... body ...
+		 *     nullThrow: throw new IllegalStateException(...);
+		 *
+		 * The nullThrow block may be represented as a tiny nested protected region
+		 * which shares the resource-cleanup handler with the real body. Emitting
+		 * that region at its original offset makes the JVM exception table split
+		 * the try before the null check, so decompilers lose the original try shape.
+		 *
+		 * For the narrowly recognized pattern, emit the null path next to the body
+		 * and give the enclosing region a label immediately before the check. The
+		 * resulting bytecode lets decompilers see one protected try containing both the
+		 * null check and the resource-consuming code. The cleanup handler remains
+		 * available for close()/addSuppressed() reconstruction.
+		 */
+		deferredNullThrowBlocks.clear();
+		deferredNullThrowInsertions.clear();
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			boolean redundant = region.handlers().stream()
+					.anyMatch(handler -> isRedundantNullResourceRegion(region, handler));
+			if (!redundant) continue;
+			IrExceptionRegion outer = method.exceptionRegions().stream()
+					.filter(candidate -> candidate != region && candidate.endOffset() < region.startOffset()
+							&& candidate.handlers().stream().anyMatch(handler -> region.handlers().stream()
+							.anyMatch(inner -> handler.handlerBlock() == inner.handlerBlock())))
+					.max(Comparator.comparingInt(IrExceptionRegion::endOffset))
+					.orElse(null);
+			if (outer == null) continue;
+			List<IrBlock> blocks = new ArrayList<>(region.protectedBlocks());
+			blocks.sort(Comparator.comparingInt(IrBlock::startOffset));
+			IrBlock trySource = method.blocks().stream()
+					.filter(candidate -> candidate.terminator() != null
+							&& candidate.terminator().kind() == IrTerminatorKind.IF_ZERO
+							&& candidate.terminator().payload() instanceof BranchZeroInstruction branch
+							&& blockByOffset.get(branch.label().position()) == blocks.getFirst())
+					.findFirst().orElse(null);
+			if (trySource == null) continue;
+			IrBlock insertion = nextBlock(trySource);
+			if (insertion == null) continue;
+			Label start = tryStartLabels.computeIfAbsent(outer, ignored -> new Label());
+			tryStartLabelsByBlock.put(trySource, start);
+			deferredNullThrowBlocks.addAll(blocks);
+			deferredNullThrowInsertions.computeIfAbsent(insertion, ignored -> new ArrayList<>()).addAll(blocks);
 		}
 	}
 
@@ -303,7 +383,7 @@ public final class IrLowering {
 						&& startsImmediatelyAfter(region, handler.handlerBlock())
 						&& !handler.handlerBlock().predecessors().isEmpty()
 						&& handler.handlerBlock().predecessors().stream()
-								.allMatch(predecessor -> predecessor.exceptionalSuccessors().contains(handler.handlerBlock()));
+						.allMatch(predecessor -> predecessor.exceptionalSuccessors().contains(handler.handlerBlock()));
 				if (needsSimpleStub) {
 					simpleHandlerStubLabels.computeIfAbsent(handler.handlerBlock(), ignored -> new Label());
 					stubbedHandlers.add(handler.handlerBlock());
@@ -332,7 +412,8 @@ public final class IrLowering {
 		directReturnOperands.clear();
 		for (IrBlock block : method.blocks()) {
 			IrTerminator terminator = block.terminator();
-			if (terminator == null || terminator.kind() != IrTerminatorKind.RETURN || terminator.inputs().isEmpty()) continue;
+			if (terminator == null || terminator.kind() != IrTerminatorKind.RETURN || terminator.inputs().isEmpty())
+				continue;
 			IrValue input = terminator.inputs().getFirst().canonical();
 			if (input instanceof IrPhi phi) {
 				for (IrValue operand : phi.operands().values())
@@ -618,7 +699,8 @@ public final class IrLowering {
 		for (IrBlock block : reachable) {
 			if (block != source) {
 				for (IrBlock predecessor : block.predecessors()) {
-					if (!reachable.contains(predecessor) || predecessor.exceptionalSuccessors().contains(block)) return null;
+					if (!reachable.contains(predecessor) || predecessor.exceptionalSuccessors().contains(block))
+						return null;
 				}
 			}
 			if (block != target && !reachable.containsAll(block.successors())) return null;
@@ -1051,7 +1133,13 @@ public final class IrLowering {
 		for (IrExceptionRegion region : method.exceptionRegions()) {
 			int effectiveTryCatchEnd = effectiveTryCatchEndOffset(region);
 			for (IrExceptionHandler exceptionHandler : region.handlers()) {
-				if (isSyntheticRethrowRegion(region, exceptionHandler)) continue;
+				// The nested null-resource region is represented by the enclosing
+				// catch-all after collectDeferredNullThrowBlocks() relocates its throw path.
+				//
+				// Registering it as a second JVM range would reintroduce the
+				// split that produces incorrect out-of-scope catch variables.
+				if (isSyntheticRethrowRegion(region, exceptionHandler)
+						|| isRedundantNullResourceRegion(region, exceptionHandler)) continue;
 				Handler handler = exceptionHandler.handler();
 				String catchType = handler == null || handler.isCatchAll() ? null : handler.exceptionType().internalName();
 				List<IrBlock> sources = coveredSourceBlocks(region, exceptionHandler);
@@ -1060,7 +1148,7 @@ public final class IrLowering {
 						|| sources.stream()
 						.anyMatch(source -> handlerStubLabels.containsKey(new HandlerStubKey(source, exceptionHandler.handlerBlock())));
 				if (!requiresHandlerStubs) {
-					Label start = labelAtOrEnd(region.startOffset());
+					Label start = tryStartLabels.getOrDefault(region, labelAtOrEnd(region.startOffset()));
 					Label end = labelAtOrEnd(effectiveTryCatchEnd);
 					if (start != end)
 						mv.visitTryCatchBlock(start, end, handlerEntryLabel(exceptionHandler.handlerBlock()), catchType);
@@ -1094,6 +1182,10 @@ public final class IrLowering {
 
 	private boolean isSyntheticRethrowRegion(@NotNull IrExceptionRegion region,
 	                                         @NotNull IrExceptionHandler exceptionHandler) {
+		// DEX commonly models "catch, clean up, then rethrow" as another protected
+		// region pointing at the same handler.  It is not a second source-level
+		// catch; omitting that duplicate range keeps the generated exception table
+		// equivalent to the single Java catch/finally structure.
 		IrBlock handlerBlock = exceptionHandler.handlerBlock();
 		boolean hasRethrow = region.protectedBlocks().stream()
 				.anyMatch(block -> block.terminator() != null && block.terminator().kind() == IrTerminatorKind.THROW);
@@ -1107,7 +1199,55 @@ public final class IrLowering {
 						&& other.handlers().stream().anyMatch(handler -> handler.handlerBlock() == handlerBlock));
 	}
 
+	private boolean isRedundantNullResourceRegion(@NotNull IrExceptionRegion region,
+	                                              @NotNull IrExceptionHandler exceptionHandler) {
+		/*
+		 * Identify the compiler-generated region used only for the null branch of
+		 * try-with-resources. This deliberately requires all of the following:
+		 *
+		 *  - The protected region contains a direct throw
+		 *  - Its handler immediately jumps to resource cleanup
+		 *  - Cleanup tests a phi carrying the resource value
+		 *  - Every entry into the region is the matching resource == null check
+		 *
+		 * Requiring the complete shape is important: ordinary user-written throws
+		 * and unrelated catch blocks must keep their original exception ranges.
+		 */
+		if (region.protectedBlocks().stream().noneMatch(block -> block.terminator() != null
+				&& block.terminator().kind() == IrTerminatorKind.THROW)) return false;
+		IrBlock handlerBlock = exceptionHandler.handlerBlock();
+		IrTerminator handlerTerminator = handlerBlock.terminator();
+		if (handlerTerminator == null || handlerTerminator.kind() != IrTerminatorKind.GOTO) return false;
+		IrBlock cleanup = gotoTarget(handlerBlock, handlerTerminator.payload());
+		if (cleanup == null || cleanup.terminator() == null
+				|| cleanup.terminator().kind() != IrTerminatorKind.IF_ZERO
+				|| cleanup.terminator().inputs().isEmpty()) return false;
+		IrValue resource = cleanup.terminator().inputs().getFirst();
+		if (!(resource instanceof IrPhi phi)) return false;
+		Set<IrBlock> protectedBlocks = new HashSet<>(region.protectedBlocks());
+		Set<IrValue> resourceInputs = new HashSet<>();
+		for (IrValue input : phi.operands().values())
+			resourceInputs.add(input.canonical());
+		for (IrBlock block : region.protectedBlocks()) {
+			for (IrBlock predecessor : block.predecessors()) {
+				if (protectedBlocks.contains(predecessor)) continue;
+				IrTerminator terminator = predecessor.terminator();
+				if (terminator == null || terminator.kind() != IrTerminatorKind.IF_ZERO
+						|| terminator.inputs().isEmpty()
+						|| !resourceInputs.contains(terminator.inputs().getFirst().canonical())) return false;
+				BranchZeroInstruction branch = (BranchZeroInstruction) terminator.payload();
+				if (blockByOffset.get(branch.label().position()) != block) return false;
+			}
+		}
+		return true;
+	}
+
 	private void emitHandlerStubs() {
+		// JVM handlers enter with the exception on the operand stack, while the IR
+		// models it as a value in a handler block.  These labels bridge the two
+		// representations and copy any handler-phi values before entering the real
+		// handler body.  Without them, a split DEX try range can leave an invalid
+		// stack/local shape for the verifier and decompiler.
 		for (Map.Entry<IrBlock, Label> entry : simpleHandlerStubLabels.entrySet()) {
 			IrBlock target = entry.getKey();
 			mv.visitLabel(entry.getValue());
@@ -1147,6 +1287,13 @@ public final class IrLowering {
 				emitTailBlock(block);
 			}
 		}
+	}
+
+	private void emitDeferredNullThrowBlock(@NotNull IrBlock block) {
+		// Emit the relocated null branch with its normal label and statements.  Its
+		// original IR successors are preserved, so only bytecode layout changes.
+		mv.visitLabel(labels.get(block));
+		emitTailBlock(block);
 	}
 
 	private void emitTailBlock(@NotNull IrBlock block) {
@@ -1222,7 +1369,7 @@ public final class IrLowering {
 	}
 
 	private @NotNull List<IrBlock> coveredSourceBlocks(@NotNull IrExceptionRegion region,
-	                                                  @NotNull IrExceptionHandler handler) {
+	                                                   @NotNull IrExceptionHandler handler) {
 		List<IrBlock> sources = new ArrayList<>();
 		for (IrBlock block : region.protectedBlocks()) {
 			if (!block.exceptionalSuccessors().contains(handler.handlerBlock())) continue;
@@ -1510,10 +1657,28 @@ public final class IrLowering {
 	}
 
 	private void emitIfZero(@NotNull IrBlock block, @NotNull BranchZeroInstruction instruction, @NotNull IrValue input) {
+		// Branch emission is layout-sensitive: prefer fall-through edges when the
+		// next JVM label already represents one branch, but preserve explicit edge
+		// labels whenever phi copies or protected-boundary bookkeeping requires them.
 		IrValue value = input.canonical();
 		IrBlock trueTarget = blockByOffset.get(instruction.label().position());
 		IrBlock falseTarget = block.successors().stream().filter(successor -> successor != trueTarget).findFirst().orElse(null);
 		if (trueTarget == null) throw new IllegalStateException("Malformed branch-zero successors");
+		if (falseTarget != null && falseTarget != trueTarget && !hasPhiCopies(block, falseTarget)
+				&& deferredNullThrowInsertions.containsKey(nextBlock(block))) {
+			// The null target was deferred next to the body.  Invert this branch so
+			// the non-null path falls through into the body and the relocated throw
+			// follows it, matching the source-level: if (resource == null) throw
+			emitIfZeroCondition(instruction.opcode(), value, labels.get(falseTarget), true);
+			return;
+		}
+		if (falseTarget != null && falseTarget != trueTarget && isKnownNonNullResource(block, value)) {
+			// The resource was already checked on every path reaching this block.
+			// Suppress the now-impossible null edge, which otherwise decompiles as a
+			// dead "if (input == null) return ..." after the read loop.
+			emitEdge(block, falseTarget, true);
+			return;
+		}
 		if (falseTarget == null || falseTarget == trueTarget) {
 			IrBlock next = nextBlock(block);
 			emitProtectedBoundary(block);
@@ -1555,6 +1720,66 @@ public final class IrLowering {
 		emitEdgeGoto(block, falseTarget);
 		mv.visitLabel(trueEdge);
 		emitEdgeGoto(block, trueTarget);
+	}
+
+	private boolean isKnownNonNullResource(@NotNull IrBlock block, @NotNull IrValue value) {
+		// This is intentionally narrower than general nullness analysis.
+		//
+		// It only fires when a dominating null check branches to one of the deferred throw
+		// blocks identified above.  The non-null successor must also dominate the
+		// current block, and phi inputs are followed because loop/header joins can
+		// carry the same InputStream under a different IR value.
+		if (deferredNullThrowBlocks.isEmpty())
+			return false;
+		for (IrBlock candidate : method.blocks()) {
+			IrTerminator terminator = candidate.terminator();
+			if (terminator == null || terminator.kind() != IrTerminatorKind.IF_ZERO
+					|| terminator.inputs().isEmpty() || !sameValueThroughPhi(terminator.inputs().getFirst(), value,
+					new HashSet<>()) || !dominates(candidate, block)) continue;
+			BranchZeroInstruction branch = (BranchZeroInstruction) terminator.payload();
+			IrBlock zeroTarget = blockByOffset.get(branch.label().position());
+			if (!deferredNullThrowBlocks.contains(zeroTarget)) continue;
+			IrBlock nonNullTarget = candidate.successors().stream()
+					.filter(successor -> successor != zeroTarget).findFirst().orElse(null);
+			if (nonNullTarget != null && dominates(nonNullTarget, block)) return true;
+		}
+		return false;
+	}
+
+	private boolean sameValueThroughPhi(@NotNull IrValue first, @NotNull IrValue second,
+	                                    @NotNull Set<IrValue> visited) {
+		// Compare values through loop phis without treating a cyclic phi operand as evidence of a different value.
+		IrValue expected = first.canonical();
+		IrValue actual = second.canonical();
+		if (expected == actual) return true;
+		if (!(actual instanceof IrPhi phi) || !visited.add(phi))
+			return false;
+		for (IrValue operand : phi.operands().values()) {
+			if (operand.canonical() == phi)
+				continue;
+			if (!sameValueThroughPhi(expected, operand, visited))
+				return false;
+		}
+		return true;
+	}
+
+	private boolean dominates(@NotNull IrBlock dominator, @NotNull IrBlock block) {
+		// A small predecessor-walk dominance check is sufficient here.  If every
+		// path backwards from `block` reaches `dominator` before entry, the branch's
+		// non-null fact is valid at the emission point.
+		if (dominator == block) return true;
+		IrBlock entry = method.blocks().isEmpty() ? null : method.blocks().getFirst();
+		if (entry == null) return false;
+		ArrayDeque<IrBlock> work = new ArrayDeque<>();
+		Set<IrBlock> visited = new HashSet<>();
+		work.add(block);
+		while (!work.isEmpty()) {
+			IrBlock current = work.removeFirst();
+			if (!visited.add(current) || current == dominator) continue;
+			if (current == entry) return false;
+			work.addAll(current.predecessors());
+		}
+		return true;
 	}
 
 	private void emitIfCondition(int opcode, @NotNull IrValue left, @NotNull IrValue right, @NotNull Label target, boolean inverted) {
