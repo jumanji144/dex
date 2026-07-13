@@ -76,6 +76,7 @@ public final class IrLowering {
 	private final Map<Integer, IrBlock> blockByOffset = new HashMap<>();
 	private final Set<IrOp> emittedOps = new HashSet<>();
 	private final Set<IrOp> directReturnOperands = new HashSet<>();
+	private final Set<IrBlock> fullyInlinedReturnBlocks = new HashSet<>();
 	private final Set<IrEffect> emittedEffects = Collections.newSetFromMap(new IdentityHashMap<>());
 	private final Map<IrOp, IrOp> constructorByReceiver = new HashMap<>();
 	private final Set<IrOp> inlineConstructedReceivers = new HashSet<>();
@@ -96,6 +97,9 @@ public final class IrLowering {
 	}
 
 	private record HandlerTail(@NotNull IrBlock root, @NotNull IrBlock target, @NotNull Label label) {
+	}
+
+	private record DirectReturn(@NotNull IrTerminator terminator, @NotNull IrValue value) {
 	}
 
 	private IrLowering(@NotNull IrMethod method, @NotNull MethodVisitor mv) {
@@ -122,7 +126,8 @@ public final class IrLowering {
 		mv.visitCode();
 		emitInitializedPhiValues();
 		for (IrBlock block : method.blocks()) {
-			if (skippedHandlerTailBlocks.contains(block) || deferredNormalTailBlocks.contains(block))
+			if (skippedHandlerTailBlocks.contains(block) || deferredNormalTailBlocks.contains(block)
+					|| fullyInlinedReturnBlocks.contains(block))
 				continue;
 			if (isTransparentBlock(block))
 				continue;
@@ -335,6 +340,7 @@ public final class IrLowering {
 				directReturnOperands.add(op);
 			}
 		}
+		collectFullyInlinedReturnBlocks();
 		for (IrBlock block : method.blocks()) {
 			List<IrStmt> statements = block.statements();
 			for (int i = 0; i < statements.size(); i++) {
@@ -364,6 +370,20 @@ public final class IrLowering {
 		for (int i = method.blocks().size() - 1; i >= 0; i--) {
 			IrBlock block = method.blocks().get(i);
 			labels.put(block, isTransparentBlock(block) ? transparentBlockLabel(block) : new Label());
+		}
+	}
+
+	private void collectFullyInlinedReturnBlocks() {
+		fullyInlinedReturnBlocks.clear();
+		for (IrBlock block : method.blocks()) {
+			if (!block.statements().isEmpty() || block.exceptionValue() != null
+					|| !block.exceptionalSuccessors().isEmpty()) continue;
+			List<IrBlock> predecessors = block.predecessors().stream()
+					.filter(predecessor -> predecessor.successors().contains(block))
+					.toList();
+			if (!predecessors.isEmpty() && predecessors.stream()
+					.anyMatch(predecessor -> !canEmitDirectPhiReturn(predecessor, block))) continue;
+			if (!predecessors.isEmpty()) fullyInlinedReturnBlocks.add(block);
 		}
 	}
 
@@ -1224,27 +1244,79 @@ public final class IrLowering {
 	}
 
 	private boolean tryEmitDirectPhiReturn(@NotNull IrBlock source, @NotNull IrBlock target) {
-		if (!ConversionSupport.isReferenceType(method.source().getType().returnType()))
-			return false;
-		if (source.exceptionValue() != null || !source.exceptionalSuccessors().isEmpty())
-			return false;
-		IrTerminator terminator = target.terminator();
-		if (terminator == null || terminator.kind() != IrTerminatorKind.RETURN || terminator.inputs().isEmpty())
-			return false;
-		IrValue input = terminator.inputs().getFirst().canonical();
-		IrValue operand = input instanceof IrPhi phi ? phi.operands().get(source) : input instanceof IrOp ? input : null;
-		if (operand == null) return false;
-		IrValue canonicalOperand = operand.canonical();
+		DirectReturn directReturn = directReturn(source, target);
+		if (directReturn == null) return false;
+		IrValue canonicalOperand = directReturn.value().canonical();
 		if (canonicalOperand instanceof IrOp op && useCount(op) != 1) return false;
 		IrStmt previousStatement = currentStatement;
-		currentStatement = terminator;
+		currentStatement = directReturn.terminator();
 		if (canonicalOperand instanceof IrOp op)
 			emitOp(op, ResultMode.LEAVE_ON_STACK);
 		else
 			load(canonicalOperand, method.source().getType().returnType());
-		emitReturnOpcode((ReturnInstruction) terminator.payload());
+		emitReturnOpcode((ReturnInstruction) directReturn.terminator().payload());
 		currentStatement = previousStatement;
 		return true;
+	}
+
+	private boolean canEmitDirectPhiReturn(@NotNull IrBlock source, @NotNull IrBlock target) {
+		DirectReturn directReturn = directReturn(source, target);
+		if (directReturn == null) return false;
+		IrValue operand = directReturn.value().canonical();
+		return !(operand instanceof IrOp op) || useCount(op) == 1;
+	}
+
+	private @Nullable DirectReturn directReturn(@NotNull IrBlock source, @NotNull IrBlock target) {
+		String returnDescriptor = method.source().getType().returnType().descriptor();
+		if (!ConversionSupport.isReferenceType(method.source().getType().returnType())
+				&& !"Z".equals(returnDescriptor))
+			return null;
+		if (source.exceptionValue() != null || !source.exceptionalSuccessors().isEmpty())
+			return null;
+		IrBlock current = target;
+		IrBlock returnSource = source;
+		Set<IrBlock> visited = new HashSet<>();
+		while (visited.add(current)) {
+			IrTerminator terminator = current.terminator();
+			if (terminator == null) return null;
+			if (terminator.kind() == IrTerminatorKind.RETURN) {
+				if (!current.statements().isEmpty() || current.exceptionValue() != null
+						|| !current.exceptionalSuccessors().isEmpty() || terminator.inputs().isEmpty()) return null;
+				IrValue input = terminator.inputs().getFirst().canonical();
+				IrValue operand = input instanceof IrPhi phi ? phi.operands().get(returnSource) : input;
+				operand = operand == null ? null : uniformPhiValue(operand, new HashSet<>());
+				return operand == null ? null : new DirectReturn(terminator, operand);
+			}
+			if (!current.statements().isEmpty() || current.exceptionValue() != null
+					|| !current.exceptionalSuccessors().isEmpty() || terminator.kind() != IrTerminatorKind.GOTO)
+				return null;
+			IrBlock next = gotoTarget(current, terminator.payload());
+			if (next == null) return null;
+			returnSource = current;
+			current = next;
+		}
+		return null;
+	}
+
+	private @Nullable IrValue uniformPhiValue(@NotNull IrValue value, @NotNull Set<IrValue> visited) {
+		IrValue canonical = value.canonical();
+		if (!(canonical instanceof IrPhi phi)) return canonical;
+		if (!visited.add(phi) || phi.operands().isEmpty()) return null;
+		try {
+			IrValue result = null;
+			for (IrValue operand : phi.operands().values()) {
+				IrValue resolved = uniformPhiValue(operand, visited);
+				if (resolved == null) return null;
+				if (result == null) {
+					result = resolved;
+				} else if (result.canonical() != resolved.canonical() && !sameConstant(result, resolved)) {
+					return null;
+				}
+			}
+			return result;
+		} finally {
+			visited.remove(phi);
+		}
 	}
 
 	private void emitEdge(@NotNull IrBlock source, @NotNull IrBlock target, boolean allowFallthrough) {
@@ -1392,6 +1464,14 @@ public final class IrLowering {
 			emitEdgeGoto(block, trueTarget);
 			return;
 		}
+		if (fullyInlinedReturnBlocks.contains(trueTarget) || fullyInlinedReturnBlocks.contains(falseTarget)) {
+			Label trueEdge = new Label();
+			emitIfCondition(instruction.opcode(), left, right, trueEdge, false);
+			emitEdgeGoto(block, falseTarget);
+			mv.visitLabel(trueEdge);
+			emitEdgeGoto(block, trueTarget);
+			return;
+		}
 
 		IrBlock next = nextBlock(block);
 		if (next == falseTarget && !hasPhiCopies(block, trueTarget)) {
@@ -1429,6 +1509,14 @@ public final class IrLowering {
 			emitIfZeroCondition(instruction.opcode(), value, takenEdge, false);
 			emitEdgeGoto(block, trueTarget);
 			mv.visitLabel(takenEdge);
+			emitEdgeGoto(block, trueTarget);
+			return;
+		}
+		if (fullyInlinedReturnBlocks.contains(trueTarget) || fullyInlinedReturnBlocks.contains(falseTarget)) {
+			Label trueEdge = new Label();
+			emitIfZeroCondition(instruction.opcode(), value, trueEdge, false);
+			emitEdgeGoto(block, falseTarget);
+			mv.visitLabel(trueEdge);
 			emitEdgeGoto(block, trueTarget);
 			return;
 		}

@@ -453,7 +453,25 @@ class DexConversionTest implements Opcodes {
                      () -> "CFR emitted a decompilation failure stub for handleConnection:\n"
                              + method + "\n\nBytecode:\n" + Decompile.bytecode(bytecode));
          }
-    }
+
+         @Test
+         void realFileTransferSameServiceTypeInlinesReturnCondition() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             String decompiled = Decompile.decompile(owner, Converters.IR.toJavaClass(cls));
+             int start = decompiled.indexOf("private boolean sameServiceType");
+             int end = decompiled.indexOf("private ", start + 1);
+             assertTrue(start >= 0 && end > start, () -> "Missing sameServiceType in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.matches("(?s).*boolean \\w+ = .*SERVICE_TYPE.equals.*"),
+                     () -> "sameServiceType retained a temporary return value:\n" + method);
+             assertFalse(method.contains("return bl;") || method.contains("boolean bl ="),
+                     () -> "sameServiceType retained a temporary return value:\n" + method);
+             assertTrue(method.contains("SERVICE_TYPE.equals(string)")
+                             && method.contains("\"_imageserver._tcp.\".equals(string)"),
+                     () -> "sameServiceType lost one of its service-type checks:\n" + method);
+         }
+     }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {
         MethodMember method = new MethodMember(name, type, access);
