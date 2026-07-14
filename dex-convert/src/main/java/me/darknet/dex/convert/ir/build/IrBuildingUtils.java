@@ -3,9 +3,11 @@ package me.darknet.dex.convert.ir.build;
 import me.darknet.dex.convert.ConversionSupport;
 import me.darknet.dex.convert.ir.value.IrConstant;
 import me.darknet.dex.convert.ir.value.IrValue;
-import me.darknet.dex.convert.ir.analysis.InstructionSemantics;
+import me.darknet.dex.convert.ir.value.IrUnknown;
+import me.darknet.dex.convert.ir.value.IrTypeKind;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.definitions.code.Handler;
+import me.darknet.dex.tree.definitions.MethodMember;
 import me.darknet.dex.tree.definitions.instructions.ArrayInstruction;
 import me.darknet.dex.tree.definitions.instructions.ArrayLengthInstruction;
 import me.darknet.dex.tree.definitions.instructions.Binary2AddrInstruction;
@@ -36,14 +38,6 @@ import java.util.List;
 import static me.darknet.dex.convert.ConversionSupport.slotSize;
 
 public class IrBuildingUtils {
-	public static boolean canThrow(@NotNull Instruction instruction) {
-		return InstructionSemantics.canThrow(instruction);
-	}
-
-	public static boolean canThrowToHandler(@NotNull Instruction instruction, @NotNull Handler handler) {
-		return InstructionSemantics.canThrowToHandler(instruction, handler);
-	}
-
 	public static boolean catchesNullPointerException(@NotNull Handler handler) {
 		String catchType = handler.exceptionType().internalName();
 		return switch (catchType) {
@@ -69,28 +63,28 @@ public class IrBuildingUtils {
 
 	public static @NotNull IrValue adaptType(@NotNull IrValue value, @NotNull ClassType expectedType) {
 		IrValue canonical = value.canonical();
+		if (canonical instanceof IrUnknown unknown) {
+			unknown.refine(expectedType);
+			return unknown;
+		}
 		if (!(canonical instanceof IrConstant constant))
 			return canonical;
 		ClassType currentType = constant.type();
 		if (currentType.equals(expectedType)) return constant;
 		if (constant.isZeroConstant()) {
-			constant.type(expectedType);
-			return constant;
+			return new IrConstant(-1, expectedType, constant.constantValue(), true);
 		}
 		if (currentType.equals(Types.INT) && canRetypeIntConstant(expectedType)) {
-			constant.type(expectedType);
-			return constant;
+			return new IrConstant(-1, expectedType, constant.constantValue(), false);
 		}
 		if (currentType.equals(Types.LONG) && canRetypeLongConstant(expectedType)) {
-			constant.type(expectedType);
-			return constant;
+			return new IrConstant(-1, expectedType, constant.constantValue(), false);
 		}
 		return constant;
 	}
 
 	public static boolean canRetypeIntConstant(@NotNull ClassType expectedType) {
 		return ConversionSupport.isFloatType(expectedType)
-				|| ConversionSupport.isReferenceType(expectedType)
 				|| expectedType.equals(Types.BOOLEAN)
 				|| expectedType.equals(Types.BYTE)
 				|| expectedType.equals(Types.CHAR)
@@ -123,60 +117,58 @@ public class IrBuildingUtils {
 		};
 	}
 
-	public static @NotNull List<IrValue> loadFilledInputs(@NotNull IrValue[] state, @NotNull FilledNewArrayInstruction instruction) {
+	public static @NotNull List<IrValue> loadFilledInputs(@NotNull IrValue[] state, @NotNull FilledNewArrayInstruction instruction,
+																		@NotNull MethodMember source, int offset) {
 		List<IrValue> values = new ArrayList<>();
 		ClassType elementType = ConversionSupport.arrayElementType(ConversionSupport.normalizeArrayType(instruction.componentType()));
 		if (instruction.isRange()) {
 			for (int register = instruction.first(); register <= instruction.last(); register++) {
-				values.add(adaptType(state[register] == null ? new IrConstant(-1, Types.INT, 0, true) : state[register], elementType));
+				values.add(adaptType(valueOrUnknown(state, register, elementType, source, offset), elementType));
 			}
 		} else {
 			for (int register : instruction.registers()) {
-				values.add(adaptType(state[register] == null ? new IrConstant(-1, Types.INT, 0, true) : state[register], elementType));
+				values.add(adaptType(valueOrUnknown(state, register, elementType, source, offset), elementType));
 			}
 		}
 		return values;
 	}
 
-	public static @NotNull List<IrValue> loadInvokeInputs(@NotNull IrValue[] state, @NotNull InvokeInstruction instruction) {
-		// TODO: We need to sanity check index bounds for 'state[cursor]' as one test case has an odd invoke call that
-		//  references registers that aren't actually defined in the method's register count.
-		//  We should return a dummy constant since that is better than just crashing the converter.
-		//  - Same idea applies below for the InvokeCustomInstruction version of this method.
+	public static @NotNull List<IrValue> loadInvokeInputs(@NotNull IrValue[] state, @NotNull InvokeInstruction instruction,
+																		@NotNull MethodMember source, int offset) {
 		List<IrValue> values = new ArrayList<>();
 		if (instruction.isRange()) {
 			int cursor = instruction.first();
 			if (instruction.opcode() != Invoke.STATIC) {
-				values.add(adaptType(state[cursor] == null ? new IrConstant(-1, Types.INT, 0, true) : state[cursor], instruction.owner()));
+				values.add(adaptType(valueOrUnknown(state, cursor, instruction.owner(), source, offset), instruction.owner()));
 				cursor++;
 			}
 			for (ClassType parameterType : instruction.type().parameterTypes()) {
-				values.add(adaptType(state[cursor] == null ? new IrConstant(-1, Types.INT, 0, true) : state[cursor], parameterType));
+				values.add(adaptType(valueOrUnknown(state, cursor, parameterType, source, offset), parameterType));
 				cursor += slotSize(parameterType);
 			}
 		} else {
 			int cursor = 0;
 			int[] arguments = instruction.arguments();
 			if (instruction.opcode() != Invoke.STATIC) {
-				values.add(adaptType(state[arguments[cursor]] == null ? new IrConstant(-1, Types.INT, 0, true) : state[arguments[cursor]],
-						instruction.owner()));
+				values.add(adaptType(valueOrUnknown(state, arguments[cursor], instruction.owner(), source, offset), instruction.owner()));
 				cursor++;
 			}
 			for (ClassType parameterType : instruction.type().parameterTypes()) {
 				int register = arguments[cursor];
-				values.add(adaptType(state[register] == null ? new IrConstant(-1, Types.INT, 0, true) : state[register], parameterType));
+				values.add(adaptType(valueOrUnknown(state, register, parameterType, source, offset), parameterType));
 				cursor += slotSize(parameterType);
 			}
 		}
 		return values;
 	}
 
-	public static @NotNull List<IrValue> loadInvokeInputs(@NotNull IrValue[] state, @NotNull InvokeCustomInstruction instruction) {
+	public static @NotNull List<IrValue> loadInvokeInputs(@NotNull IrValue[] state, @NotNull InvokeCustomInstruction instruction,
+																		@NotNull MethodMember source, int offset) {
 		List<IrValue> values = new ArrayList<>();
 		if (instruction.isRange()) {
 			int cursor = instruction.first();
 			for (ClassType parameterType : instruction.type().parameterTypes()) {
-				values.add(adaptType(state[cursor] == null ? new IrConstant(-1, Types.INT, 0, true) : state[cursor], parameterType));
+				values.add(adaptType(valueOrUnknown(state, cursor, parameterType, source, offset), parameterType));
 				cursor += slotSize(parameterType);
 			}
 		} else {
@@ -184,11 +176,18 @@ public class IrBuildingUtils {
 			int[] arguments = instruction.argumentRegisters();
 			for (ClassType parameterType : instruction.type().parameterTypes()) {
 				int register = arguments[cursor];
-				values.add(adaptType(state[register] == null ? new IrConstant(-1, Types.INT, 0, true) : state[register], parameterType));
+				values.add(adaptType(valueOrUnknown(state, register, parameterType, source, offset), parameterType));
 				cursor += slotSize(parameterType);
 			}
 		}
 		return values;
+	}
+
+	private static @NotNull IrValue valueOrUnknown(@NotNull IrValue[] state, int register,
+																	@NotNull ClassType expectedType,
+																	@NotNull MethodMember source, int offset) {
+		if (register >= 0 && register < state.length && state[register] != null) return state[register];
+		return new IrUnknown(-1, expectedType, IrTypeKind.from(expectedType), source, offset);
 	}
 
 	public static @NotNull BinaryInstruction normalize(@NotNull Binary2AddrInstruction instruction) {
@@ -233,53 +232,4 @@ public class IrBuildingUtils {
 		};
 	}
 
-	public static @NotNull ClassType resultTypeForBinary(int opcode) {
-		if (opcode >= Opcodes.ADD_LONG && opcode <= Opcodes.USHR_LONG) return Types.LONG;
-		if (opcode >= Opcodes.ADD_FLOAT && opcode <= Opcodes.REM_FLOAT) return Types.FLOAT;
-		if (opcode >= Opcodes.ADD_DOUBLE && opcode <= Opcodes.REM_DOUBLE) return Types.DOUBLE;
-		return Types.INT;
-	}
-
-	public static @NotNull ClassType resultTypeForUnary(int opcode) {
-		return switch (opcode) {
-			case Opcodes.NEG_LONG, Opcodes.NOT_LONG, Opcodes.INT_TO_LONG, Opcodes.FLOAT_TO_LONG,
-			     Opcodes.DOUBLE_TO_LONG -> Types.LONG;
-			case Opcodes.NEG_FLOAT, Opcodes.INT_TO_FLOAT, Opcodes.LONG_TO_FLOAT, Opcodes.DOUBLE_TO_FLOAT -> Types.FLOAT;
-			case Opcodes.NEG_DOUBLE, Opcodes.INT_TO_DOUBLE, Opcodes.LONG_TO_DOUBLE, Opcodes.FLOAT_TO_DOUBLE ->
-					Types.DOUBLE;
-			default -> Types.INT;
-		};
-	}
-
-	public static @NotNull ClassType operandTypeForBinary(int opcode, boolean leftOperand) {
-		if (opcode >= Opcodes.ADD_LONG && opcode <= Opcodes.USHR_LONG) {
-			return switch (opcode) {
-				case Opcodes.SHL_LONG, Opcodes.SHR_LONG, Opcodes.USHR_LONG -> leftOperand ? Types.LONG : Types.INT;
-				default -> Types.LONG;
-			};
-		}
-		if (opcode >= Opcodes.ADD_FLOAT && opcode <= Opcodes.REM_FLOAT) return Types.FLOAT;
-		if (opcode >= Opcodes.ADD_DOUBLE && opcode <= Opcodes.REM_DOUBLE) return Types.DOUBLE;
-		return Types.INT;
-	}
-
-	public static @NotNull ClassType operandTypeForUnary(int opcode) {
-		return switch (opcode) {
-			case Opcodes.NEG_LONG, Opcodes.NOT_LONG, Opcodes.LONG_TO_INT, Opcodes.LONG_TO_FLOAT,
-			     Opcodes.LONG_TO_DOUBLE -> Types.LONG;
-			case Opcodes.NEG_FLOAT, Opcodes.FLOAT_TO_INT, Opcodes.FLOAT_TO_LONG, Opcodes.FLOAT_TO_DOUBLE -> Types.FLOAT;
-			case Opcodes.NEG_DOUBLE, Opcodes.DOUBLE_TO_INT, Opcodes.DOUBLE_TO_LONG, Opcodes.DOUBLE_TO_FLOAT ->
-					Types.DOUBLE;
-			default -> Types.INT;
-		};
-	}
-
-	public static @NotNull ClassType operandTypeForCompare(int opcode) {
-		return switch (opcode) {
-			case Opcodes.CMP_LONG -> Types.LONG;
-			case Opcodes.CMPL_FLOAT, Opcodes.CMPG_FLOAT -> Types.FLOAT;
-			case Opcodes.CMPL_DOUBLE, Opcodes.CMPG_DOUBLE -> Types.DOUBLE;
-			default -> Types.INT;
-		};
-	}
 }

@@ -4,6 +4,7 @@ import me.darknet.dex.convert.TryCatchSupport;
 import me.darknet.dex.convert.ir.DexInstructionNode;
 import me.darknet.dex.convert.ir.IrBlock;
 import me.darknet.dex.convert.ir.IrExceptionHandler;
+import me.darknet.dex.convert.ir.IrExceptionEdge;
 import me.darknet.dex.convert.ir.IrExceptionRegion;
 import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.code.Handler;
@@ -31,8 +32,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-import static me.darknet.dex.convert.ir.analysis.InstructionSemantics.canThrow;
-import static me.darknet.dex.convert.ir.analysis.InstructionSemantics.canThrowToHandler;
+import static me.darknet.dex.convert.ir.analysis.IrInstructionSemantics.canThrow;
+import static me.darknet.dex.convert.ir.analysis.IrInstructionSemantics.canThrowToHandler;
 
 public class IrGraphBuilder {
 	private final Code code;
@@ -244,6 +245,13 @@ public class IrGraphBuilder {
 				if (reachable.contains(successor))
 					block.addSuccessor(remapped.get(successor), true);
 			}
+			for (IrExceptionEdge edge : oldBlock.exceptionEdges()) {
+				if (reachable.contains(edge.handlerBlock())) {
+					IrBlock newSource = remapped.get(oldBlock);
+					newSource.addExceptionEdge(new IrExceptionEdge(newSource, edge.throwingInstruction(),
+							remapped.get(edge.handlerBlock()), edge.handler(), edge.sourceOffset()));
+				}
+			}
 		}
 
 		List<IrExceptionRegion> exceptionRegions = new ArrayList<>();
@@ -307,10 +315,10 @@ public class IrGraphBuilder {
 					if (!canThrowToHandler(node.instruction(), handler))
 						continue;
 
-					// TODO: We should be recording exception edge information too for better analysis later on.
-					//  Currently, we just add a normal successor edge to the handler block, but this means we
-					//  lose information about which exceptions are caught and where they are caught.
-					throwingBlock.addSuccessor(requireBlock(blockByOffset, handler.handler().position()), true);
+					IrBlock handlerBlock = requireBlock(blockByOffset, handler.handler().position());
+					throwingBlock.addSuccessor(handlerBlock, true);
+					throwingBlock.addExceptionEdge(new IrExceptionEdge(throwingBlock, node.instruction(), handlerBlock,
+							handler, node.offset()));
 				}
 			}
 		}

@@ -22,6 +22,7 @@ import me.darknet.dex.tree.definitions.instructions.NewArrayInstruction;
 import me.darknet.dex.tree.definitions.instructions.NewInstanceInstruction;
 import me.darknet.dex.tree.definitions.instructions.StaticFieldInstruction;
 import me.darknet.dex.tree.definitions.instructions.UnaryInstruction;
+import me.darknet.dex.tree.type.ArrayType;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
@@ -52,17 +53,17 @@ final class IrOperationEmitter {
 			case UnaryInstruction instruction -> emitUnary(op, instruction, resultMode);
 			case CompareInstruction instruction -> emitCompare(op, instruction, resultMode);
 			case ArrayLengthInstruction ignored -> {
-				host.load(op.inputs().getFirst(), op.inputs().getFirst().type());
+				loadInput(op, 0);
 				mv.visitInsn(ARRAYLENGTH);
 				finishValue(op, resultMode);
 			}
 			case CheckCastInstruction instruction -> {
-				host.load(op.inputs().getFirst(), instruction.type());
+				loadInput(op, 0);
 				mv.visitTypeInsn(CHECKCAST, ConversionSupport.asmTypeOperand(instruction.type()));
 				finishValue(op, resultMode);
 			}
 			case InstanceOfInstruction instruction -> {
-				host.load(op.inputs().getFirst(), instruction.type());
+				loadInput(op, 0);
 				mv.visitTypeInsn(INSTANCEOF, ConversionSupport.asmTypeOperand(instruction.type()));
 				finishValue(op, resultMode);
 			}
@@ -71,14 +72,14 @@ final class IrOperationEmitter {
 				finishValue(op, resultMode);
 			}
 			case NewArrayInstruction instruction -> {
-				host.load(op.inputs().getFirst(), Types.INT);
+				loadInput(op, 0);
 				ConversionSupport.emitNewArray(mv, instruction.componentType());
 				finishValue(op, resultMode);
 			}
 			case FilledNewArrayInstruction instruction -> emitFilledNewArray(op, instruction, resultMode);
 			case ArrayInstruction instruction -> emitArrayGet(op, instruction, resultMode);
 			case InstanceFieldInstruction instruction -> {
-				host.load(op.inputs().getFirst(), instruction.owner());
+				loadInput(op, 0);
 				mv.visitFieldInsn(GETFIELD, instruction.owner().internalName(), instruction.name(),
 						instruction.type().descriptor());
 				finishValue(op, resultMode);
@@ -96,8 +97,9 @@ final class IrOperationEmitter {
 
 	private void emitBinary(@NotNull IrOp op, @NotNull BinaryInstruction instruction,
 	                        @NotNull ResultMode resultMode) {
-		host.load(op.inputs().get(0), operandTypeForBinary(instruction.opcode(), true));
-		host.load(op.inputs().get(1), operandTypeForBinary(instruction.opcode(), false));
+		if (host.tryEmitLongIncrement(op, resultMode)) return;
+		loadInput(op, 0);
+		loadInput(op, 1);
 		mv.visitInsn(switch (instruction.opcode()) {
 			case Opcodes.ADD_INT -> IADD;
 			case Opcodes.SUB_INT -> ISUB;
@@ -138,7 +140,8 @@ final class IrOperationEmitter {
 
 	private void emitBinaryLiteral(@NotNull IrOp op, @NotNull BinaryLiteralInstruction instruction,
 	                               @NotNull ResultMode resultMode) {
-		host.load(op.inputs().getFirst(), Types.INT);
+		if (host.tryEmitIncrement(op, instruction.constant(), resultMode)) return;
+		loadInput(op, 0);
 		ConversionSupport.pushInt(mv, instruction.constant());
 		switch (instruction.opcode()) {
 			case Opcodes.RSUB_INT, Opcodes.RSUB_INT_LIT8 -> {
@@ -162,7 +165,7 @@ final class IrOperationEmitter {
 
 	private void emitUnary(@NotNull IrOp op, @NotNull UnaryInstruction instruction,
 	                       @NotNull ResultMode resultMode) {
-		host.load(op.inputs().getFirst(), op.inputs().getFirst().type());
+		loadInput(op, 0);
 		mv.visitInsn(switch (instruction.opcode()) {
 			case Opcodes.NEG_INT -> INEG;
 			case Opcodes.NEG_LONG -> LNEG;
@@ -197,8 +200,8 @@ final class IrOperationEmitter {
 
 	private void emitCompare(@NotNull IrOp op, @NotNull CompareInstruction instruction,
 	                         @NotNull ResultMode resultMode) {
-		host.load(op.inputs().get(0), op.inputs().get(0).type());
-		host.load(op.inputs().get(1), op.inputs().get(1).type());
+		loadInput(op, 0);
+		loadInput(op, 1);
 		mv.visitInsn(switch (instruction.opcode()) {
 			case Opcodes.CMPL_FLOAT -> FCMPL;
 			case Opcodes.CMPG_FLOAT -> FCMPG;
@@ -212,9 +215,11 @@ final class IrOperationEmitter {
 
 	private void emitArrayGet(@NotNull IrOp op, @NotNull ArrayInstruction instruction,
 	                          @NotNull ResultMode resultMode) {
-		ClassType elementType = op.type();
-		host.load(op.inputs().get(0), op.inputs().get(0).type());
-		host.load(op.inputs().get(1), Types.INT);
+		ClassType arrayType = op.semantics().inputs().getFirst().expected().materializedType();
+		ClassType elementType = arrayType instanceof ArrayType array
+				? array.componentType() : op.type();
+		loadInput(op, 0);
+		loadInput(op, 1);
 		mv.visitInsn(ConversionSupport.arrayLoadOpcode(elementType));
 		finishValue(op, resultMode);
 	}
@@ -228,7 +233,7 @@ final class IrOperationEmitter {
 		for (int i = 0; i < op.inputs().size(); i++) {
 			mv.visitInsn(DUP);
 			ConversionSupport.pushInt(mv, i);
-			host.load(op.inputs().get(i), elementType);
+			loadInput(op, i);
 			mv.visitInsn(ConversionSupport.arrayStoreOpcode(elementType));
 		}
 		finishValue(op, resultMode);
@@ -243,7 +248,7 @@ final class IrOperationEmitter {
 				boolean keepConstructedInstance = host.shouldKeepConstructedInstance(receiverOp);
 				boolean receiverAlreadyEmitted = host.isOperationEmitted(receiverOp);
 				if (receiverAlreadyEmitted) {
-					host.load(receiverOp, receiverOp.type());
+					loadInput(op, 0);
 				} else {
 					mv.visitTypeInsn(NEW, newInstanceInstruction.type().internalName());
 					if (keepConstructedInstance) {
@@ -254,15 +259,17 @@ final class IrOperationEmitter {
 					}
 				}
 				for (int i = 1; i < op.inputs().size(); i++)
-					host.load(op.inputs().get(i), invokeInputType(instruction, i));
+					loadInput(op, i);
 				mv.visitMethodInsn(INVOKESPECIAL, ConversionSupport.asmOwner(instruction.owner()),
 						instruction.name(), instruction.type().descriptor(), false);
 				if (!receiverAlreadyEmitted && !keepConstructedInstance) mv.visitInsn(POP);
 				return;
 			}
 		}
-		for (int i = 0; i < op.inputs().size(); i++)
-			host.load(op.inputs().get(i), invokeInputType(instruction, i));
+		for (int i = 0; i < op.inputs().size(); i++) {
+			if (host.tryEmitSyntheticLambda(op, instruction, i)) continue;
+			loadInput(op, i);
+		}
 		mv.visitMethodInsn(ConversionSupport.invokeOpcode(instruction.opcode()),
 				ConversionSupport.asmOwner(instruction.owner()), instruction.name(),
 				instruction.type().descriptor(), instruction.opcode() == Invoke.INTERFACE);
@@ -272,7 +279,7 @@ final class IrOperationEmitter {
 	private void emitInvokeCustom(@NotNull IrOp op, @NotNull InvokeCustomInstruction instruction,
 	                              @NotNull ResultMode resultMode) {
 		for (int i = 0; i < op.inputs().size(); i++)
-			host.load(op.inputs().get(i), instruction.type().parameterTypes().get(i));
+			loadInput(op, i);
 		mv.visitInvokeDynamicInsn(instruction.name(), instruction.type().descriptor(),
 				ConversionSupport.asmHandle(instruction.handle()),
 				ConversionSupport.bootstrapArguments(instruction.arguments()));
@@ -292,24 +299,10 @@ final class IrOperationEmitter {
 		return instruction.opcode() == Invoke.DIRECT && "<init>".equals(instruction.name());
 	}
 
-	static @NotNull ClassType invokeInputType(@NotNull InvokeInstruction instruction, int inputIndex) {
-		if (instruction.opcode() != Invoke.STATIC) {
-			if (inputIndex == 0) return instruction.owner();
-			return instruction.type().parameterTypes().get(inputIndex - 1);
-		}
-		return instruction.type().parameterTypes().get(inputIndex);
-	}
-
-	private static @NotNull ClassType operandTypeForBinary(int opcode, boolean leftOperand) {
-		if (opcode >= Opcodes.ADD_LONG && opcode <= Opcodes.USHR_LONG) {
-			return switch (opcode) {
-				case Opcodes.SHL_LONG, Opcodes.SHR_LONG, Opcodes.USHR_LONG -> leftOperand ? Types.LONG : Types.INT;
-				default -> Types.LONG;
-			};
-		}
-		if (opcode >= Opcodes.ADD_FLOAT && opcode <= Opcodes.REM_FLOAT) return Types.FLOAT;
-		if (opcode >= Opcodes.ADD_DOUBLE && opcode <= Opcodes.REM_DOUBLE) return Types.DOUBLE;
-		return Types.INT;
+	private void loadInput(@NotNull IrOp op, int index) {
+		if (index >= op.semantics().inputs().size())
+			throw new IllegalStateException("Missing semantic input contract " + index + " for " + op);
+		host.load(op.inputs().get(index), op.semantics().inputs().get(index).expected().materializedType());
 	}
 
 	/** Result handling for an operation's produced JVM value. */
@@ -322,11 +315,19 @@ final class IrOperationEmitter {
 	interface Host {
 		void load(@NotNull IrValue value, @NotNull ClassType expectedType);
 
+		boolean tryEmitIncrement(@NotNull IrOp op, int constant, @NotNull ResultMode resultMode);
+
+		/** Emits a proven in-place long accumulator update, if one is available. */
+		boolean tryEmitLongIncrement(@NotNull IrOp op, @NotNull ResultMode resultMode);
+
 		void store(@NotNull IrValue value);
 
 		boolean shouldKeepConstructedInstance(@NotNull IrOp newInstanceOp);
 
 		boolean isOperationEmitted(@NotNull IrOp op);
+
+		/** Emits a proven zero-capture comparator lambda in place of its DEX synthetic class. */
+		boolean tryEmitSyntheticLambda(@NotNull IrOp consumer, @NotNull InvokeInstruction instruction,
+		                               int inputIndex);
 	}
 }
-

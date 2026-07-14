@@ -9,11 +9,10 @@ import org.objectweb.asm.ClassWriter;
  */
 public interface WriterFactory {
 	/**
-	 * Default factory that creates a new writer with no flags for each class.
-	 * <p>
-	 * This instance is intended for use cases where the result is not intended to be loaded by a class loader.
+	 * Default factory for loadable output. Frames and maxima are computed after
+	 * the IR lowering has emitted the class.
 	 */
-	WriterFactory DEFAULT = cls -> new ClassWriter(0);
+	WriterFactory DEFAULT = cls -> new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
 
 	/**
 	 * @param cls

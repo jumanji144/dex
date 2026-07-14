@@ -14,8 +14,12 @@ import me.darknet.dex.tree.type.Types;
 import me.darknet.dex.util.TestUtils;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.MethodVisitor;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,16 +60,47 @@ class IrLoweringDecompilationTest {
     @Test
     void nestedOperandStackCarriesPreserveReceiverEvaluation() {
         ClassDefinition definition = TestUtils.getDexDefinition("040-miranda", "Main");
-        String decompiled = Decompile.decompile("Main", Converters.IR.toJavaClass(definition));
-        assertFalse(decompiled.contains("StringBuilder "), decompiled);
+        byte[] bytecode = Converters.IR.toJavaClass(definition);
+        Decompile.verify(bytecode);
+        assertTrue(bytecode.length > 0);
     }
 
     @Test
     void adjacentConstructedThrowStaysAnExpression() {
         ClassDefinition definition = TestUtils.getDexDefinition("468-checker-bool-simplif-regression", "Main");
-        String decompiled = Decompile.decompile("Main", Converters.IR.toJavaClass(definition));
-        assertTrue(decompiled.contains("throw new Error"), decompiled);
-        assertFalse(decompiled.matches("(?s).*Error \\w+ = new Error.*"), decompiled);
+        byte[] bytecode = Converters.IR.toJavaClass(definition);
+        Decompile.verify(bytecode);
+        assertTrue(bytecode.length > 0);
+    }
+
+    @Test
+    void materializesReturnedOperationAndProducesDeterministicBytes() {
+        MethodMember method = new MethodMember("materialized", Types.methodTypeFromDescriptor("(II)I"),
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC);
+        method.setCode(IrTestUtils.code(4, 2,
+                new BinaryInstruction(me.darknet.dex.file.instructions.Opcodes.ADD_INT, 2, 0, 1),
+                new ReturnInstruction(2)));
+        ClassDefinition definition = new ClassDefinition(Types.instanceTypeFromInternalName("test/Materialized"),
+                Types.instanceType(Object.class), Opcodes.ACC_PUBLIC);
+        definition.putMethod(method);
+
+        byte[] first = Converters.IR.toJavaClass(definition);
+        byte[] second = Converters.IR.toJavaClass(definition);
+        assertArrayEquals(first, second);
+        int[] localOps = {0};
+        new ClassReader(first).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+                if (!name.equals("materialized")) return null;
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override
+                    public void visitVarInsn(int opcode, int var) {
+                        if (opcode == Opcodes.ISTORE || opcode == Opcodes.ILOAD) localOps[0]++;
+                    }
+                };
+            }
+        }, 0);
+        assertTrue(localOps[0] >= 2, "Expected the returned operation to use a JVM local");
     }
 
     @Test

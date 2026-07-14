@@ -1,9 +1,12 @@
 package me.darknet.dex.convert.ir.build;
 
 import me.darknet.dex.convert.ConversionSupport;
+import me.darknet.dex.convert.ConversionDiagnostic;
 import me.darknet.dex.convert.ir.DexInstructionNode;
+import me.darknet.dex.convert.ir.IrExceptionEdge;
 import me.darknet.dex.convert.ir.DexIrException;
 import me.darknet.dex.convert.ir.IrBlock;
+import me.darknet.dex.convert.ir.analysis.IrInstructionSemantics;
 import me.darknet.dex.convert.ir.statement.IrEffect;
 import me.darknet.dex.convert.ir.statement.IrEffectKind;
 import me.darknet.dex.convert.ir.statement.IrOp;
@@ -16,6 +19,8 @@ import me.darknet.dex.convert.ir.value.IrExceptionValue;
 import me.darknet.dex.convert.ir.value.IrParameter;
 import me.darknet.dex.convert.ir.value.IrPhi;
 import me.darknet.dex.convert.ir.value.IrValue;
+import me.darknet.dex.convert.ir.value.IrUnknown;
+import me.darknet.dex.convert.ir.value.IrTypeKind;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.definitions.MethodMember;
 import me.darknet.dex.tree.definitions.code.Code;
@@ -69,15 +74,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static me.darknet.dex.convert.ConversionSupport.slotSize;
-import static me.darknet.dex.convert.ir.analysis.InstructionSemantics.canThrow;
 import static me.darknet.dex.convert.ir.build.IrBuildingUtils.*;
 
 public class IrBlockBuilder {
 	private final MethodMember method;
 	private final Code code;
+	private final IrBuilder owner;
 	private int nextValueId;
+	private IrBlock activeBlock;
+	private int activeOffset = -1;
 
 	public IrBlockBuilder(@NotNull IrBuilder builder) {
+		owner = builder;
 		method = builder.getInputMethod();
 		code = method.getCode();
 	}
@@ -87,15 +95,15 @@ public class IrBlockBuilder {
 		initializeEntryState(graph.entry());
 		for (IrBlock block : graph.blocks())
 			buildBlock(block);
+		// A join may be built before a later predecessor. Revisit all outgoing
+		// edges once every block has an exit state so incomplete phis are sealed.
+		for (IrBlock block : graph.blocks())
+			if (block.exitState() != null) populatePhiInputs(block, block.exitState());
+		removeTrivialPhis(graph.blocks());
 	}
 
 	private void initializePhis(@NotNull List<IrBlock> blocks) {
-		for (int i = 1; i < blocks.size(); i++) {
-			IrBlock block = blocks.get(i);
-			if (block.predecessors().size() <= 1)
-				continue;
-			ensurePhis(block);
-		}
+		// Phis are created lazily by read() when a value is needed at a join.
 	}
 
 	private void initializeEntryState(@NotNull IrBlock entry) {
@@ -119,21 +127,37 @@ public class IrBlockBuilder {
 		} else if (block.predecessors().size() == 1 && hasInputState(block.predecessors().getFirst(), block)) {
 			System.arraycopy(requireInputState(block.predecessors().getFirst(), block), 0, state, 0, state.length);
 		} else {
-			ensurePhis(block);
-			for (IrPhi phi : block.phis()) {
-				state[phi.register()] = phi;
+			boolean unsealed = block.predecessors().stream().anyMatch(predecessor -> !hasInputState(predecessor, block));
+			// Empty join blocks still transfer the complete register state to their
+			// successor. Without explicit merge values here, a later loop header sees
+			// undefined registers even though every incoming edge defines them.
+			if (unsealed || block.predecessors().size() > 1) {
+				// A value read from a join without a copied predecessor state needs a
+				// lazy merge value.  This also covers construction-only handler entries
+				// and invoke payloads, whose input adapter cannot call read() itself.
+				for (int register = 0; register < code.getRegisters(); register++) {
+					if (state[register] == null)
+						state[register] = ensurePhi(block, register, Types.INT);
+				}
 			}
 		}
 
+		activeBlock = block;
 		IrValue pendingResult = initialPendingResult(block);
-		IrValue[] exceptionalState = null;
 		for (DexInstructionNode node : block.dexInstructions()) {
+			activeOffset = node.offset();
 			Instruction instruction = node.instruction();
+			IrInstructionSemantics constructionSemantics = IrInstructionSemantics.forConstruction(instruction);
+			validateSemantics(constructionSemantics);
+			if (!validateWideDestination(instruction)) continue;
 			if (!(instruction instanceof MoveResultInstruction)) pendingResult = null;
 			IrValue[] stateBeforeInstruction = null;
-			if (!block.exceptionalSuccessors().isEmpty() && canThrow(instruction)) {
+			if (!block.exceptionalSuccessors().isEmpty()
+					&& IrInstructionSemantics.forThrowingInstruction(instruction).throwMask() != 0) {
 				stateBeforeInstruction = state.clone();
 			}
+			int statementStart = block.statements().size();
+			IrTerminator terminatorBefore = block.terminator();
 			switch (instruction) {
 				case ConstInstruction constInstruction ->
 						state[constInstruction.register()] = constant(Types.INT, constInstruction.value(), constInstruction.value() == 0);
@@ -159,98 +183,140 @@ public class IrBlockBuilder {
 					state[moveExceptionInstruction.register()] = value;
 				}
 				case BinaryInstruction binaryInstruction -> {
-					IrOp op = new IrOp(nextValueId++, resultTypeForBinary(binaryInstruction.opcode()), IrOpKind.BINARY,
-							List.of(readTyped(state, binaryInstruction.a(), operandTypeForBinary(binaryInstruction.opcode(), true)),
-									readTyped(state, binaryInstruction.b(), operandTypeForBinary(binaryInstruction.opcode(), false))),
-							binaryInstruction);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.BINARY,
+							binaryInstruction, 2);
+					ClassType resultType = semantics.result().materializedType();
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.BINARY,
+							List.of(readTyped(state, binaryInstruction.a(), inputType(semantics, 0)),
+									readTyped(state, binaryInstruction.b(), inputType(semantics, 1))),
+							binaryInstruction, semantics);
 					op.register(binaryInstruction.dest());
 					block.statements().add(op);
 					state[binaryInstruction.dest()] = op;
 				}
 				case Binary2AddrInstruction binary2AddrInstruction -> {
 					BinaryInstruction normalized = normalize(binary2AddrInstruction);
-					IrOp op = new IrOp(nextValueId++, resultTypeForBinary(normalized.opcode()), IrOpKind.BINARY,
-							List.of(readTyped(state, normalized.a(), operandTypeForBinary(normalized.opcode(), true)),
-									readTyped(state, normalized.b(), operandTypeForBinary(normalized.opcode(), false))),
-							normalized);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.BINARY,
+							normalized, 2);
+					ClassType resultType = semantics.result().materializedType();
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.BINARY,
+							List.of(readTyped(state, normalized.a(), inputType(semantics, 0)),
+									readTyped(state, normalized.b(), inputType(semantics, 1))),
+							normalized, semantics);
 					op.register(binary2AddrInstruction.a());
 					block.statements().add(op);
 					state[binary2AddrInstruction.a()] = op;
 				}
 				case BinaryLiteralInstruction binaryLiteralInstruction -> {
-					IrOp op = new IrOp(nextValueId++, Types.INT, IrOpKind.BINARY_LITERAL,
-							List.of(readTyped(state, binaryLiteralInstruction.src(), Types.INT)), binaryLiteralInstruction);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.BINARY_LITERAL,
+							binaryLiteralInstruction, 1);
+					IrOp op = new IrOp(nextValueId++, semantics.result().materializedType(), IrOpKind.BINARY_LITERAL,
+							List.of(readTyped(state, binaryLiteralInstruction.src(), inputType(semantics, 0))),
+							binaryLiteralInstruction, semantics);
 					op.register(binaryLiteralInstruction.dest());
 					block.statements().add(op);
 					state[binaryLiteralInstruction.dest()] = op;
 				}
 				case UnaryInstruction unaryInstruction -> {
-					IrOp op = new IrOp(nextValueId++, resultTypeForUnary(unaryInstruction.opcode()), IrOpKind.UNARY,
-							List.of(readTyped(state, unaryInstruction.source(), operandTypeForUnary(unaryInstruction.opcode()))),
-							unaryInstruction);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.UNARY,
+							unaryInstruction, 1);
+					ClassType resultType = semantics.result().materializedType();
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.UNARY,
+							List.of(readTyped(state, unaryInstruction.source(), inputType(semantics, 0))),
+							unaryInstruction, semantics);
 					op.register(unaryInstruction.dest());
 					block.statements().add(op);
 					state[unaryInstruction.dest()] = op;
 				}
 				case CompareInstruction compareInstruction -> {
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.COMPARE,
+							compareInstruction, 2);
 					IrOp op = new IrOp(nextValueId++, Types.INT, IrOpKind.COMPARE,
-							List.of(readTyped(state, compareInstruction.a(), operandTypeForCompare(compareInstruction.opcode())),
-									readTyped(state, compareInstruction.b(), operandTypeForCompare(compareInstruction.opcode()))),
-							compareInstruction);
+							List.of(readTyped(state, compareInstruction.a(), inputType(semantics, 0)),
+									readTyped(state, compareInstruction.b(), inputType(semantics, 1))),
+							compareInstruction, semantics);
 					op.register(compareInstruction.dest());
 					block.statements().add(op);
 					state[compareInstruction.dest()] = op;
 				}
 				case ArrayLengthInstruction arrayLengthInstruction -> {
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.ARRAY_LENGTH,
+							arrayLengthInstruction, 1);
 					IrOp op = new IrOp(nextValueId++, Types.INT, IrOpKind.ARRAY_LENGTH,
-							List.of(read(state, arrayLengthInstruction.array())), arrayLengthInstruction);
+							List.of(readTyped(state, arrayLengthInstruction.array(), inputType(semantics, 0))),
+							arrayLengthInstruction, semantics);
 					op.register(arrayLengthInstruction.dest());
 					block.statements().add(op);
 					state[arrayLengthInstruction.dest()] = op;
 				}
 				case ArrayInstruction arrayInstruction -> buildArrayInstruction(block, state, arrayInstruction);
 				case CheckCastInstruction checkCastInstruction -> {
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.CHECK_CAST,
+							checkCastInstruction, 1);
 					IrOp op = new IrOp(nextValueId++, checkCastInstruction.type(), IrOpKind.CHECK_CAST,
-							List.of(read(state, checkCastInstruction.register())), checkCastInstruction);
+							List.of(readTyped(state, checkCastInstruction.register(), inputType(semantics, 0))),
+							checkCastInstruction, semantics);
 					op.register(checkCastInstruction.register());
 					block.statements().add(op);
 					state[checkCastInstruction.register()] = op;
 				}
 				case InstanceOfInstruction instanceOfInstruction -> {
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.INSTANCE_OF,
+							instanceOfInstruction, 1);
 					IrOp op = new IrOp(nextValueId++, Types.BOOLEAN, IrOpKind.INSTANCE_OF,
-							List.of(read(state, instanceOfInstruction.register())), instanceOfInstruction);
+							List.of(readTyped(state, instanceOfInstruction.register(), inputType(semantics, 0))),
+							instanceOfInstruction, semantics);
 					op.register(instanceOfInstruction.destination());
 					block.statements().add(op);
 					state[instanceOfInstruction.destination()] = op;
 				}
 				case NewInstanceInstruction newInstanceInstruction -> {
-					IrOp op = new IrOp(nextValueId++, newInstanceInstruction.type(), IrOpKind.NEW_INSTANCE, List.of(), newInstanceInstruction);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.NEW_INSTANCE,
+							newInstanceInstruction, 0);
+					IrOp op = new IrOp(nextValueId++, newInstanceInstruction.type(), IrOpKind.NEW_INSTANCE,
+							List.of(), newInstanceInstruction, semantics);
 					op.register(newInstanceInstruction.dest());
 					block.statements().add(op);
 					state[newInstanceInstruction.dest()] = op;
 				}
 				case NewArrayInstruction newArrayInstruction -> {
-					IrOp op = new IrOp(nextValueId++, ConversionSupport.normalizeArrayType(newArrayInstruction.componentType()),
-							IrOpKind.NEW_ARRAY, List.of(readTyped(state, newArrayInstruction.sizeRegister(), Types.INT)), newArrayInstruction);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.NEW_ARRAY,
+							newArrayInstruction, 1);
+					ClassType resultType = semantics.result().materializedType();
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.NEW_ARRAY,
+							List.of(readTyped(state, newArrayInstruction.sizeRegister(), inputType(semantics, 0))),
+							newArrayInstruction, semantics);
 					op.register(newArrayInstruction.dest());
 					block.statements().add(op);
 					state[newArrayInstruction.dest()] = op;
 				}
 				case FilledNewArrayInstruction filledNewArrayInstruction -> {
-					IrOp op = new IrOp(nextValueId++, ConversionSupport.normalizeArrayType(filledNewArrayInstruction.componentType()),
-							IrOpKind.FILLED_NEW_ARRAY, loadFilledInputs(state, filledNewArrayInstruction), filledNewArrayInstruction);
+					ClassType resultType = ConversionSupport.normalizeArrayType(filledNewArrayInstruction.componentType());
+					List<IrValue> inputs = loadFilledInputs(state, filledNewArrayInstruction, method, activeOffset);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.FILLED_NEW_ARRAY,
+							filledNewArrayInstruction, resultType, inputs.size());
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.FILLED_NEW_ARRAY,
+							inputs, filledNewArrayInstruction, semantics);
 					block.statements().add(op);
 					pendingResult = op;
 				}
 				case InvokeInstruction invokeInstruction -> {
-					IrOp op = new IrOp(nextValueId++, invokeInstruction.type().returnType(), IrOpKind.INVOKE,
-							loadInvokeInputs(state, invokeInstruction), invokeInstruction);
+					ClassType resultType = invokeInstruction.type().returnType();
+					List<IrValue> inputs = loadInvokeInputs(state, invokeInstruction, method, activeOffset);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.INVOKE,
+							invokeInstruction, resultType, inputs.size());
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.INVOKE,
+							inputs, invokeInstruction, semantics);
 					block.statements().add(op);
 					pendingResult = op;
 				}
 				case InvokeCustomInstruction invokeCustomInstruction -> {
-					IrOp op = new IrOp(nextValueId++, invokeCustomInstruction.type().returnType(), IrOpKind.INVOKE_CUSTOM,
-							loadInvokeInputs(state, invokeCustomInstruction), invokeCustomInstruction);
+					ClassType resultType = invokeCustomInstruction.type().returnType();
+					List<IrValue> inputs = loadInvokeInputs(state, invokeCustomInstruction, method, activeOffset);
+					IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.INVOKE_CUSTOM,
+							invokeCustomInstruction, resultType, inputs.size());
+					IrOp op = new IrOp(nextValueId++, resultType, IrOpKind.INVOKE_CUSTOM,
+							inputs, invokeCustomInstruction, semantics);
 					block.statements().add(op);
 					pendingResult = op;
 				}
@@ -287,10 +353,22 @@ public class IrBlockBuilder {
 				}
 				case NopInstruction ignored -> {
 				}
-				default -> throw new DexIrException("lift", method, "Unsupported instruction: " + instruction);
+			default -> throw new DexIrException("lift", method, "Unsupported instruction: " + instruction);
 			}
+			for (int i = statementStart; i < block.statements().size(); i++) {
+				IrStmt statement = block.statements().get(i);
+				if (statement instanceof IrOp op) validateSemantics(op.semantics());
+				if (statement instanceof IrEffect effect) validateSemantics(effect.semantics());
+			}
+			if (block.terminator() != null && block.terminator() != terminatorBefore)
+				validateSemantics(block.terminator().semantics());
 			if (stateBeforeInstruction != null) {
-				exceptionalState = stateBeforeInstruction;
+				for (IrExceptionEdge edge : block.exceptionEdges()) {
+					if (edge.throwingInstruction() == instruction) {
+						block.exceptionalExitStates().put(edge, stateBeforeInstruction.clone());
+						if (block.exceptionalExitState() == null) block.exceptionalExitState(stateBeforeInstruction.clone());
+					}
+				}
 			}
 		}
 
@@ -298,10 +376,9 @@ public class IrBlockBuilder {
 			block.terminator(new IrTerminator(IrTerminatorKind.GOTO, List.of(), null));
 		}
 		block.exitState(state.clone());
-		if (exceptionalState != null) {
-			block.exceptionalExitState(exceptionalState);
-		}
 		populatePhiInputs(block, state);
+		activeBlock = null;
+		activeOffset = -1;
 	}
 
 	private @NotNull IrValue[] requireState(@NotNull IrBlock block) {
@@ -312,15 +389,22 @@ public class IrBlockBuilder {
 	}
 
 	private @NotNull IrValue[] requireInputState(@NotNull IrBlock predecessor, @NotNull IrBlock block) {
-		if (predecessor.exceptionalSuccessors().contains(block) && predecessor.exceptionalExitState() != null) {
-			return predecessor.exceptionalExitState();
+		if (predecessor.exceptionalSuccessors().contains(block)) {
+			for (IrExceptionEdge edge : predecessor.exceptionEdges()) {
+				if (edge.handlerBlock() == block) {
+					IrValue[] state = predecessor.exceptionalExitStates().get(edge);
+					if (state != null) return state;
+				}
+			}
 		}
 		return requireState(predecessor);
 	}
 
 	private boolean hasInputState(@NotNull IrBlock predecessor, @NotNull IrBlock block) {
 		if (predecessor.exceptionalSuccessors().contains(block)) {
-			return predecessor.exceptionalExitState() != null;
+			for (IrExceptionEdge edge : predecessor.exceptionEdges())
+				if (edge.handlerBlock() == block && predecessor.exceptionalExitStates().containsKey(edge)) return true;
+			return false;
 		}
 		return predecessor.exitState() != null;
 	}
@@ -366,8 +450,12 @@ public class IrBlockBuilder {
 	private void buildArrayInstruction(@NotNull IrBlock block, @NotNull IrValue[] state, @NotNull ArrayInstruction instruction) {
 		ClassType elementType = arrayElementType(instruction, state);
 		if (instruction.opcode() < Opcodes.APUT) {
-			IrOp op = new IrOp(nextValueId++, elementType, IrOpKind.ARRAY_GET,
-					List.of(read(state, instruction.array()), readTyped(state, instruction.index(), Types.INT)), instruction);
+			IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.ARRAY_GET,
+					instruction, elementType, 2);
+			List<IrValue> inputs = List.of(readTyped(state, instruction.array(), inputType(semantics, 0)),
+					readTyped(state, instruction.index(), inputType(semantics, 1)));
+			semantics = IrInstructionSemantics.forOperation(IrOpKind.ARRAY_GET, instruction, elementType, inputs);
+			IrOp op = new IrOp(nextValueId++, elementType, IrOpKind.ARRAY_GET, inputs, instruction, semantics);
 			op.register(instruction.value());
 			block.statements().add(op);
 			state[instruction.value()] = op;
@@ -381,8 +469,10 @@ public class IrBlockBuilder {
 
 	private void buildInstanceField(@NotNull IrBlock block, @NotNull IrValue[] state, @NotNull InstanceFieldInstruction instruction) {
 		if (instruction.opcode() < Opcodes.IPUT) {
+			IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.INSTANCE_GET,
+					instruction, 1);
 			IrOp op = new IrOp(nextValueId++, instruction.type(), IrOpKind.INSTANCE_GET,
-					List.of(read(state, instruction.instance())), instruction);
+					List.of(readTyped(state, instruction.instance(), inputType(semantics, 0))), instruction, semantics);
 			op.register(instruction.value());
 			block.statements().add(op);
 			state[instruction.value()] = op;
@@ -394,7 +484,9 @@ public class IrBlockBuilder {
 
 	private void buildStaticField(@NotNull IrBlock block, @NotNull IrValue[] state, @NotNull StaticFieldInstruction instruction) {
 		if (instruction.opcode() < Opcodes.SPUT) {
-			IrOp op = new IrOp(nextValueId++, instruction.type(), IrOpKind.STATIC_GET, List.of(), instruction);
+			IrInstructionSemantics semantics = IrInstructionSemantics.forOperation(IrOpKind.STATIC_GET,
+					instruction, 0);
+			IrOp op = new IrOp(nextValueId++, instruction.type(), IrOpKind.STATIC_GET, List.of(), instruction, semantics);
 			op.register(instruction.value());
 			block.statements().add(op);
 			state[instruction.value()] = op;
@@ -403,13 +495,36 @@ public class IrBlockBuilder {
 		}
 	}
 
+	private static @NotNull ClassType inputType(@NotNull IrInstructionSemantics semantics, int index) {
+		if (index < semantics.inputs().size()) return semantics.inputs().get(index).expected().materializedType();
+		return Types.OBJECT;
+	}
+
+	private void validateSemantics(@NotNull IrInstructionSemantics semantics) {
+		if (semantics.complete()) return;
+		owner.report(new ConversionDiagnostic(
+				method.getOwner() == null ? "<unknown>" : ConversionSupport.asmOwner(method.getOwner()),
+				method.toString(), activeOffset, ConversionDiagnostic.Severity.WARNING,
+				ConversionDiagnostic.Kind.SEMANTICS,
+				"Incomplete semantic contract for " + semantics.constructionId(), null));
+	}
+
 	private void populatePhiInputs(@NotNull IrBlock block, @NotNull IrValue[] normalState) {
 		for (IrBlock successor : block.successors()) {
 			populatePhiInputs(block, successor, normalState);
 		}
-		IrValue[] exceptionalState = block.exceptionalExitState() != null ? block.exceptionalExitState() : normalState;
 		for (IrBlock successor : block.exceptionalSuccessors()) {
-			populatePhiInputs(block, successor, exceptionalState);
+			boolean populated = false;
+			for (IrExceptionEdge edge : block.exceptionEdges()) {
+				if (edge.handlerBlock() == successor) {
+					IrValue[] exceptionalState = block.exceptionalExitStates().get(edge);
+					if (exceptionalState != null) {
+						populatePhiInputs(block, successor, exceptionalState);
+						populated = true;
+					}
+				}
+			}
+			if (!populated) populatePhiInputs(block, successor, normalState);
 		}
 	}
 
@@ -418,38 +533,105 @@ public class IrBlockBuilder {
 		for (IrPhi phi : successor.phis()) {
 			IrValue value = state[phi.register()];
 			if (value == null)
-				value = constant(Types.INT, 0, true);
+				value = unknown(phi.type(), phi.register());
 			phi.putOperand(predecessor, value);
-			// A zero constant can be contextually typed by an unrelated use of the
-			// same DEX register. Do not let that null/default value determine the
-			// phi type before a real value reaches the join.
-			if (!value.isZeroConstant() && phi.type().equals(Types.INT) && !value.type().equals(Types.INT)) {
-				phi.type(value.type());
-			}
+			if (!value.isZeroConstant() && !value.type().equals(Types.INT))
+				phi.constrain(me.darknet.dex.convert.ir.value.IrType.from(value));
 		}
 	}
 
 	private @NotNull IrValue read(@NotNull IrValue[] state, int register) {
+		if (register < 0 || register >= state.length) {
+			return unknown(Types.INT, register);
+		}
 		IrValue value = state[register];
 		if (value == null) {
-			value = constant(Types.INT, 0, true);
+			if (activeBlock != null && activeBlock.predecessors().size() > 1) {
+				IrPhi phi = ensurePhi(activeBlock, register, Types.INT);
+				state[register] = phi;
+				return phi;
+			}
+			value = unknown(Types.OBJECT, register);
 			state[register] = value;
 		}
 		return value;
 	}
 
 	private @NotNull IrValue readTyped(@NotNull IrValue[] state, int register, @NotNull ClassType expectedType) {
-		return adaptType(read(state, register), expectedType);
+		IrValue value = read(state, register);
+		if (value instanceof IrUnknown unknown) unknown.refine(expectedType);
+		return adaptType(value, expectedType);
 	}
 
 	private @NotNull IrConstant constant(@NotNull ClassType type, @Nullable Object value, boolean zero) {
 		return new IrConstant(nextValueId++, type, value, zero);
 	}
 
-	private void ensurePhis(@NotNull IrBlock block) {
-		if (!block.phis().isEmpty()) return;
-		for (int register = 0; register < code.getRegisters(); register++) {
-			block.phis().add(new IrPhi(nextValueId++, block, register, Types.INT));
+	private @NotNull IrPhi ensurePhi(@NotNull IrBlock block, int register, @NotNull ClassType type) {
+		for (IrPhi phi : block.phis()) if (phi.register() == register) return phi;
+		IrPhi phi = new IrPhi(nextValueId++, block, register, type);
+		block.phis().add(phi);
+		return phi;
+	}
+
+	private @NotNull IrUnknown unknown(@NotNull ClassType expectedType, int register) {
+		IrUnknown unknown = new IrUnknown(nextValueId++, expectedType, IrTypeKind.from(expectedType), method, activeOffset);
+		return unknown;
+	}
+
+	private boolean validateWideDestination(@NotNull Instruction instruction) {
+		int register = switch (instruction) {
+			case ConstWideInstruction wide -> wide.register();
+			case MoveWideInstruction wide -> wide.to();
+			default -> -1;
+		};
+		if (register < 0) return true;
+		if (register + 1 < code.getRegisters()) return true;
+		owner.reportInvalid(ConversionDiagnostic.Kind.INVALID_WIDE_REGISTER, activeOffset,
+				"Wide DEX value at register " + register + " has no valid register pair");
+		return false;
+	}
+
+	void reportUnknowns(@NotNull List<IrBlock> blocks) {
+		for (IrBlock block : blocks) {
+			for (IrPhi phi : block.phis()) for (IrValue value : phi.operands().values()) reportUnknown(value, phi.register());
+			for (IrStmt statement : block.statements()) {
+				switch (statement) {
+					case IrOp op -> op.inputs().forEach(value -> reportUnknown(value, -1));
+					case IrEffect effect -> effect.inputs().forEach(value -> reportUnknown(value, -1));
+					case IrTerminator terminator -> terminator.inputs().forEach(value -> reportUnknown(value, -1));
+				}
+			}
+			if (block.terminator() != null) block.terminator().inputs().forEach(value -> reportUnknown(value, -1));
+			if (block.exitState() != null) for (IrValue value : block.exitState()) reportUnknown(value, -1);
+			for (IrValue[] state : block.exceptionalExitStates().values()) for (IrValue value : state) reportUnknown(value, -1);
+		}
+	}
+
+	private void reportUnknown(@Nullable IrValue value, int register) {
+		if (value instanceof IrUnknown unknown) owner.reportUnknown(unknown, register);
+	}
+
+	private void removeTrivialPhis(@NotNull List<IrBlock> blocks) {
+		for (IrBlock block : blocks) {
+			for (int index = block.phis().size() - 1; index >= 0; index--) {
+				IrPhi phi = block.phis().get(index);
+				IrValue replacement = null;
+				boolean trivial = true;
+				for (IrValue operand : phi.operands().values()) {
+					IrValue canonical = operand.canonical();
+					if (canonical == phi) continue;
+					if (replacement == null) replacement = canonical;
+					else if (replacement.canonical() != canonical) {
+						trivial = false;
+						break;
+					}
+				}
+				if (trivial && replacement != null && phi.operands().size() > 1) {
+					phi.replaceWith(replacement);
+					block.phis().remove(index);
+				}
+			}
 		}
 	}
 }

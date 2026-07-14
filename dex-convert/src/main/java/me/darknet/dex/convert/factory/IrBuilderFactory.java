@@ -1,6 +1,7 @@
 package me.darknet.dex.convert.factory;
 
 import me.darknet.dex.convert.ir.build.IrBuilder;
+import me.darknet.dex.convert.ir.analysis.IrTypeResolver;
 import me.darknet.dex.tree.definitions.MethodMember;
 import org.jetbrains.annotations.NotNull;
 
@@ -15,4 +16,12 @@ public interface IrBuilderFactory {
 	 * @return A new IR builder for the given method.
 	 */
 	@NotNull IrBuilder newBuilder(@NotNull MethodMember method);
+
+	/** Compatibility-preserving context-aware entry point for type analysis. */
+	default @NotNull IrBuilder newBuilder(@NotNull MethodMember method,
+	                                      @NotNull IrTypeResolver resolver) {
+		IrBuilder builder = newBuilder(method);
+		builder.setTypeResolver(resolver);
+		return builder;
+	}
 }

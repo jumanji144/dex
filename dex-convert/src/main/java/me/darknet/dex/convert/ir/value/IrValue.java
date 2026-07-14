@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 public abstract class IrValue {
 	private final int id;
 	private ClassType type;
+	private IrType latticeType;
 	private int local = -1;
 	private boolean stackOnly;
 	private IrValue replacement;
@@ -17,6 +18,7 @@ public abstract class IrValue {
 	protected IrValue(int id, @NotNull ClassType type) {
 		this.id = id;
 		this.type = type;
+		this.latticeType = IrType.from(type);
 	}
 
 	public int id() {
@@ -29,6 +31,22 @@ public abstract class IrValue {
 
 	public void type(@NotNull ClassType type) {
 		this.type = type;
+		this.latticeType = IrType.from(type);
+	}
+
+	/** The source-neutral type used by inference. */
+	public @NotNull IrType irType() {
+		return latticeType;
+	}
+
+	/** Updates inference state without discarding nullability or exact-reference information. */
+	public void irType(@NotNull IrType type) {
+		this.latticeType = type;
+	}
+
+	public boolean isImprecise() {
+		return latticeType.kind() == IrTypeKind.TOP || latticeType.kind() == IrTypeKind.UNKNOWN
+				|| (latticeType.kind() == IrTypeKind.REFERENCE && latticeType.exactReference() == null);
 	}
 
 	public int local() {
@@ -68,5 +86,10 @@ public abstract class IrValue {
 
 	public @Nullable Object constantValue() {
 		return null;
+	}
+
+	/** Unknown values are deliberately not constants and cannot be stack-only. */
+	public boolean isUnknown() {
+		return false;
 	}
 }

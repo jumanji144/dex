@@ -2,7 +2,6 @@ package me.darknet.dex.convert.ir.optimize;
 
 import me.darknet.dex.convert.ir.IrBlock;
 import me.darknet.dex.convert.ir.IrMethod;
-import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.statement.IrOp;
 import me.darknet.dex.convert.ir.statement.IrStmt;
 import me.darknet.dex.convert.ir.value.IrConstant;
@@ -26,7 +25,7 @@ public class ConstantFoldingOptimizer implements IrOptimizer {
 	protected void foldConstants(@NotNull IrMethod method) {
 		for (IrBlock block : method.blocks()) {
 			for (IrStmt statement : block.statements()) {
-				if (!(statement instanceof IrOp op) || !IrOpSemantics.isRemovable(op)) continue;
+				if (!(statement instanceof IrOp op) || !op.pure()) continue;
 				IrConstant constant = fold(op);
 				if (constant != null) {
 					op.replaceWith(constant);
@@ -36,6 +35,9 @@ public class ConstantFoldingOptimizer implements IrOptimizer {
 	}
 
 	protected IrConstant fold(@NotNull IrOp op) {
+		if (op.isUnknown() || op.isImprecise()
+				|| op.inputs().stream().anyMatch(value -> value.canonical().isUnknown() || value.canonical().isImprecise()))
+			return null;
 		return switch (op.payload()) {
 			case BinaryInstruction instruction -> foldBinary(op, instruction);
 			case BinaryLiteralInstruction instruction -> foldBinaryLiteral(op, instruction);

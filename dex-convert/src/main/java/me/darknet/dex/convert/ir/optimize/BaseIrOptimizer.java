@@ -2,7 +2,6 @@ package me.darknet.dex.convert.ir.optimize;
 
 import me.darknet.dex.convert.ir.IrBlock;
 import me.darknet.dex.convert.ir.IrMethod;
-import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.statement.IrEffect;
 import me.darknet.dex.convert.ir.statement.IrOp;
 import me.darknet.dex.convert.ir.statement.IrStmt;
@@ -77,7 +76,7 @@ public class BaseIrOptimizer implements IrOptimizer {
 				Iterator<IrStmt> iterator = block.statements().iterator();
 				while (iterator.hasNext()) {
 					IrStmt statement = iterator.next();
-					if (!(statement instanceof IrOp op) || !IrOpSemantics.isRemovable(op))
+					if (!(statement instanceof IrOp op) || !op.pure())
 						continue;
 					if (uses.getOrDefault(op.canonical(), 0) != 0)
 						continue;
@@ -168,6 +167,9 @@ public class BaseIrOptimizer implements IrOptimizer {
 	}
 
 	protected boolean canStackInline(@NotNull IrOp op) {
+		if (op.isUnknown() || op.isImprecise()
+				|| op.inputs().stream().anyMatch(value -> value.canonical().isUnknown() || value.canonical().isImprecise()))
+			return false;
 		return !(op.payload() instanceof me.darknet.dex.tree.definitions.instructions.NewInstanceInstruction);
 	}
 

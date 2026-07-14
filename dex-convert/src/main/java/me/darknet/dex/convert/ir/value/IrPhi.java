@@ -33,6 +33,22 @@ public final class IrPhi extends IrValue {
 		return operands;
 	}
 
+	/** Records a construction-time constraint; fixed-point analysis remains authoritative. */
+	public void constrain(@NotNull IrType constraint) {
+		if (irType().kind() == IrTypeKind.INT && constraint.kind() != IrTypeKind.INT) {
+			type(constraint.materializedType());
+			irType(constraint);
+			return;
+		}
+		IrType next = IrType.join(irType(), constraint);
+		if (next.kind() == IrTypeKind.TOP || next.kind() == IrTypeKind.UNKNOWN) {
+			irType(next);
+			return;
+		}
+		type(next.materializedType());
+		irType(next);
+	}
+
 	public void putOperand(@NotNull IrBlock predecessor, @NotNull IrValue value) {
 		operands.put(predecessor, value);
 	}

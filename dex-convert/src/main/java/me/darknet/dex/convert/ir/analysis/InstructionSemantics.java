@@ -43,11 +43,11 @@ public final class InstructionSemantics {
 	private InstructionSemantics() {}
 
 	public static boolean canThrow(@NotNull Instruction instruction) {
-		return exceptionMask(instruction) != 0;
+		return throwMask(instruction) != 0;
 	}
 
 	public static boolean canThrowToHandler(@NotNull Instruction instruction, @NotNull Handler handler) {
-		int exceptions = exceptionMask(instruction);
+		int exceptions = throwMask(instruction);
 		if (exceptions == 0) return false;
 		if (handler.isCatchAll() || (exceptions & ANY) != 0) return true;
 
@@ -70,7 +70,7 @@ public final class InstructionSemantics {
 		};
 	}
 
-	private static int exceptionMask(@NotNull Instruction instruction) {
+	public static int throwMask(@NotNull Instruction instruction) {
 		return switch (instruction) {
 			case BinaryInstruction binary -> arithmeticException(binary.opcode());
 			case Binary2AddrInstruction binary -> arithmeticException(binary.opcode());

@@ -7,6 +7,7 @@ import me.darknet.dex.convert.ir.value.IrPhi;
 import me.darknet.dex.convert.ir.value.IrValue;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
+import me.darknet.dex.tree.definitions.instructions.Instruction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,6 +29,8 @@ public class IrBlock {
 	private final List<IrPhi> phis = new ArrayList<>();
 	private final List<IrStmt> statements = new ArrayList<>();
 	private final Map<IrBlock, IrValue> exceptionInputs = new HashMap<>();
+	private final List<IrExceptionEdge> exceptionEdges = new ArrayList<>();
+	private final Map<IrExceptionEdge, IrValue[]> exceptionalExitStates = new HashMap<>();
 	private IrTerminator terminator;
 	private IrValue[] exitState;
 	private IrValue[] exceptionalExitState;
@@ -121,6 +124,18 @@ public class IrBlock {
 
 	public @NotNull Map<IrBlock, IrValue> exceptionInputs() {
 		return exceptionInputs;
+	}
+
+	public @NotNull List<IrExceptionEdge> exceptionEdges() {
+		return exceptionEdges;
+	}
+
+	public void addExceptionEdge(@NotNull IrExceptionEdge edge) {
+		if (!exceptionEdges.contains(edge)) exceptionEdges.add(edge);
+	}
+
+	public @NotNull Map<IrExceptionEdge, IrValue[]> exceptionalExitStates() {
+		return exceptionalExitStates;
 	}
 
 	public IrExceptionValue ensureExceptionValue(int id, @Nullable ClassType type) {

@@ -159,7 +159,7 @@ public class DexConversionSimple extends AbstractDexConversion {
 		}
 		for (MethodMember method : cls.getMethods().values()) {
 			String[] exceptions = method.getThrownTypes().isEmpty() ? null : method.getThrownTypes().toArray(new String[0]);
-			MethodVisitor mv = ((ClassVisitor) cw).visitMethod(method.getAccess(), method.getName(), method.getType().descriptor(),
+				MethodVisitor mv = ((ClassVisitor) cw).visitMethod(ConversionSupport.mapMethodAccess(method.getAccess()), method.getName(), method.getType().descriptor(),
 					method.getSignature(), exceptions);
 			for (Annotation annotation : method.getAnnotations()) {
 				AnnotationPart part = annotation.annotation();

@@ -18,7 +18,7 @@ final class IrStatementEmitter {
 	                 @NotNull EffectEmitter effects) {
 		switch (statement) {
 			case IrOp op -> {
-				if (op.canonical() != op || op.stackOnly()) return;
+				if (op.canonical() != op) return;
 				operations.emit(op);
 			}
 			case IrEffect effect -> effects.emit(effect);
@@ -36,4 +36,3 @@ final class IrStatementEmitter {
 		void emit(@NotNull IrEffect effect);
 	}
 }
-

@@ -27,6 +27,12 @@ final class IrValueEmitter {
 	static void pushConstant(@NotNull MethodVisitor mv, @NotNull IrConstant constant,
 	                        @NotNull ClassType expectedType) {
 		Object value = constant.constantValue();
+		if (ConversionSupport.isReferenceType(expectedType)
+				&& value != null && !(value instanceof String) && !(value instanceof org.objectweb.asm.Type)
+				&& !ConversionSupport.isReferenceType(constant.type())) {
+			mv.visitInsn(ACONST_NULL);
+			return;
+		}
 		if (constant.isZeroConstant() && ConversionSupport.isReferenceType(expectedType)) {
 			mv.visitInsn(ACONST_NULL);
 			return;
@@ -112,4 +118,3 @@ final class IrValueEmitter {
 		return low | (high << 32);
 	}
 }
-

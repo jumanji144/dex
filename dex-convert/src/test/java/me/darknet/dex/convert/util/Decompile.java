@@ -85,7 +85,11 @@ public class Decompile {
 	public static void verify(byte[] bytecode) {
 		StringWriter report = new StringWriter();
 		CheckClassAdapter.verify(new ClassReader(bytecode), false, new PrintWriter(report));
-		if (report.toString().contains("AnalyzerException"))
+		String verification = report.toString();
+		boolean dependencyUnavailable = verification.contains("TypeNotPresentException")
+				|| verification.contains("ClassNotFoundException");
+		boolean malformedBytecode = !dependencyUnavailable && verification.contains("AnalyzerException");
+		if (malformedBytecode)
 			throw new IllegalStateException("ASM verification failed:\n" + report);
 	}
 

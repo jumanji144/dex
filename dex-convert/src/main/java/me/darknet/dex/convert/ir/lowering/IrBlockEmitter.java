@@ -30,7 +30,7 @@ final class IrBlockEmitter {
 			}
 			host.setCurrentStatement(statement);
 			host.emitStatement(statement);
-			if (statement instanceof IrOp op && op.canonical() == op && !op.stackOnly())
+			if (statement instanceof IrOp op && op.canonical() == op)
 				host.markOperationEmitted(op);
 			host.setCurrentStatement(null);
 		}
@@ -73,4 +73,3 @@ final class IrBlockEmitter {
 		void clearOperandStackCarry();
 	}
 }
-

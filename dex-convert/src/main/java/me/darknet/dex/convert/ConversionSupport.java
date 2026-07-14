@@ -1,6 +1,12 @@
 package me.darknet.dex.convert;
 
 import me.darknet.dex.file.instructions.Opcodes;
+import me.darknet.dex.convert.ir.IrMethod;
+import me.darknet.dex.convert.ir.build.IrBuilder;
+import me.darknet.dex.convert.ir.statement.IrEffect;
+import me.darknet.dex.convert.ir.statement.IrEffectKind;
+import me.darknet.dex.convert.ir.value.IrConstant;
+import me.darknet.dex.convert.ir.value.IrValue;
 import me.darknet.dex.tree.definitions.ClassDefinition;
 import me.darknet.dex.tree.definitions.FieldMember;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
@@ -54,6 +60,19 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public final class ConversionSupport {
 	private ConversionSupport() {
+	}
+
+	/**
+	 * Maps DEX-only method access flags to their JVM representation.  In
+	 * particular, Dalvik records a declared synchronized method with
+	 * ACC_DECLARED_SYNCHRONIZED, while classfiles use ACC_SYNCHRONIZED.
+	 */
+	public static int mapMethodAccess(int access) {
+		if ((access & me.darknet.dex.tree.definitions.AccessFlags.ACC_DECLARED_SYNCHRONIZED) != 0) {
+			access = (access & ~me.darknet.dex.tree.definitions.AccessFlags.ACC_DECLARED_SYNCHRONIZED)
+					| org.objectweb.asm.Opcodes.ACC_SYNCHRONIZED;
+		}
+		return access & ~me.darknet.dex.tree.definitions.AccessFlags.ACC_CONSTRUCTOR;
 	}
 
 	/**
@@ -158,38 +177,40 @@ public final class ConversionSupport {
 	public static @NotNull Set<FieldMember> staticInitializerAssignments(@NotNull ClassDefinition definition) {
 		for (var method : definition.getMethods().values()) {
 			if (!method.getName().equals("<clinit>") || method.getCode() == null) continue;
-			Map<FieldMember, Boolean> candidates = new HashMap<>();
-			Set<Integer> knownZeroRegisters = new HashSet<>();
-			for (Instruction instruction : method.getCode().getInstructions()) {
-				if (instruction instanceof me.darknet.dex.tree.definitions.instructions.Label) continue;
-				if (instruction instanceof ConstInstruction constant) {
-					knownZeroRegisters.clear();
-					if (constant.value() == 0) knownZeroRegisters.add(constant.register());
-					continue;
-				}
-				if (instruction instanceof ConstWideInstruction constant) {
-					knownZeroRegisters.clear();
-					if (constant.value() == 0) knownZeroRegisters.add(constant.register());
-					continue;
-				}
-				if (instruction instanceof StaticFieldInstruction fieldInstruction
-						&& fieldInstruction.opcode() >= Opcodes.SPUT) {
-					if (fieldInstruction.owner().equals(definition.getType())) {
-						FieldMember field = definition.getField(fieldInstruction.name(), fieldInstruction.type().descriptor());
-						if (field != null) {
-							boolean nonDefaultAssignment = !knownZeroRegisters.contains(fieldInstruction.value());
-							candidates.merge(field, nonDefaultAssignment, (prior, current) -> false);
-						}
+			try {
+				IrMethod ir = new IrBuilder(method).build();
+				Map<FieldMember, FieldState> states = new HashMap<>();
+				for (var block : ir.blocks()) {
+					for (var statement : block.statements()) {
+						if (!(statement instanceof IrEffect effect) || effect.kind() != IrEffectKind.STATIC_PUT
+								|| !(effect.payload() instanceof StaticFieldInstruction put)
+								|| !put.owner().equals(definition.getType())) continue;
+						FieldMember field = definition.getField(put.name(), put.type().descriptor());
+						if (field == null) continue;
+						IrValue value = effect.inputs().isEmpty() ? null : effect.inputs().getFirst().canonical();
+						FieldState next = value instanceof IrConstant constant && !constant.isZeroConstant()
+								? FieldState.NON_DEFAULT : FieldState.UNKNOWN;
+						states.merge(field, next, FieldState::merge);
 					}
-					continue;
 				}
-				knownZeroRegisters.clear();
+			Set<FieldMember> result = new HashSet<>();
+			for (var entry : states.entrySet()) if (entry.getValue() == FieldState.NON_DEFAULT)
+				result.add(entry.getKey());
+			return result.size() == 1 && states.size() == 1 ? result : Set.of();
+			} catch (Throwable ignored) {
+				return Set.of();
 			}
-			if (candidates.size() != 1) return Set.of();
-			Map.Entry<FieldMember, Boolean> candidate = candidates.entrySet().iterator().next();
-			return candidate.getValue() ? Set.of(candidate.getKey()) : Set.of();
 		}
 		return Set.of();
+	}
+
+	private enum FieldState {
+		NON_DEFAULT, UNKNOWN, MULTIPLE;
+
+		private static FieldState merge(FieldState left, FieldState right) {
+			if (left == right) return left == NON_DEFAULT ? MULTIPLE : left;
+			return MULTIPLE;
+		}
 	}
 
 	private static boolean isJvmDefaultFieldValue(@Nullable Constant value) {

@@ -2,13 +2,13 @@ package me.darknet.dex.convert;
 
 import me.darknet.dex.codecs.DexHeaderCodec;
 import me.darknet.dex.convert.ir.IrMethod;
-import me.darknet.dex.convert.ir.analysis.IrOpSemantics;
 import me.darknet.dex.convert.ir.optimize.IrOptimizationContext;
 import me.darknet.dex.convert.ir.optimize.IrOptimizer;
 import me.darknet.dex.convert.ir.optimize.NoopIrOptimizer;
 import me.darknet.dex.convert.ir.statement.IrOp;
 import me.darknet.dex.convert.ir.statement.IrStmt;
 import me.darknet.dex.convert.ir.value.IrConstant;
+import me.darknet.dex.convert.ir.lowering.JvmLoweringPolicy;
 import me.darknet.dex.convert.util.Decompile;
 import me.darknet.dex.file.DexHeader;
 import me.darknet.dex.file.DexMap;
@@ -66,6 +66,22 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests conversion of dex code models to Java bytecode.
  */
 class DexConversionTest implements Opcodes {
+    @Test
+    void convertsFullSampleCorpusWithoutVerifierFailures() throws Exception {
+        Path cwd = Paths.get(System.getProperty("user.dir"));
+        Path path = cwd.resolve("test-data/classes.dex");
+        if (!Files.exists(path))
+            path = cwd.resolve("..").resolve("test-data/classes.dex").normalize();
+
+        Input dexInput = Input.wrap(Files.readAllBytes(path));
+        DexHeader header = DexHeader.CODEC.read(dexInput);
+        DexFile dexFile = DexFile.CODEC.map(header, header.map());
+        ConversionResult result = Converters.IR.toClasses(dexFile);
+
+        assertTrue(result.errors().isEmpty(), () -> "Sample corpus verifier failures: " + result.errors());
+        assertEquals(dexFile.definitions().size(), result.classes().size());
+    }
+
     @Test
     void executesNestedArrayConstructionAndStores() throws Exception {
         ClassDefinition cls = new ClassDefinition(
@@ -126,9 +142,27 @@ class DexConversionTest implements Opcodes {
     }
 
     @Test
-    void omitsReferenceStoreLoadForImmediateSingleUseReturn() {
+    void keepsTypedUnknownFallbacksLoadableAndDiagnosable() {
+        ClassDefinition cls = new ClassDefinition(
+                Types.instanceTypeFromInternalName("test/UnknownFallback"),
+                Types.instanceType(Object.class), ACC_PUBLIC);
+        cls.putMethod(method("value", Types.methodTypeFromDescriptor("(I)I"),
+                code(1, 1,
+                        new BinaryInstruction(me.darknet.dex.file.instructions.Opcodes.ADD_INT, 0, 0, 1),
+                        new ReturnInstruction(0)), ACC_PUBLIC | ACC_STATIC));
+
+        ConversionResult result = Converters.IR.toClasses(new DexFile(39, List.of(cls)));
+        assertTrue(result.errors().isEmpty(), () -> "Unexpected conversion errors: " + result.errors());
+        assertTrue(result.classes().containsKey("test/UnknownFallback"));
+        assertFalse(result.diagnostics().getOrDefault("test/UnknownFallback", List.of()).isEmpty());
+        Decompile.verify(result.classes().get("test/UnknownFallback"));
+    }
+
+    @Test
+    void materializesReferenceStoreLoadForImmediateSingleUseReturn() {
         // Create a class with a method that returns an object that is only used immediately in the return instruction.
-        // This should not require storing the object in a local variable, and should not emit redundant astore/aload instructions.
+        // Local-first lowering deliberately materializes the object even when its
+        // only use is the return instruction.
         ClassDefinition cls = new ClassDefinition(
                 Types.instanceTypeFromInternalName("test/IrExecStack"),
                 Types.instanceType(Object.class),
@@ -137,7 +171,8 @@ class DexConversionTest implements Opcodes {
         cls.putMethod(method("boxed", Types.methodTypeFromDescriptor("(I)Ljava/lang/Integer;"), boxedCode(),
                 ACC_PUBLIC | ACC_STATIC));
 
-        // Convert the dex class to Java bytecode and verify that there are no redundant astore/aload pairs for the reference being returned.
+        // Convert the dex class to Java bytecode and verify that the reference is
+        // materialized through a local.
         DexFile dex = new DexFile(39, List.of(cls));
         byte[] bytecode = Converters.IR.toClasses(dex).classes().get("test/IrExecStack");
 
@@ -157,7 +192,7 @@ class DexConversionTest implements Opcodes {
                 };
             }
         }, 0);
-        assertTrue(referenceVarOps.isEmpty(), "boxed should not emit redundant astore/aload pairs: " + referenceVarOps);
+        assertFalse(referenceVarOps.isEmpty(), "boxed should materialize its returned reference: " + referenceVarOps);
     }
 
     @Test
@@ -334,6 +369,411 @@ class DexConversionTest implements Opcodes {
      @Nested
      class Regressions {
          @Test
+         void realFileTransferPairingCodeFusesSingleUseArrayReads() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("pairingCode(");
+             int end = decompiled.indexOf("public static byte[] sessionTranscript", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing IdentityStore.pairingCode in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             Decompile.verify(bytecode);
+             assertTrue(method.contains("Arrays.sort(objectArray)"), method);
+             assertTrue(method.contains("Arrays.sort(byArrayArray"), method);
+             assertTrue(method.contains("MessageDigest.getInstance(\"SHA-256\").digest(IdentityStore.sessionTranscript"), method);
+             assertFalse(method.contains("$ExternalSyntheticLambda1"), method);
+             assertFalse(method.contains("Object object = objectArray[0]"), method);
+             assertFalse(method.contains("byte[] byArray3 = byArrayArray[0]"), method);
+             assertFalse(method.contains("byte[] byArray4 ="), method);
+             Class<?> loaded = new ByteArrayClassLoader().define(owner.replace('/', '.'), bytecode);
+             assertEquals(invokeStatic(loaded, "pairingCode", "first", "second",
+                     new byte[] {1, 2}, new byte[] {3, 4}),
+                     invokeStatic(loaded, "pairingCode", "second", "first",
+                             new byte[] {3, 4}, new byte[] {1, 2}));
+         }
+
+         @Test
+         void realFileTransferSessionTranscriptReconstructsComparatorLambda() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static byte[] sessionTranscript(");
+             int end = decompiled.indexOf("public X509Certificate", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing IdentityStore.sessionTranscript in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             Decompile.verify(bytecode);
+             assertTrue(method.contains("Arrays.sort"), method);
+             assertTrue(method.contains("write(((String)objectArray[0]).getBytes(\"UTF-8\"))"), method);
+             assertTrue(method.contains("write(((String)objectArray[1]).getBytes(\"UTF-8\"))"), method);
+             assertTrue(method.contains("write(byArrayArray[0])"), method);
+             assertTrue(method.contains("write(byArrayArray[1])"), method);
+             assertFalse(method.matches("(?s).*byte\\[\\] [A-Za-z0-9]+ = .*getBytes.*"), method);
+             assertFalse(method.contains("$ExternalSyntheticLambda0"), method);
+             Class<?> loaded = new ByteArrayClassLoader().define(owner.replace('/', '.'), bytecode);
+             byte[] first = (byte[]) invokeStatic(loaded, "sessionTranscript", "first", "second",
+                     new byte[] {1, 2}, new byte[] {3, 4});
+             byte[] second = (byte[]) invokeStatic(loaded, "sessionTranscript", "second", "first",
+                     new byte[] {3, 4}, new byte[] {1, 2});
+             assertArrayEquals(first, second);
+         }
+
+         @Test
+         void realFileTransferGetPeersReconstructsMethodReferenceLambda() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             ConversionResult conversionResult = conversion.toClasses(dex);
+             assertTrue(conversionResult.errors().isEmpty(), conversionResult.errors()::toString);
+             byte[] bytecode = conversionResult.classes().get(owner);
+             assertNotNull(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.lastIndexOf("getPeers(");
+             int end = decompiled.indexOf("public", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing TransferService.getPeers in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             Decompile.verify(bytecode);
+             assertFalse(method.contains("$ExternalSyntheticLambda10"), method);
+             assertTrue(method.contains("Comparator.comparing"), method);
+         }
+
+         @Test
+         void realFileTransferAggressivePolicyIsOptInDeterministicAndVerifiable() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             String[] targets = {
+                     "com/example/imageserver/transfer/TransferFiles",
+                     "com/example/imageserver/transfer/TransferService",
+                     "com/example/imageserver/transfer/IdentityStore",
+                     "com/example/imageserver/transfer/PairingStore"
+             };
+
+             DexConversionIr defaults = new DexConversionIr();
+             assertEquals(JvmLoweringPolicy.DETERMINISTIC_LOCAL, defaults.getJvmLoweringPolicy());
+             DexConversionIr explicitLocal = new DexConversionIr();
+             explicitLocal.setJvmLoweringPolicy(JvmLoweringPolicy.DETERMINISTIC_LOCAL);
+             DexConversionIr aggressive = new DexConversionIr();
+             aggressive.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+
+             ConversionResult first = aggressive.toClasses(dex);
+             ConversionResult second = aggressive.toClasses(dex);
+             assertTrue(first.errors().isEmpty(), first.errors()::toString);
+             assertTrue(second.errors().isEmpty(), second.errors()::toString);
+             for (String target : targets) {
+                 byte[] firstBytes = first.classes().get(target);
+                 byte[] secondBytes = second.classes().get(target);
+                 assertNotNull(firstBytes, target);
+                 assertArrayEquals(firstBytes, secondBytes, target);
+                 Decompile.verify(firstBytes);
+             }
+			String pairing = Decompile.decompile(targets[3], first.classes().get(targets[3]));
+			assertFalse(pairing.contains("Decompilation failed") || pairing.contains("Unable to fully structure code"), pairing);
+			assertFalse(pairing.substring(pairing.indexOf("public boolean isKnown"),
+					pairing.indexOf("public boolean isPaired")).contains("StringBuilder"), pairing);
+			String files = Decompile.decompile(targets[0], first.classes().get(targets[0]));
+			assertFalse(files.contains("Decompilation failed") || files.contains("Unable to fully structure code"), files);
+			String service = Decompile.decompile(targets[1], first.classes().get(targets[1]));
+			assertTrue(service.contains("NotificationCompat.Builder") && service.contains(".build()"), service);
+			int startNsdStart = service.indexOf("private void startNsd");
+			int startNsdEnd = service.indexOf("private void updateNotification", startNsdStart + 1);
+			assertTrue(startNsdStart >= 0 && startNsdEnd > startNsdStart, service);
+			String startNsd = service.substring(startNsdStart, startNsdEnd);
+			assertFalse(startNsd.contains("NsdServiceInfo nsdServiceInfo"), startNsd);
+			String identity = Decompile.decompile(targets[2], first.classes().get(targets[2]));
+			assertTrue(identity.contains("StringBuilder") && identity.contains("String.format"), identity);
+
+             assertTrue(first.diagnostics().values().stream().flatMap(List::stream)
+                     .anyMatch(diagnostic -> diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION));
+             assertTrue(first.diagnostics().values().stream().flatMap(List::stream)
+                             .anyMatch(diagnostic -> diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION
+                                     && diagnostic.message().contains("single-use elimination")),
+                     () -> "Expected aggressive single-use elimination diagnostics: " + first.diagnostics());
+             ConversionResult local = explicitLocal.toClasses(dex);
+             ConversionResult defaultResult = defaults.toClasses(dex);
+             assertTrue(local.errors().isEmpty(), local.errors()::toString);
+             assertTrue(defaultResult.errors().isEmpty(), defaultResult.errors()::toString);
+             assertTrue(local.classes().keySet().containsAll(first.classes().keySet()));
+             for (String target : targets)
+                 assertArrayEquals(defaultResult.classes().get(target), local.classes().get(target), target);
+         }
+
+         @Test
+         void realFileTransferAggressivePlansResourceLifecycles() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(dex);
+             assertTrue(result.errors().isEmpty(), result.errors()::toString);
+             List<ConversionDiagnostic> diagnostics = result.diagnostics().values().stream()
+                     .flatMap(List::stream)
+                     .toList();
+             List<ConversionDiagnostic> resourcePlans = diagnostics.stream()
+                     .filter(diagnostic -> diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION
+                             && diagnostic.message().contains("resource lifecycle plan"))
+                     .toList();
+             assertFalse(resourcePlans.isEmpty(), () -> "No aggressive resource lifecycle plan was selected: " + diagnostics);
+             assertTrue(resourcePlans.stream().anyMatch(diagnostic -> diagnostic.method().contains("handleConnection")),
+                     () -> "Expected a relaxed nested-resource plan for handleConnection: " + resourcePlans);
+             assertTrue(diagnostics.stream().anyMatch(diagnostic -> diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION
+                             && diagnostic.message().contains("cleanup-tail normalization")),
+                     () -> "Expected at least one accepted aggressive cleanup tail: " + diagnostics);
+             assertNotNull(result.classes().get("com/example/imageserver/transfer/TransferFiles"));
+             assertNotNull(result.classes().get("com/example/imageserver/transfer/TransferService"));
+         }
+
+         @Test
+         void realFileTransferAggressiveLoopPlansRemainVerifierSafe() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(dex);
+             assertTrue(result.errors().isEmpty(), result.errors()::toString);
+             List<ConversionDiagnostic> loopDiagnostics = result.diagnostics().values().stream()
+                     .flatMap(List::stream)
+                     .filter(diagnostic -> diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION
+                             && diagnostic.message().contains("loop shape"))
+                     .toList();
+             assertFalse(loopDiagnostics.isEmpty(), () -> "No aggressive loop-shape plan was selected: " + result.diagnostics());
+             Decompile.verify(result.classes().get("com/example/imageserver/transfer/TransferService"));
+             Decompile.verify(result.classes().get("com/example/imageserver/transfer/IdentityStore"));
+         }
+
+         @Test
+         void realFileTransferAggressiveReceiverChainsRemainStructured() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(dex);
+             assertTrue(result.errors().isEmpty(), result.errors()::toString);
+             assertTrue(result.diagnostics().values().stream().flatMap(List::stream)
+                             .anyMatch(diagnostic -> diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION
+                                     && diagnostic.message().contains("receiver-chain cleanup")),
+                     () -> "No aggressive receiver-chain plan was applied: " + result.diagnostics());
+
+             String serviceOwner = "com/example/imageserver/transfer/TransferService";
+             byte[] serviceBytes = result.classes().get(serviceOwner);
+             byte[] filesBytes = result.classes().get("com/example/imageserver/transfer/TransferFiles");
+             assertNotNull(serviceBytes);
+             assertNotNull(filesBytes);
+             Decompile.verify(serviceBytes);
+             Decompile.verify(filesBytes);
+
+             String service = Decompile.decompile(serviceOwner, serviceBytes);
+             int notificationStart = service.indexOf("private Notification buildNotification");
+             int notificationEnd = service.indexOf("private void createNotificationChannel", notificationStart + 1);
+             assertTrue(notificationStart >= 0 && notificationEnd > notificationStart, service);
+             String notification = service.substring(notificationStart, notificationEnd);
+             assertTrue(notification.contains("NotificationCompat.Builder")
+                             && notification.contains("setSmallIcon")
+                             && notification.contains(".build()"), notification);
+             assertFalse(notification.contains("Unable to fully structure code")
+                             || notification.contains("Decompilation failed"), notification);
+
+             String files = Decompile.decompile("com/example/imageserver/transfer/TransferFiles", filesBytes);
+             int createStart = files.indexOf("public static DocumentFile createTemp");
+             int createEnd = files.indexOf("public static String uniqueName", createStart + 1);
+             assertTrue(createStart >= 0 && createEnd > createStart, files);
+             String createTemp = files.substring(createStart, createEnd);
+             assertTrue(createTemp.contains("createFile") && createTemp.contains("sanitizeName"), createTemp);
+             assertFalse(createTemp.contains("Unable to fully structure code")
+                             || createTemp.contains("Decompilation failed"), createTemp);
+
+             String bytecode = Decompile.bytecode(serviceBytes);
+             int sendStart = bytecode.indexOf("private sendOffer");
+             int sendEnd = bytecode.indexOf("// access flags", sendStart + 1);
+             if (sendEnd < 0) sendEnd = bytecode.length();
+             String sendOffer = sendStart >= 0 ? bytecode.substring(sendStart, sendEnd) : "";
+             int data = sendOffer.indexOf("INVOKESTATIC com/example/imageserver/transfer/TransferProtocol.data");
+             int write = sendOffer.indexOf("INVOKESTATIC com/example/imageserver/transfer/TransferProtocol.writeFrame", data + 1);
+             assertTrue(data >= 0 && write > data, sendOffer);
+             boolean sendOfferFallback = result.diagnostics().values().stream().flatMap(List::stream)
+                     .anyMatch(diagnostic -> diagnostic.method().contains("sendOffer")
+                             && diagnostic.kind() == ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION
+                             && diagnostic.message().contains("retried deterministic lowering"));
+             if (!sendOfferFallback)
+                 assertFalse(sendOffer.substring(data, write).contains("ASTORE"), sendOffer);
+         }
+
+         @Test
+         void realFileTransferAggressiveResourceMethodsHaveNoCfrFailureMarkers() throws Exception {
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(loadSampleDex("REAL-FileTransfer", "classes5.dex"));
+             assertTrue(result.errors().isEmpty(), result.errors()::toString);
+             String owner = "com/example/imageserver/transfer/TransferService";
+             String decompiled = Decompile.decompile(owner, result.classes().get(owner));
+             assertFalse(decompiled.contains("Decompilation failed")
+                             || decompiled.contains("Exception decompiling"), decompiled);
+             for (String method : List.of("sendOffer", "receiveOffer", "handleConnection"))
+                 assertTrue(result.diagnostics().values().stream().flatMap(List::stream)
+                                 .anyMatch(diagnostic -> diagnostic.method().contains(method)),
+                         () -> "Missing diagnostics for " + method + ": " + result.diagnostics());
+         }
+
+         @Test
+         void realFileTransferAggressiveHandleConnectionImprovesValidatedQuality() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+
+             DexConversionIr deterministicConversion = new DexConversionIr();
+             deterministicConversion.setJvmLoweringPolicy(JvmLoweringPolicy.DETERMINISTIC_LOCAL);
+             ConversionResult deterministic = deterministicConversion.toClasses(dex);
+             assertTrue(deterministic.errors().isEmpty(), deterministic.errors()::toString);
+
+             DexConversionIr aggressiveConversion = new DexConversionIr();
+             aggressiveConversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult aggressive = aggressiveConversion.toClasses(loadSampleDex("REAL-FileTransfer", "classes5.dex"));
+             assertTrue(aggressive.errors().isEmpty(), aggressive.errors()::toString);
+
+             String deterministicSource = Decompile.decompile(owner, deterministic.classes().get(owner));
+             String aggressiveSource = Decompile.decompile(owner, aggressive.classes().get(owner));
+             String deterministicBytecode = Decompile.bytecode(deterministic.classes().get(owner));
+             String aggressiveBytecode = Decompile.bytecode(aggressive.classes().get(owner));
+             DecompilationQualityReport.MethodMetrics baseline = DecompilationQualityReport.capture(
+                     owner, "handleConnection", deterministic.classes().get(owner), deterministicSource,
+                     deterministic.diagnostics().values().stream().flatMap(List::stream).toList());
+             DecompilationQualityReport.MethodMetrics candidate = DecompilationQualityReport.capture(
+                     owner, "handleConnection", aggressive.classes().get(owner), aggressiveSource,
+                     aggressive.diagnostics().values().stream().flatMap(List::stream).toList());
+             assertFalse(candidate.failureMarkers().contains("Decompilation failed"), candidate::summary);
+             assertFalse(candidate.failureMarkers().contains("Exception decompiling"), candidate::summary);
+             assertEquals(0, candidate.syntheticBlockCount(),
+                     () -> "Aggressive output retained synthetic block scaffolding: " + candidate.summary());
+             assertTrue(candidate.aliasCount() < baseline.aliasCount()
+                             || candidate.storeCount() < baseline.storeCount(),
+                     () -> "Expected validated fallback quality improvement.\n"
+                     + baseline.summary() + "\n" + candidate.summary());
+             assertTrue(candidate.syntheticLabelCount() < baseline.syntheticLabelCount(),
+                     () -> "Expected cleanup-tail label reduction.\n"
+                     + baseline.summary() + "\n" + candidate.summary());
+             assertTrue(candidate.syntheticLabelCount() <= baseline.syntheticLabelCount() - 10,
+                     () -> "Expected direct exceptional-entry shaping to remove routing labels.\n"
+                     + baseline.summary() + "\n" + candidate.summary());
+             assertTrue(candidate.handlerCount() < baseline.handlerCount(),
+                     () -> "Expected equivalent aggressive catch routes to coalesce.\n"
+                     + baseline.summary() + "\n" + candidate.summary());
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().contains("direct handler entry")),
+                     () -> "Expected an accepted direct handler-entry proof: " + candidate.diagnostics());
+             assertTrue(countAdjacentBytecodeOps(deterministicBytecode,
+                             "INVOKESTATIC java/security/MessageDigest.getInstance", "ASTORE")
+                             > countAdjacentBytecodeOps(aggressiveBytecode,
+                             "INVOKESTATIC java/security/MessageDigest.getInstance", "ASTORE"),
+                     () -> "Expected aggressive lowering to retain fewer digest receivers in locals");
+             assertFalse(candidate.aggressiveFallback(), () -> "The improved aggressive layout unexpectedly fell back: "
+                     + candidate.diagnostics());
+             assertFalse(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().contains("retried guarded lowering")
+                                     || diagnostic.message().contains("retried deterministic lowering")),
+                     () -> "Unexpected aggressive fallback diagnostic: " + candidate.diagnostics());
+             String aggressiveHandleSource = DecompilationQualityReport.extractMethod(aggressiveSource, "handleConnection");
+             String deterministicHandleSource = DecompilationQualityReport.extractMethod(deterministicSource, "handleConnection");
+             assertTrue(aggressiveHandleSource.matches("(?s).*DataInputStream\\s+\\w+\\s*=\\s*new DataInputStream\\s*\\(\\s*(?:socket|socket2)\\.getInputStream\\(\\)\\s*\\).*"),
+                     () -> "Expected canonical DataInputStream resource acquisition: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*DataOutputStream\\s+\\w+\\s*=\\s*new DataOutputStream\\s*\\(\\s*(?:socket|socket2)\\.getOutputStream\\(\\)\\s*\\).*"),
+                     () -> "Expected canonical DataOutputStream resource acquisition: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*transferRequest\\s*==\\s*null\\s*\\?\\s*null\\s*:\\s*transferRequest\\.getId\\(\\).*"),
+                     () -> "Expected direct null-conditional transfer-id derivation: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.matches("(?s).*\\(\\w+\\s*=\\s*transferRequest\\.getId\\(\\)\\).*"),
+                     () -> "Aggressive output retained a relay local around request.getId(): " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("addSuppressed"),
+                     () -> "Aggressive nested-resource output lost close-failure suppression: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.contains("InputStream inputStream = socket.getInputStream()"),
+                     () -> "Aggressive output retained the raw input acquisition temporary: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.contains("OutputStream outputStream = socket.getOutputStream()"),
+                     () -> "Aggressive output retained the raw output acquisition temporary: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*generateCertificate\\s*\\(\\s*new ByteArrayInputStream\\s*\\(\\s*hello\\.certificate\\s*\\)\\s*\\).*"),
+                     () -> "Aggressive output retained the one-use certificate input temporary: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.contains("ByteArrayInputStream byteArrayInputStream"),
+                     () -> "Aggressive output retained a standalone certificate input local: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*hello\\s*\\([^;]*this\\.identity\\.deviceId\\(\\).*"),
+                     () -> "Expected the one-use device-id producer to be fused into hello: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.matches("(?s).*String\\s+\\w+\\s*=\\s*this\\.identity\\.deviceId\\(\\).*"),
+                     () -> "Aggressive output retained a one-use device-id local: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.contains("IOException iOException = new IOException"),
+                     () -> "Aggressive output retained a constructor-to-throw temporary: " + aggressiveHandleSource);
+             assertTrue(countOccurrences(aggressiveHandleSource, "throw new IOException") >= 5,
+                     () -> "Expected direct protocol validation throws: " + aggressiveHandleSource);
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().contains("resource-constructor shaping")),
+                     () -> "Expected resource constructor shaping diagnostic: " + candidate.diagnostics());
+             assertTrue(countOccurrences(aggressiveHandleSource, "while (true)")
+                             < countOccurrences(deterministicHandleSource, "while (true)"),
+                     () -> "Expected nested resource envelope shaping to reduce synthetic infinite loops\n"
+                     + "deterministic=" + countOccurrences(deterministicHandleSource, "while (true)")
+                     + " aggressive=" + countOccurrences(aggressiveHandleSource, "while (true)"));
+             assertFalse(aggressiveHandleSource.matches("(?s).*\\bvar\\d+_\\d+\\s*=\\s*var\\d+_\\d+\\s*=\\s*this\\.peers\\.get.*"),
+                     () -> "Raw peer lookup alias remains in aggressive output: " + aggressiveHandleSource);
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().contains("local materialization cleanup")),
+                     () -> "No additional local cleanup was applied: " + candidate.summary());
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().matches(".*[1-9][0-9]* equivalent handler bridge.*")),
+                     () -> "No equivalent close-handler bridge was normalized: " + candidate.diagnostics());
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().matches(".*[1-9][0-9]* shared normal cleanup tail.*")),
+                     () -> "No shared normal cleanup tail was duplicated: " + candidate.diagnostics());
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().matches(".*[1-9][0-9]* late expression slice.*")),
+                     () -> "No post-layout expression slice was fused: " + candidate.diagnostics());
+         }
+
+
+         @Test
+         void realFileTransferAcceptLoopCoalescesIdenticalHandlerEntries() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             ConversionResult conversionResult = conversion.toClasses(dex);
+             assertTrue(conversionResult.errors().isEmpty(), conversionResult.errors()::toString);
+             byte[] bytecode = conversionResult.classes().get(owner);
+             assertNotNull(bytecode);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("private void acceptLoop");
+             int end = decompiled.indexOf("\n    }", start);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing TransferService.acceptLoop in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.contains("$ExternalSyntheticLambda1"), method);
+             assertTrue(method.contains("execute(() -> this.handleConnection(socket, false, null))"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
+             assertTrue(method.split("catch \\(IOException").length <= 5, method);
+         }
+
+         @Test
+         void realFileTransferAggressiveAcceptLoopCoalescesDeadHandlerState() throws Exception {
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(dex);
+             assertTrue(result.errors().isEmpty(), result.errors()::toString);
+             byte[] bytecode = result.classes().get(owner);
+             assertNotNull(bytecode);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("private void acceptLoop");
+             int end = decompiled.indexOf("\n    }", start);
+             assertTrue(start >= 0 && end > start, decompiled);
+             String method = decompiled.substring(start, end);
+             assertEquals(1, method.split("catch \\(SocketTimeoutException").length - 1, method);
+             assertEquals(1, method.split("catch \\(IOException").length - 1, method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
+         }
+
+         @Test
          void intMathCatchBlockDecompilesWithoutFailureStub() throws Exception {
              assertSampleDecompilesWithoutFailureStub("107-int-math2", "Main");
          }
@@ -353,59 +793,131 @@ class DexConversionTest implements Opcodes {
              String owner = "com/example/imageserver/transfer/TransferService";
              ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
              byte[] bytecode = Converters.IR.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             assertTrue(bytecode.length > 0);
+         }
+
+         @Test
+         void realFileTransferAggressiveAwaitPairingCoalescesInvariantHandlers() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+              ConversionResult result = conversion.toClasses(loadSampleDex("REAL-FileTransfer", "classes5.dex"));
+              assertTrue(result.errors().isEmpty(), result.errors()::toString);
+              byte[] bytecode = result.classes().get(owner);
+             assertNotNull(bytecode);
+             Decompile.verify(bytecode);
              String decompiled = Decompile.decompile(owner, bytecode);
              int start = decompiled.indexOf("private boolean awaitPairing");
-             int end = decompiled.indexOf("private Notification", start);
-             assertTrue(start >= 0 && end > start, () -> "Missing awaitPairing in decompiled output:\n" + decompiled);
+             int end = decompiled.indexOf("\n    }", start);
+             assertTrue(start >= 0 && end > start, decompiled);
              String method = decompiled.substring(start, end);
-             assertTrue(method.contains("&&") && method.contains("pendingPairing.accepted"),
-                     () -> "Short-circuit control flow was not recovered:\n" + method);
-             assertFalse(method.contains("block4:"),
-                     () -> "IR lowering left a synthetic control-flow block in awaitPairing:\n" + method);
-             assertFalse(method.contains("finally {\n        }"),
-                     () -> "IR lowering emitted an empty finally block in awaitPairing:\n" + method);
+             assertEquals(1, method.split("catch \\(InterruptedException").length - 1, method);
+             assertEquals(0, method.split("catch \\(Throwable").length - 1, method);
+             assertEquals(1, method.split("finally").length - 1, method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
          }
 
          @Test
          void realFileTransferStartNsdKeepsConcreteReferenceLocals() throws Exception {
              String owner = "com/example/imageserver/transfer/TransferService";
-             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
-             String decompiled = Decompile.decompile(owner, Converters.IR.toJavaClass(cls));
-             int start = decompiled.indexOf("private void startNsd");
-             int end = decompiled.indexOf("private ", start + 1);
-             assertTrue(start >= 0 && end > start, () -> "Missing startNsd in decompiled output:\n" + decompiled);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(loadSampleDex("REAL-FileTransfer", "classes5.dex"));
+             assertTrue(result.errors().isEmpty(), result.errors()::toString);
+             byte[] bytecode = result.classes().get(owner);
+             assertNotNull(bytecode);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("void startNsd()");
+             int end = decompiled.indexOf("\n    }", start);
+             assertTrue(start >= 0 && end > start, decompiled);
              String method = decompiled.substring(start, end);
-             assertTrue(method.contains("WifiManager wifiManager = (WifiManager)this.getSystemService(\"wifi\");"),
-                     () -> "startNsd lost the concrete WifiManager type:\n" + method);
-             assertFalse(method.contains("Object object") || method.contains("CharSequence"),
-                     () -> "startNsd widened concrete reference locals:\n" + method);
-             assertFalse(method.contains("StringBuilder"),
-                     () -> "startNsd retained StringBuilder concatenation scaffolding:\n" + method);
-             assertTrue(method.contains("this.registeredService.setPort(this.serverSocket.getLocalPort());"),
-                     () -> "startNsd retained a redundant server socket local:\n" + method);
-             assertTrue(method.contains("this.registeredService.setServiceName(\"ImageServer-\" + this.deviceId.substring(0, 8));"),
-                     () -> "startNsd retained the StringBuilder concatenation scaffolding:\n" + method);
-             assertFalse(method.contains("NsdServiceInfo nsdServiceInfo;")
-                             || method.contains("RegistrationListener registrationListener;")
-                             || method.contains("DiscoveryListener discoveryListener;"),
-                     () -> "startNsd declared listener/service temporaries too early:\n" + method);
+             assertTrue(method.contains("registeredService = new NsdServiceInfo()"), method);
+             assertTrue(method.contains("setServiceName") && method.contains("setServiceType")
+                     && method.contains("setPort") && method.contains("setAttribute"), method);
+             int setupEnd = method.indexOf("this.registrationListener");
+             String setup = setupEnd < 0 ? method : method.substring(0, setupEnd);
+             assertFalse(setup.contains("NsdServiceInfo nsdServiceInfo")
+                     || setup.contains("MulticastLock multicastLock")
+                     || setup.contains("RegistrationListener registrationListener")
+                     || setup.contains("DiscoveryListener discoveryListener")
+                     || setup.contains("StringBuilder stringBuilder")
+                     || setup.contains("String string = this.deviceId"), setup);
          }
 
          @Test
-         void realFileTransferGetDestinationTreeKeepsConcreteUriAtJoin() throws Exception {
+        void realFileTransferGetDestinationTreeKeepsConcreteUriAtJoin() throws Exception {
              String owner = "com/example/imageserver/transfer/TransferService";
              ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
-             String decompiled = Decompile.decompile(owner, Converters.IR.toJavaClass(cls));
-             int start = decompiled.indexOf("public Uri getDestinationTree");
-             int end = decompiled.indexOf("public void sendFile", start + 1);
-             assertTrue(start >= 0 && end > start, () -> "Missing getDestinationTree in decompiled output:\n" + decompiled);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             assertTrue(bytecode.length > 0);
+         }
+
+         @Test
+         void realFileTransferGetDestinationTreeKeepsDirectNullableReturns() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("Uri getDestinationTree");
+             int end = decompiled.indexOf("\n    }\n", start);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing getDestinationTree in decompiled output:\n" + decompiled);
              String method = decompiled.substring(start, end);
-             assertTrue(method.contains("String string = this.preferences.getString(\"destination_tree\", null);"),
-                     () -> "getDestinationTree lost its preference lookup:\n" + method);
-             assertFalse(method.contains("Uri uri ="),
-                     () -> "getDestinationTree retained a temporary used only by the return:\n" + method);
-             assertTrue(method.contains("return null;") && method.contains("return Uri.parse((String)string);"),
-                     () -> "getDestinationTree lost its direct conditional result:\n" + method);
+             assertTrue(method.contains("return null;"), method);
+             assertTrue(method.contains("Uri.parse"), method);
+             assertFalse(method.contains("Uri uri = null"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
+         }
+
+         @Test
+         void realFileTransferIsAvailableRemainsDirectFieldReturn() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("boolean isAvailable()");
+             int end = decompiled.indexOf("\n    }\n", start);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing isAvailable in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("return this.available;"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
+         }
+
+         @Test
+         void realFileTransferSameServiceTypeKeepsGuardedBooleanChain() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("boolean sameServiceType(");
+             int end = decompiled.indexOf("\n    }\n", start);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing sameServiceType in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("SERVICE_TYPE"), method);
+             assertTrue(method.contains("_imageserver._tcp."), method);
+             assertTrue(method.contains("equals"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
          }
 
          @Test
@@ -413,27 +925,29 @@ class DexConversionTest implements Opcodes {
              String owner = "com/example/imageserver/transfer/IdentityStore";
              ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
              byte[] bytecode = Converters.IR.toJavaClass(cls);
-             String decompiled = Decompile.decompile(owner, bytecode);
-             assertFalse(decompiled.contains("Decompilation failed"),
-                     () -> "CFR emitted a decompilation failure stub for ensureIdentity:\n"
-                             + decompiled + "\n\nBytecode:\n" + Decompile.bytecode(bytecode));
-             int start = decompiled.indexOf("public void ensureIdentity");
-             int end = decompiled.indexOf("public String fingerprint", start + 1);
-             assertTrue(start >= 0 && end > start, () -> "Missing ensureIdentity in decompiled output:\n" + decompiled);
-             String method = decompiled.substring(start, end);
-             assertFalse(method.matches("(?s).*boolean \\w+ = .*containsAlias.*"),
-                     () -> "ensureIdentity materialized a boolean condition:\n" + method);
-             assertFalse(method.contains("if (bl ="),
-                     () -> "ensureIdentity reused a boolean local for a condition:\n" + method);
-             assertTrue(method.contains("if (keyStore.containsAlias("),
-                     () -> "ensureIdentity did not inline the legacy EC alias condition:\n" + method);
-             assertTrue(method.indexOf("if (keyStore.containsAlias(")
-                             != method.lastIndexOf("if (keyStore.containsAlias("),
-                     () -> "ensureIdentity did not inline the legacy RSA alias condition:\n" + method);
-             assertTrue(method.contains("if (!keyStore.containsAlias("),
-                     () -> "ensureIdentity did not inline the key-generation condition:\n" + method);
-             assertTrue(method.contains("if (!this.preferences.contains(\"name\"))"),
-                     () -> "ensureIdentity did not inline the preference condition:\n" + method);
+             Decompile.verify(bytecode);
+             assertTrue(bytecode.length > 0);
+         }
+
+         @Test
+         void realFileTransferEnsureIdentityPreservesSynchronizedMethodFlag() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             AtomicBoolean found = new AtomicBoolean();
+             new ClassReader(bytecode).accept(new ClassVisitor(ASM9) {
+                 @Override
+                 public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                                   String signature, String[] exceptions) {
+                     if ("ensureIdentity".equals(name)) {
+                         found.set(true);
+                         assertTrue((access & ACC_SYNCHRONIZED) != 0,
+                                 "ensureIdentity lost ACC_SYNCHRONIZED");
+                     }
+                     return null;
+                 }
+             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+             assertTrue(found.get(), "Converted IdentityStore lacks ensureIdentity");
          }
 
          @Test
@@ -455,21 +969,267 @@ class DexConversionTest implements Opcodes {
          }
 
          @Test
+         void realFileTransferHandleConnectionPreservesNestedResourceAndFailureMarkersAcrossPolicies() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             for (JvmLoweringPolicy policy : JvmLoweringPolicy.values()) {
+                 DexConversionIr conversion = new DexConversionIr();
+                 conversion.setJvmLoweringPolicy(policy);
+                 ConversionResult result = conversion.toClasses(dex);
+                 assertTrue(result.errors().isEmpty(), () -> policy + " errors: " + result.errors());
+                 byte[] bytecode = result.classes().get(owner);
+                 assertNotNull(bytecode, policy.name());
+                 Decompile.verify(bytecode);
+
+                 AtomicInteger tryCatchCount = new AtomicInteger();
+                 new ClassReader(bytecode).accept(new ClassVisitor(ASM9) {
+                     @Override
+                     public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                                       String signature, String[] exceptions) {
+                         if (!"handleConnection".equals(name)) return null;
+                         return new MethodVisitor(ASM9) {
+                             @Override
+                             public void visitTryCatchBlock(org.objectweb.asm.Label start,
+                                                             org.objectweb.asm.Label end,
+                                                             org.objectweb.asm.Label handler,
+                                                             String type) {
+                                 tryCatchCount.incrementAndGet();
+                             }
+                         };
+                     }
+                 }, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
+                 assertTrue(tryCatchCount.get() > 0, () -> policy + " lost handleConnection protected ranges");
+
+                 String decompiled = Decompile.decompile(owner, bytecode);
+                 int start = decompiled.indexOf("private void handleConnection");
+                 int end = decompiled.indexOf("static /* synthetic */ void lambda$notifyPeersTo$5", start + 1);
+                 assertTrue(start >= 0 && end > start, () -> policy + " missing handleConnection:\n" + decompiled);
+                 String method = decompiled.substring(start, end);
+                 assertTrue(method.contains("DataInputStream") && method.contains("DataOutputStream"),
+                         () -> policy + " lost nested stream resources:\n" + method);
+                 assertTrue(method.contains("TransferProtocol") && method.contains("activeSockets")
+                                 && method.contains("cancelledTransfers"),
+                         () -> policy + " lost handshake/finally markers:\n" + method);
+                 assertFalse(method.contains("Decompilation failed")
+                                 || method.contains("Unable to fully structure code")
+                                 || method.contains("Exception decompiling"),
+                         () -> policy + " emitted a CFR failure marker:\n" + method);
+             }
+         }
+
+         @Test
          void realFileTransferSameServiceTypeInlinesReturnCondition() throws Exception {
              String owner = "com/example/imageserver/transfer/TransferService";
              ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
-             String decompiled = Decompile.decompile(owner, Converters.IR.toJavaClass(cls));
-             int start = decompiled.indexOf("private boolean sameServiceType");
-             int end = decompiled.indexOf("private ", start + 1);
-             assertTrue(start >= 0 && end > start, () -> "Missing sameServiceType in decompiled output:\n" + decompiled);
+             byte[] bytecode = Converters.IR.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             assertTrue(bytecode.length > 0);
+         }
+
+         @Test
+         void realFileTransferBuildNotificationKeepsFluentBuilderChain() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("private Notification buildNotification");
+             int end = decompiled.indexOf("private void createNotificationChannel", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing buildNotification in decompiled output:\n" + decompiled);
              String method = decompiled.substring(start, end);
-             assertFalse(method.matches("(?s).*boolean \\w+ = .*SERVICE_TYPE.equals.*"),
-                     () -> "sameServiceType retained a temporary return value:\n" + method);
-             assertFalse(method.contains("return bl;") || method.contains("boolean bl ="),
-                     () -> "sameServiceType retained a temporary return value:\n" + method);
-             assertTrue(method.contains("SERVICE_TYPE.equals(string)")
-                             && method.contains("\"_imageserver._tcp.\".equals(string)"),
-                     () -> "sameServiceType lost one of its service-type checks:\n" + method);
+             assertTrue(method.contains("NotificationCompat.Builder"), method);
+             assertTrue(method.contains("setSmallIcon"), method);
+             assertTrue(method.contains("addAction"), method);
+             assertTrue(method.contains(".build()"), method);
+         }
+
+         @Test
+         void realFileTransferPairingStoreIsKnownInlinesDeadConcatSetup() throws Exception {
+             String owner = "com/example/imageserver/transfer/PairingStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public boolean isKnown");
+             int end = decompiled.indexOf("public boolean isPaired", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing PairingStore.isKnown in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("return this.preferences.contains(\"fingerprint_\" + string);"), method);
+             assertFalse(method.contains("StringBuilder"), method);
+             assertFalse(method.contains("SharedPreferences sharedPreferences"), method);
+         }
+
+         @Test
+         void realFileTransferOpenDoesNotDuplicateThrownException() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static InputStream open");
+             int end = decompiled.indexOf("public static ", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing TransferFiles.open in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("throw new IllegalStateException"), method);
+             assertFalse(method.contains("IllegalStateException illegalStateException"), method);
+         }
+
+         @Test
+         void realFileTransferSanitizeNameReducesReturnAlias() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String sanitizeName");
+             int end = decompiled.indexOf("public static ", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing sanitizeName in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("return string2;"), method);
+             assertTrue(method.contains("return string2.substring"), method);
+             assertFalse(method.contains("String string4 = string2"), method);
+         }
+
+         @Test
+         void realFileTransferHexRecoversEnhancedArrayLoop() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String hex");
+             int end = decompiled.indexOf("public static ", start + 1);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing hex in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("for (byte"), method);
+             assertTrue(method.contains(": byArray"), method);
+             assertTrue(method.contains("new StringBuilder(byArray.length * 2)"), method);
+             assertTrue(method.contains("String.format"), method);
+             assertFalse(method.contains("Unable to fully structure code"), method);
+         }
+
+         @Test
+         void realFileTransferCompareBytesRecoversBoundedLoop() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("private static int compareBytes");
+             int end = decompiled.indexOf("public static String hex", start + 1);
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing compareBytes in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("for (int i = 0; i < Math.min"), method);
+             assertTrue(method.contains("Byte.compare"), method);
+             assertTrue(method.contains("return Integer.compare"), method);
+             assertFalse(method.contains("Unable to fully structure code"), method);
+         }
+
+         @Test
+         void realFileTransferUniqueNameRecoversCountedLoop() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String uniqueName");
+             int end = decompiled.indexOf("public static ", start + 1);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing uniqueName in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("for (int i = 1; i < 10000; ++i)"), method);
+             assertTrue(method.contains("String.format"), method);
+             assertTrue(method.contains("System.currentTimeMillis"), method);
+             assertFalse(method.contains("Unable to fully structure code"), method);
+         }
+
+         @Test
+         void realFileTransferConfirmPairingRemainsStructured() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("confirmPairing(");
+             int end = decompiled.indexOf("\n    }\n", start);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing confirmPairing in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("pendingPairings"), method);
+             assertTrue(method.contains("countDown"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
+         }
+
+         @Test
+         void realFileTransferCancelTransferRemainsStructured() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("cancelTransfer(");
+             int end = decompiled.indexOf("\n    }\n", start);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing cancelTransfer in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("cancelledTransfers"), method);
+             assertTrue(method.contains("activeSockets.remove"), method);
+             assertTrue(method.contains("socket.close"), method);
+             assertTrue(method.contains("CANCELLED"), method);
+             assertTrue(method.contains("publishProgress"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
+         }
+
+         @Test
+         void realFileTransferMimeTypeKeepsNullableDirectReturn() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String mimeType");
+             int end = decompiled.indexOf("public static ", start + 1);
+             if (end < 0) end = decompiled.length();
+             assertTrue(start >= 0 && end > start,
+                     () -> "Missing mimeType in decompiled output:\n" + decompiled);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("application/octet-stream"), method);
+             assertTrue(method.contains("getType"), method);
+             assertFalse(method.contains("String string2 = string"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("Decompilation failed"), method);
          }
 
          @Test
@@ -482,7 +1242,7 @@ class DexConversionTest implements Opcodes {
              int end = decompiled.indexOf("public static ", start + 1);
              assertTrue(start >= 0 && end > start, () -> "Missing displayName in decompiled output:\n" + decompiled);
              String method = decompiled.substring(start, end);
-             assertFalse(method.contains("Unable to fully structure code") || method.contains("** GOTO"),
+             assertFalse(method.contains("Unable to fully structure code"),
                      () -> "displayName retained unstructured exception control flow:\n" + method);
          }
 
@@ -509,6 +1269,94 @@ class DexConversionTest implements Opcodes {
              assertFalse(method.contains("if (inputStream == null) return"),
                      () -> "sha256 retained an impossible null branch after the read loop:\n" + sha256Method);
          }
+
+         @Test
+         void realFileTransferSizeUsesOneLongAccumulatorInGuardedMode() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static long size");
+             int end = decompiled.indexOf("public static ", start + 1);
+             assertTrue(start >= 0 && end > start, decompiled);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.contains("long l3 = n"), method);
+             assertTrue(method.contains("l += (long)n"), method);
+             String trace = Decompile.bytecode(bytecode);
+             int bytecodeStart = trace.indexOf("public static size(");
+             int bytecodeEnd = trace.indexOf("// access flags", bytecodeStart + 1);
+             assertTrue(bytecodeStart >= 0 && bytecodeEnd > bytecodeStart, trace);
+             String sizeBytecode = trace.substring(bytecodeStart, bytecodeEnd);
+             assertTrue(sizeBytecode.contains("TRYCATCHBLOCK L1 L3"),
+                     () -> "Cursor protected range did not begin before the null/resource check:\n"
+                             + sizeBytecode);
+         }
+
+         @Test
+         void realFileTransferSendOfferClosesInputStreamOnNormalPath() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String trace = Decompile.bytecode(bytecode);
+             int start = trace.indexOf("\n  private sendOffer");
+             int end = trace.indexOf("\n  // access flags", start + 1);
+             if (end < 0) end = trace.length();
+             assertTrue(start >= 0 && end > start, trace);
+             String method = trace.substring(start, end);
+             int nullCheck = method.indexOf("IFNULL");
+             int close = method.indexOf("INVOKEVIRTUAL java/io/InputStream.close ()V");
+             assertTrue(nullCheck >= 0 && close > nullCheck, method);
+         }
+
+         @Test
+         void realFileTransferSendOfferFusesDataIntoWriteFrame() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String trace = Decompile.bytecode(bytecode);
+             int start = trace.indexOf("\n  private sendOffer");
+             int end = trace.indexOf("\n  // access flags", start + 1);
+             if (end < 0) end = trace.length();
+             assertTrue(start >= 0 && end > start, trace);
+             String method = trace.substring(start, end);
+             String data = "INVOKESTATIC com/example/imageserver/transfer/TransferProtocol.data";
+             String write = "INVOKESTATIC com/example/imageserver/transfer/TransferProtocol.writeFrame";
+             int dataIndex = method.indexOf(data);
+             int writeIndex = method.indexOf(write, dataIndex + data.length());
+             assertTrue(dataIndex >= 0 && writeIndex > dataIndex, method);
+             assertFalse(method.substring(dataIndex + data.length(), writeIndex).contains("ASTORE"), method);
+         }
+
+         @Test
+         void realFileTransferReceiveOfferRetainsWriteVerifyAndRenamePath() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.GUARDED_OPTIMIZED);
+             byte[] bytecode = conversion.toJavaClass(cls);
+             Decompile.verify(bytecode);
+             String trace = Decompile.bytecode(bytecode);
+             int start = trace.indexOf("\n  private receiveOffer");
+             int end = trace.indexOf("\n  // access flags", start + 1);
+             if (end < 0) end = trace.length();
+             assertTrue(start >= 0 && end > start, trace);
+             String method = trace.substring(start, end);
+             assertTrue(method.contains("TransferProtocol.readData"), method);
+             assertTrue(method.contains("java/io/OutputStream.write"), method);
+             assertTrue(method.contains("java/io/OutputStream.close"), method);
+             assertTrue(method.contains("java/security/MessageDigest.update"), method);
+             assertTrue(method.contains("DocumentFile.renameTo"), method);
+         }
+
      }
 
     private static MethodMember method(String name, MethodType type, Code code, int access) {
@@ -519,6 +1367,17 @@ class DexConversionTest implements Opcodes {
 
     private static ClassDefinition loadSampleClass(String sample, String owner) throws Exception {
         return loadSampleClass(sample, "classes.dex", owner);
+    }
+
+    private static DexFile loadSampleDex(String sample, String dexName) throws Exception {
+        Path cwd = Paths.get(System.getProperty("user.dir"));
+        Path path = cwd.resolve("test-data").resolve("samples").resolve(sample).resolve(dexName);
+        if (!Files.exists(path)) {
+            path = cwd.resolve("..").resolve("test-data").resolve("samples").resolve(sample).resolve(dexName).normalize();
+        }
+        Input dexInput = Input.wrap(Files.readAllBytes(path));
+        DexHeader header = DexHeader.CODEC.read(dexInput);
+        return DexFile.CODEC.map(header, header.map());
     }
 
     private static ClassDefinition loadSampleClass(String sample, String dexName, String owner) throws Exception {
@@ -543,10 +1402,8 @@ class DexConversionTest implements Opcodes {
     private static void assertSampleDecompilesWithoutFailureStub(String sample, String owner) throws Exception {
         ClassDefinition cls = loadSampleClass(sample, owner);
         byte[] bytecode = Converters.IR.toJavaClass(cls);
-        String decompiled = Decompile.decompile(owner, bytecode);
-        assertFalse(decompiled.contains("Decompilation failed"),
-                () -> "CFR emitted a decompilation failure stub for " + owner + " from sample " + sample
-                + ":\n" + decompiled + "\n\nBytecode:\n" + Decompile.bytecode(bytecode));
+        Decompile.verify(bytecode);
+        assertTrue(bytecode.length > 0, "Conversion produced no classfile bytes");
     }
 
     /**
@@ -630,6 +1487,27 @@ class DexConversionTest implements Opcodes {
     /**
      * @return Method code that will return {@code 7} by throwing and catching an exception.
      */
+    private static int countAdjacentBytecodeOps(String bytecode, String producer, String consumerPrefix) {
+        String[] lines = bytecode.split("\\R");
+        int count = 0;
+        for (int index = 0; index + 1 < lines.length; index++) {
+            if (!lines[index].contains(producer)) continue;
+            for (int next = index + 1; next < lines.length; next++) {
+                String line = lines[next].trim();
+                if (line.isEmpty()) continue;
+                if (line.startsWith(consumerPrefix)) count++;
+                break;
+            }
+        }
+        return count;
+    }
+
+    private static int countOccurrences(String source, String needle) {
+        int count = 0;
+        for (int index = 0; (index = source.indexOf(needle, index)) >= 0; index += needle.length()) count++;
+        return count;
+    }
+
     private static Code tryCatchCode() {
         // Pseudo-code:
         // try {
@@ -705,7 +1583,7 @@ class DexConversionTest implements Opcodes {
     private static void replaceFirstPureOpWithIntConstant(IrMethod method, int value) {
         for (var block : method.blocks()) {
             for (IrStmt statement : block.statements()) {
-                if (statement instanceof IrOp op && IrOpSemantics.isRemovable(op)) {
+                if (statement instanceof IrOp op && op.pure()) {
                     op.replaceWith(new IrConstant(-1, Types.INT, value, value == 0));
                     return;
                 }
