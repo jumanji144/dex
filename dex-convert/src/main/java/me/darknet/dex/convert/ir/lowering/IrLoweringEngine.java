@@ -105,6 +105,8 @@ public final class IrLoweringEngine {
 	private final Set<IrOp> emittedOps;
 	private final Set<IrOp> directReturnOperands = new HashSet<>();
 	private final Set<IrBlock> fullyInlinedReturnBlocks = new HashSet<>();
+	private final Map<IrBlock, InlineThrowDecision> inlineThrowDecisions = new IdentityHashMap<>();
+	private final Set<IrBlock> inlineThrowBlocks = Collections.newSetFromMap(new IdentityHashMap<>());
 	private final Set<IrEffect> emittedEffects;
 	private final Map<IrOp, IrOp> constructorByReceiver = new HashMap<>();
 	private final Set<IrOp> inlineConstructedReceivers = new HashSet<>();
@@ -150,6 +152,10 @@ public final class IrLoweringEngine {
 	private record HandlerTail(@NotNull IrBlock root, @NotNull IrBlock target, @NotNull Label label) {}
 
 	private record DirectReturn(@NotNull IrTerminator terminator, @NotNull IrValue value) {}
+
+	private record InlineThrowDecision(@NotNull IrBlock decision, @NotNull IrBlock truePath,
+	                                   @NotNull IrBlock falsePath, @NotNull IrBlock failureTarget,
+	                                   @NotNull IrBlock successTarget, @NotNull List<IrBlock> blocks) {}
 
 	private static final Handle LAMBDA_METAFACTORY = new Handle(H_INVOKESTATIC,
 			"java/lang/invoke/LambdaMetafactory", "metafactory",
@@ -289,6 +295,7 @@ public final class IrLoweringEngine {
 		// stale, distinct label that later becomes an end-of-method backedge.
 		initializeLabels();
 		captureLayoutTransparency();
+		collectInlineThrowDecisions();
 		collectProtectedRangePlans();
 		captureExceptionLayoutPlan();
 		// Exception planning can turn a previously transparent block into a real
@@ -351,6 +358,7 @@ public final class IrLoweringEngine {
 		skipped.addAll(deferredNormalTailBlocks);
 		skipped.addAll(deferredNullThrowBlocks);
 		skipped.addAll(fullyInlinedReturnBlocks);
+		skipped.addAll(inlineThrowBlocks);
 		// A direct handler entry still relies on the handler block's ordinary
 		// emission to store the JVM exception into its IR value.  Do not let a
 		// cleanup/inline plan skip that block and leave the handler label pointing
@@ -519,11 +527,44 @@ public final class IrLoweringEngine {
 								&& existing.lastSource() == candidate.lastSource());
 					if (!duplicate) combined.add(candidate);
 				}
-				return List.copyOf(combined);
+				return pruneHandlerOnlyRanges(combined);
 		}
 		}
+		List<JvmExceptionLayoutPlan.PlannedRange> singleResource = prepareCanonicalSingleResourceRanges(
+				ranges, handlerEntries, skipped);
+		if (singleResource != null) return pruneHandlerOnlyRanges(singleResource);
 		appendCompositeFailureEnvelopes(ranges, protectedRangePlans, handlerEntries);
-		return List.copyOf(ranges);
+		return pruneHandlerOnlyRanges(ranges);
+	}
+
+	private @NotNull List<JvmExceptionLayoutPlan.PlannedRange> pruneHandlerOnlyRanges(
+			@NotNull List<JvmExceptionLayoutPlan.PlannedRange> ranges) {
+		if (!policy.aggressiveCleanup()) return List.copyOf(ranges);
+		return ranges.stream()
+				.filter(range -> !isSuppressedHandlerContinuation(range))
+				.toList();
+	}
+
+	private boolean isSuppressedHandlerContinuation(@NotNull JvmExceptionLayoutPlan.PlannedRange range) {
+		if (singleResourceLifecycles() == null) return false;
+		if (!"java/lang/Exception".equals(range.catchType())) return false;
+		if (range.firstSource().statements().stream().noneMatch(this::isSuppressedStatement)) return false;
+		if (hasSuppressedEffect(range.handler().handlerBlock())) return false;
+		return method.exceptionRegions().stream()
+				.flatMap(region -> region.handlers().stream())
+				.filter(handler -> handler.handlerBlock() != range.handler().handlerBlock())
+				.anyMatch(handler -> hasSuppressedEffect(handler.handlerBlock())
+					&& reachableBlocks(handler.handlerBlock()).contains(range.firstSource()));
+	}
+
+	private boolean isSuppressedStatement(@NotNull IrStmt statement) {
+		return switch (statement) {
+			case IrOp op -> op.payload() instanceof InvokeInstruction invoke
+					&& "addSuppressed".equals(invoke.name());
+			case IrEffect effect -> effect.payload() instanceof InvokeInstruction invoke
+					&& "addSuppressed".equals(invoke.name());
+			default -> false;
+		};
 	}
 
 	private boolean hasSuppressedEffect(@NotNull IrBlock handler) {
@@ -535,6 +576,286 @@ public final class IrLoweringEngine {
 							&& "addSuppressed".equals(invoke.name());
 					default -> false;
 				}));
+	}
+
+	/**
+	 * Converts a single proven resource lifecycle from DEX-fragmented protected
+	 * ranges to the conventional JVM try-with-resources body range.  This is
+	 * the non-nested counterpart to composite resource layout: the outer
+	 * cleanup/finalizer range remains independent, while the resource-close
+	 * handler no longer cuts through loops in the protected body.
+	 */
+	private @Nullable List<JvmExceptionLayoutPlan.PlannedRange> prepareCanonicalSingleResourceRanges(
+			@NotNull List<JvmExceptionLayoutPlan.PlannedRange> existing,
+			@NotNull Map<IrBlock, Label> handlerEntries,
+			@NotNull Set<IrBlock> skipped) {
+		if (!policy.aggressiveCleanup() || canonicalCompositePlan() != null || cleanupPlans.isEmpty())
+			return null;
+		List<JvmCleanupRegionPlan> lifecycles = singleResourceLifecycles();
+		if (lifecycles == null) return null;
+		JvmCleanupRegionPlan lifecycle = representativeSingleResourceLifecycle(lifecycles);
+		if (lifecycle.acquisition() == null)
+			return rejectCanonicalSingleResource(lifecycle, "resource acquisition is missing");
+		if (lifecycle.normalClose() == null)
+			return rejectCanonicalSingleResource(lifecycle, "normal close operation is missing");
+		if (!cleanupResourceMaterialized(lifecycle.resource()))
+			return rejectCanonicalSingleResource(lifecycle, "resource value is not materialized");
+		IrBlock closeBlock = blockContaining(lifecycle.normalClose());
+		IrBlock acquisitionBlock = blockContaining(lifecycle.acquisition());
+		IrBlock firstSource = resourceBodySource(lifecycle, acquisitionBlock, lifecycles, skipped);
+		if (firstSource == null) return rejectCanonicalSingleResource(lifecycle, "resource body source is missing");
+		if (closeBlock == null || skipped.contains(closeBlock))
+			return rejectCanonicalSingleResource(lifecycle, "normal close block is unavailable");
+		Label start = labels.get(firstSource);
+		Label end = labels.get(closeBlock);
+		Label handlerLabel = plannedHandlerLabel(firstSource, lifecycle.handler().handlerBlock(), handlerEntries);
+		if (start == null || end == null || handlerLabel == null || start == end)
+			return rejectCanonicalSingleResource(lifecycle, "resource range labels are incomplete");
+		List<IrExceptionHandler> finalizerHandlers = cleanupFinalizerHandlers(lifecycles);
+		IrExceptionHandler finalizer = finalizerHandlers.stream()
+				.max(Comparator.comparingInt(handler -> handler.handlerBlock().startOffset()))
+				.orElse(null);
+		if (finalizer == null)
+			return rejectCanonicalSingleResource(lifecycle, "cleanup finalizer handler is missing");
+
+		List<JvmExceptionLayoutPlan.PlannedRange> result = new ArrayList<>();
+		Set<IrExceptionRegion> lifecycleRegions = Collections.newSetFromMap(new IdentityHashMap<>());
+		lifecycles.forEach(plan -> lifecycleRegions.add(plan.region()));
+		result.add(new JvmExceptionLayoutPlan.PlannedRange(lifecycle.region(), lifecycle.handler(), lifecycle,
+				firstSource, closeBlock, end, handlerLabel, catchType(lifecycle.handler()),
+				JvmCleanupHandlerRole.RESOURCE_CLOSE, true, false, true, false, null));
+
+		IrExceptionEdge closeEdge = lifecycle.closeException();
+		if (closeEdge != null && closeEdge.handlerBlock() != lifecycle.handler().handlerBlock()) {
+			IrExceptionHandler closeHandler = exceptionHandlerFor(closeEdge);
+			IrBlock closeEndBlock = firstEmittedBlockAfter(closeBlock, skipped);
+			IrExceptionRegion closeRegion = closeHandler == null ? null : handlerRegion(closeHandler);
+			// A DEX close edge may target the enclosing temp-file finalizer when the
+			// normal close itself fails.  It is not the JVM suppression handler unless
+			// that handler actually carries addSuppressed semantics.
+			if (closeHandler != null && hasSuppressedEffect(closeHandler.handlerBlock())
+					&& closeRegion != null && closeEndBlock != null) {
+				Label closeEnd = labels.get(closeEndBlock);
+				Label closeHandlerLabel = plannedHandlerLabel(closeBlock, closeHandler.handlerBlock(), handlerEntries);
+				if (closeEnd != null && closeHandlerLabel != null && labels.get(closeBlock) != closeEnd) {
+					result.add(new JvmExceptionLayoutPlan.PlannedRange(closeRegion, closeHandler, lifecycle,
+							closeBlock, closeEndBlock, closeEnd, closeHandlerLabel, catchType(closeHandler),
+							JvmCleanupHandlerRole.SUPPRESSED_RETHROW, true, false, true, false, null));
+				}
+			}
+		}
+
+		IrExceptionRegion finalizerRegion = handlerRegion(finalizer);
+		if (finalizerRegion == null)
+			return rejectCanonicalSingleResource(lifecycle, "cleanup finalizer region is missing");
+		List<List<IrBlock>> finalizerGroups = finalizerSourceGroups(finalizerHandlers, skipped);
+		if (finalizerGroups.isEmpty())
+			return rejectCanonicalSingleResource(lifecycle, "cleanup finalizer source range is missing");
+		for (List<IrBlock> group : finalizerGroups) {
+			Label finalizerLabel = plannedHandlerLabel(group.getFirst(), finalizer.handlerBlock(), handlerEntries);
+			Label finalizerEnd = aggressiveProtectedEnd(group.getLast(), Integer.MAX_VALUE);
+			if (finalizerLabel == null || finalizerEnd == null || labels.get(group.getFirst()) == finalizerEnd)
+				return rejectCanonicalSingleResource(lifecycle, "cleanup finalizer labels are incomplete");
+			result.add(new JvmExceptionLayoutPlan.PlannedRange(finalizerRegion, finalizer, lifecycle,
+					group.getFirst(), group.getLast(), finalizerEnd, finalizerLabel,
+					catchType(finalizer), JvmCleanupHandlerRole.FINALLY_CLEANUP, true, false,
+					group.size() > 1, false, null));
+		}
+
+		Set<IrBlock> finalizerHandlerBlocks = Collections.newSetFromMap(new IdentityHashMap<>());
+		finalizerHandlers.forEach(handler -> finalizerHandlerBlocks.add(handler.handlerBlock()));
+		for (JvmExceptionLayoutPlan.PlannedRange range : existing) {
+			if (lifecycleRegions.contains(range.region()) || finalizerHandlerBlocks.contains(range.handler().handlerBlock()))
+				continue;
+			boolean duplicate = result.stream().anyMatch(candidate ->
+					candidate.region() == range.region()
+							&& candidate.handler().handlerBlock() == range.handler().handlerBlock()
+							&& candidate.firstSource() == range.firstSource()
+							&& candidate.lastSource() == range.lastSource());
+			if (!duplicate) result.add(range);
+		}
+		report(ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION, lifecycle.region().startOffset(),
+				"Applied aggressive single-resource cleanup-finalizer shaping");
+		return List.copyOf(result);
+	}
+
+	private @Nullable List<JvmCleanupRegionPlan> singleResourceLifecycles() {
+		IrValue resource = null;
+		List<JvmCleanupRegionPlan> result = new ArrayList<>();
+		for (JvmCleanupRegionPlan plan : cleanupPlans.values()) {
+			if (plan.normalClose() == null || !cleanupResourceMaterialized(plan.resource())) return null;
+			IrValue canonical = plan.resource().canonical();
+			if (resource == null) {
+				resource = canonical;
+			} else if (resource != canonical) {
+				return null;
+			}
+			result.add(plan);
+		}
+		if (result.isEmpty()) return null;
+		result.sort(Comparator
+				.comparingInt((JvmCleanupRegionPlan plan) -> plan.region().startOffset())
+				.thenComparingInt(plan -> plan.region().endOffset()));
+		return List.copyOf(result);
+	}
+
+	private @NotNull JvmCleanupRegionPlan representativeSingleResourceLifecycle(
+			@NotNull List<JvmCleanupRegionPlan> lifecycles) {
+		return lifecycles.stream()
+				.max(Comparator
+						.comparingInt((JvmCleanupRegionPlan plan) -> plan.normalCloseOffset(method))
+						.thenComparingInt(plan -> plan.region().endOffset()))
+				.orElse(lifecycles.getFirst());
+	}
+
+	private @Nullable List<JvmExceptionLayoutPlan.PlannedRange> rejectCanonicalSingleResource(
+			@NotNull JvmCleanupRegionPlan lifecycle,
+			@NotNull String reason) {
+		report(ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION, lifecycle.region().startOffset(),
+				ConversionDiagnostic.Severity.INFO, false,
+				"Rejected aggressive single-resource cleanup-finalizer shaping: " + reason);
+		return null;
+	}
+
+	private @Nullable IrBlock firstResourceSource(@NotNull JvmCleanupRegionPlan lifecycle,
+	                                             @NotNull Set<IrBlock> skipped) {
+		return lifecycle.protectedBody().stream()
+				.filter(block -> !skipped.contains(block)
+						&& !(policy.aggressiveCleanup() && layoutTransparentBlocks.contains(block)))
+				.min(Comparator.comparingInt(block -> layout.emissionOrder().indexOf(block)))
+				.orElse(null);
+	}
+
+	private @Nullable IrBlock resourceBodySource(@NotNull JvmCleanupRegionPlan lifecycle,
+	                                             @Nullable IrBlock acquisitionBlock,
+	                                             @NotNull List<JvmCleanupRegionPlan> lifecycles,
+	                                             @NotNull Set<IrBlock> skipped) {
+		IrBlock nullResourceBlock = lifecycle.nullResourceBlock();
+		if (nullResourceBlock == null || nullResourceBlock.terminator() == null
+				|| nullResourceBlock.terminator().kind() != IrTerminatorKind.IF_ZERO) {
+			nullResourceBlock = acquisitionBlock;
+			Set<IrBlock> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+			while (nullResourceBlock != null && visited.add(nullResourceBlock)
+					&& nullResourceBlock.terminator() != null
+					&& nullResourceBlock.terminator().kind() == IrTerminatorKind.GOTO
+					&& nullResourceBlock.successors().size() == 1) {
+				IrBlock next = nullResourceBlock.successors().getFirst();
+				if (next.terminator() != null && next.terminator().kind() == IrTerminatorKind.IF_ZERO) {
+					nullResourceBlock = next;
+					break;
+				}
+				nullResourceBlock = next;
+			}
+		}
+		if (nullResourceBlock != null && nullResourceBlock.terminator() != null
+				&& nullResourceBlock.terminator().kind() == IrTerminatorKind.IF_ZERO) {
+			BranchZeroInstruction branch = (BranchZeroInstruction) nullResourceBlock.terminator().payload();
+			IrBlock nullTarget = blockByOffset.get(branch.label().position());
+			IrBlock body = nullResourceBlock.successors().stream()
+					.filter(successor -> successor != nullTarget && isThrowOnlyPath(nullTarget))
+					.findFirst().orElse(null);
+			if (body != null) {
+				while (body != null && (skipped.contains(body)
+						|| policy.aggressiveCleanup() && layoutTransparentBlocks.contains(body))) {
+					if (body.successors().size() != 1) break;
+					body = body.successors().getFirst();
+				}
+				if (body != null) return body;
+			}
+		}
+		return acquisitionBlock == null || skipped.contains(acquisitionBlock)
+				? firstResourceSource(lifecycles, skipped)
+				: firstEmittedBlockAfter(acquisitionBlock, skipped);
+	}
+
+	private @Nullable IrBlock firstResourceSource(@NotNull List<JvmCleanupRegionPlan> lifecycles,
+	                                             @NotNull Set<IrBlock> skipped) {
+		return lifecycles.stream()
+				.flatMap(lifecycle -> lifecycle.protectedBody().stream())
+				.filter(block -> !skipped.contains(block)
+						&& !(policy.aggressiveCleanup() && layoutTransparentBlocks.contains(block)))
+				.min(Comparator.comparingInt(block -> layout.emissionOrder().indexOf(block)))
+				.orElse(null);
+	}
+
+	private @NotNull List<IrExceptionHandler> cleanupFinalizerHandlers(@NotNull List<JvmCleanupRegionPlan> lifecycles) {
+		Set<IrBlock> resourceHandlers = Collections.newSetFromMap(new IdentityHashMap<>());
+		Set<IrExceptionRegion> lifecycleRegions = Collections.newSetFromMap(new IdentityHashMap<>());
+		for (JvmCleanupRegionPlan lifecycle : lifecycles) {
+			lifecycleRegions.add(lifecycle.region());
+			resourceHandlers.add(lifecycle.handler().handlerBlock());
+			IrExceptionEdge closeException = lifecycle.closeException();
+			if (closeException != null && hasSuppressedEffect(closeException.handlerBlock()))
+				resourceHandlers.add(closeException.handlerBlock());
+		}
+		List<IrExceptionHandler> candidates = new ArrayList<>();
+		for (IrExceptionRegion region : method.exceptionRegions()) {
+			if (lifecycleRegions.contains(region)) continue;
+			for (IrExceptionHandler handler : region.handlers()) {
+				IrBlock handlerBlock = handler.handlerBlock();
+				if (resourceHandlers.contains(handlerBlock) || handlerBlock.exceptionValue() == null) continue;
+				Set<IrBlock> reachable = reachableBlocks(handlerBlock);
+				boolean rethrows = reachable.stream().anyMatch(block -> block.terminator() != null
+						&& block.terminator().kind() == IrTerminatorKind.THROW);
+				boolean returns = reachable.stream().anyMatch(block -> block.terminator() != null
+						&& block.terminator().kind() == IrTerminatorKind.RETURN);
+				boolean resourceCleanup = reachable.stream().flatMap(block -> block.statements().stream())
+						.anyMatch(this::isResourceCleanupStatement);
+				boolean cleanupEffect = reachable.stream().flatMap(block -> block.statements().stream())
+						.anyMatch(this::isFinalizerCleanupStatement);
+				if (rethrows && !returns && !resourceCleanup && cleanupEffect)
+					candidates.add(handler);
+			}
+		}
+		candidates.sort(Comparator.comparingInt(handler -> handler.handlerBlock().startOffset()));
+		return List.copyOf(candidates);
+	}
+
+	private @NotNull List<List<IrBlock>> finalizerSourceGroups(@NotNull List<IrExceptionHandler> handlers,
+	                                                           @NotNull Set<IrBlock> skipped) {
+		Set<IrBlock> sources = Collections.newSetFromMap(new IdentityHashMap<>());
+		for (IrExceptionHandler handler : handlers) {
+			IrExceptionRegion region = handlerRegion(handler);
+			if (region == null) continue;
+			coveredSourceBlocks(region, handler).stream()
+					.filter(block -> !skipped.contains(block)
+							&& !(policy.aggressiveCleanup() && layoutTransparentBlocks.contains(block)))
+					.forEach(sources::add);
+		}
+		List<IrBlock> emitted = layout.emissionOrder().stream()
+				.filter(block -> !skipped.contains(block)
+						&& !(policy.aggressiveCleanup() && layoutTransparentBlocks.contains(block)))
+				.toList();
+		List<List<IrBlock>> groups = new ArrayList<>();
+		List<IrBlock> orderedSources = emitted.stream().filter(sources::contains).toList();
+		if (!orderedSources.isEmpty()) {
+			int first = emitted.indexOf(orderedSources.getFirst());
+			int last = emitted.indexOf(orderedSources.getLast());
+			if (first >= 0 && last >= first)
+				groups.add(List.copyOf(emitted.subList(first, last + 1)));
+		}
+		return List.copyOf(groups);
+	}
+
+	private boolean isResourceCleanupStatement(@NotNull IrStmt statement) {
+		Object payload = switch (statement) {
+			case IrOp op -> op.payload();
+			case IrEffect effect -> effect.payload();
+			case IrTerminator terminator -> terminator.payload();
+		};
+		return payload instanceof InvokeInstruction invoke
+				&& ("close".equals(invoke.name()) || "addSuppressed".equals(invoke.name()));
+	}
+
+	private boolean isFinalizerCleanupStatement(@NotNull IrStmt statement) {
+		Object payload = switch (statement) {
+			case IrOp op -> op.payload();
+			case IrEffect effect -> effect.payload();
+			case IrTerminator terminator -> terminator.payload();
+		};
+		return payload instanceof InvokeInstruction invoke
+				&& !"close".equals(invoke.name())
+				&& !"addSuppressed".equals(invoke.name());
 	}
 
 	/**
@@ -682,9 +1003,9 @@ public final class IrLoweringEngine {
 }
 
 	private @Nullable String catchType(@NotNull IrExceptionHandler handler) {
-	return handler.handler() == null || handler.handler().isCatchAll()
+		return handler.handler() == null || handler.handler().isCatchAll()
 			? null : handler.handler().exceptionType().internalName();
-}
+	}
 
 	private @Nullable IrExceptionHandler compositeOuterHandler(@NotNull JvmCleanupCompositePlan composite,
 	                                                          boolean failure) {
@@ -1063,7 +1384,13 @@ public final class IrLoweringEngine {
 					first == null ? null : labels.get(first), last == null ? null : labels.get(last));
 			if (candidate == null) continue;
 			JvmOptimizationDecision decision = optimizationPlan.resourceRegion(region, candidate);
-			if (policy.optimized() && !decision.accepted()) continue;
+			if (policy.optimized() && !decision.accepted()) {
+				report(ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION, decision.sourceOffset(),
+						ConversionDiagnostic.Severity.INFO, false,
+						"Rejected aggressive resource lifecycle plan: "
+								+ cleanupPlanRejectionReason(candidate, decision.reason()));
+				continue;
+			}
 			if (decision.relaxed())
 				report(ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION, decision.sourceOffset(),
 						"Applied aggressive resource lifecycle plan: " + decision.reason());
@@ -1088,6 +1415,43 @@ public final class IrLoweringEngine {
 			}
 			cleanupPlans.put(plan.region(), composed);
 		}
+	}
+
+	private @NotNull String cleanupPlanRejectionReason(@NotNull JvmCleanupRegionPlan plan,
+	                                                   @NotNull String fallback) {
+		if (!cleanupResourceMaterialized(plan.resource()))
+			return "resource value is not materialized (" + cleanupValueDebug(plan.resource()) + ")";
+		if (plan.normalClose() == null) return "normal close operation is missing";
+		if (plan.normalClose().inputs().stream().anyMatch(input -> !cleanupMaterialized(input)))
+			return "normal close receiver is not materialized ("
+					+ plan.normalClose().inputs().stream()
+					.filter(input -> !cleanupMaterialized(input))
+					.findFirst()
+					.map(this::cleanupValueDebug)
+					.orElse("unknown")
+					+ ")";
+		if (plan.nullResourceBlock() != null && plan.nullResourceBlock().terminator() != null
+				&& plan.nullResourceBlock().terminator().inputs().stream().anyMatch(input -> !cleanupMaterialized(input)))
+			return "null-resource branch state is not materialized";
+		return fallback;
+	}
+
+	private boolean cleanupResourceMaterialized(@NotNull IrValue value) {
+		IrValue canonical = value.canonical();
+		if (canonical instanceof IrParameter) return ConversionSupport.isReferenceType(canonical.type());
+		if (canonical instanceof IrUnknown || canonical.stackOnly()) return false;
+		if (!canonical.isImprecise()) return canonical.constantValue() != null || canonical.hasLocal();
+		return canonical.hasLocal() && ConversionSupport.isReferenceType(canonical.type());
+	}
+
+	private @NotNull String cleanupValueDebug(@NotNull IrValue value) {
+		IrValue canonical = value.canonical();
+		return canonical.getClass().getSimpleName() + "#" + canonical.id()
+				+ ", local=" + (canonical.hasLocal() ? canonical.local() : "none")
+				+ ", unknown=" + canonical.isUnknown()
+				+ ", imprecise=" + canonical.isImprecise()
+				+ ", stackOnly=" + canonical.stackOnly()
+				+ ", constant=" + (canonical.constantValue() != null);
 	}
 
 	/**
@@ -1610,11 +1974,23 @@ public final class IrLoweringEngine {
 	private boolean canEnterHandlerDirectly(@NotNull List<IrBlock> sources, @NotNull IrBlock target) {
 		if (!policy.aggressiveCleanup()
 				|| !optimizationPlan.featureEnabled(JvmOptimizationFeature.CLEANUP_REGIONS)
-				|| sources.isEmpty() || target.exceptionValue() == null || target.predecessors().isEmpty()) return false;
+				|| sources.isEmpty() || target.exceptionValue() == null || target.predecessors().isEmpty()
+				|| !isSelectedCleanupHandler(target)) return false;
 		if (target.predecessors().stream().anyMatch(predecessor ->
 				!predecessor.exceptionalSuccessors().contains(target))) return false;
 		if (target.phis().stream().anyMatch(phi -> phi.canonical() == phi && isLive(phi))) return false;
 		return sources.stream().noneMatch(source -> hasPhiCopies(source, target));
+	}
+
+	private boolean isSelectedCleanupHandler(@NotNull IrBlock target) {
+		if (cleanupCompositePlans.stream().anyMatch(composite -> composite.layers().size() >= 3)) return true;
+		List<JvmCleanupRegionPlan> lifecycles = singleResourceLifecycles();
+		if (lifecycles != null && cleanupFinalizerHandlers(lifecycles).stream()
+				.anyMatch(handler -> handler.handlerBlock() == target)) return true;
+		return policy.aggressiveCleanup() && cleanupPlans.values().stream().anyMatch(plan ->
+				plan.handler().handlerBlock() == target
+						|| plan.closeException() != null && hasSuppressedEffect(plan.closeException().handlerBlock())
+								&& plan.closeException().handlerBlock() == target);
 	}
 
 	/**
@@ -1900,6 +2276,99 @@ public final class IrLoweringEngine {
 					.anyMatch(predecessor -> !canEmitDirectPhiReturn(predecessor, block))) continue;
 			if (!predecessors.isEmpty()) fullyInlinedReturnBlocks.add(block);
 		}
+	}
+
+	/**
+	 * A terminal validation branch can be laid out after the successful resource
+	 * path even though both of its arms only throw.  Inline that pure decision at
+	 * its predecessor so CFR sees an ordinary conditional instead of a labelled
+	 * scope exit.  The proof deliberately excludes handlers, phis, and side exits.
+	 */
+	private void collectInlineThrowDecisions() {
+		inlineThrowDecisions.clear();
+		inlineThrowBlocks.clear();
+		if (!policy.aggressiveCleanup() || singleResourceLifecycles() == null) return;
+		for (IrBlock source : method.blocks()) {
+			if (cleanupPlans.values().stream().noneMatch(plan -> plan.protectedBody().contains(source))) continue;
+			IrTerminator terminator = source.terminator();
+			if (terminator == null || terminator.kind() != IrTerminatorKind.IF) continue;
+			if (!(terminator.payload() instanceof BranchInstruction branch)) continue;
+			IrBlock trueTarget = blockByOffset.get(branch.label().position());
+			IrBlock falseTarget = source.successors().stream()
+					.filter(successor -> successor != trueTarget).findFirst().orElse(null);
+			if (trueTarget == null || falseTarget == null) continue;
+			IrBlock successTarget;
+			IrBlock failureTarget;
+			if (falseTarget == nextBlock(source) && !hasPhiCopies(source, falseTarget)) {
+				failureTarget = trueTarget;
+				successTarget = falseTarget;
+			} else if (trueTarget == nextBlock(source) && !hasPhiCopies(source, trueTarget)) {
+				failureTarget = falseTarget;
+				successTarget = trueTarget;
+			} else {
+				continue;
+			}
+			InlineThrowDecision decision = inlineThrowDecision(failureTarget, successTarget);
+			if (decision == null) continue;
+			inlineThrowDecisions.put(source, decision);
+			inlineThrowBlocks.addAll(decision.blocks());
+		}
+	}
+
+	private @Nullable InlineThrowDecision inlineThrowDecision(@NotNull IrBlock failureTarget,
+	                                                           @NotNull IrBlock successTarget) {
+		List<IrBlock> prefix = new ArrayList<>();
+		Set<IrBlock> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		IrBlock decision = failureTarget;
+		while (decision != null && visited.add(decision)
+				&& inlineThrowBlockSafe(decision)) {
+			prefix.add(decision);
+			IrTerminator terminator = decision.terminator();
+			if (terminator != null && terminator.kind() == IrTerminatorKind.IF) break;
+			if (terminator == null || terminator.kind() != IrTerminatorKind.GOTO
+					|| decision.successors().size() != 1) return null;
+			decision = decision.successors().getFirst();
+		}
+		if (decision == null || !inlineThrowBlockSafe(decision)
+				|| !decision.statements().isEmpty() || decision.terminator() == null
+				|| decision.terminator().kind() != IrTerminatorKind.IF || decision.successors().size() != 2)
+			return null;
+		BranchInstruction branch = (BranchInstruction) decision.terminator().payload();
+		IrBlock trueTarget = blockByOffset.get(branch.label().position());
+		IrBlock falseTarget = decision.successors().stream()
+				.filter(successor -> successor != trueTarget).findFirst().orElse(null);
+		if (trueTarget == null || falseTarget == null) return null;
+		List<IrBlock> truePath = pureThrowPath(trueTarget);
+		List<IrBlock> falsePath = pureThrowPath(falseTarget);
+		if (truePath == null || falsePath == null) return null;
+		List<IrBlock> blocks = new ArrayList<>(prefix);
+		blocks.add(decision);
+		blocks.addAll(truePath);
+		blocks.addAll(falsePath);
+		return new InlineThrowDecision(decision, truePath.getFirst(), falsePath.getFirst(),
+				failureTarget, successTarget, List.copyOf(blocks));
+	}
+
+	private @Nullable List<IrBlock> pureThrowPath(@NotNull IrBlock entry) {
+		List<IrBlock> path = new ArrayList<>();
+		Set<IrBlock> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		IrBlock current = entry;
+		while (current != null && visited.add(current) && inlineThrowBlockSafe(current)) {
+			path.add(current);
+			IrTerminator terminator = current.terminator();
+			if (terminator == null) return null;
+			if (terminator.kind() == IrTerminatorKind.THROW) return List.copyOf(path);
+			if (terminator.kind() != IrTerminatorKind.GOTO || current.successors().size() != 1)
+				return null;
+			current = current.successors().getFirst();
+		}
+		return null;
+	}
+
+	private boolean inlineThrowBlockSafe(@NotNull IrBlock block) {
+		return block.exceptionValue() == null && block.phis().isEmpty()
+				&& method.exceptionRegions().stream().noneMatch(region -> region.handlers().stream()
+						.anyMatch(handler -> handler.handlerBlock() == block));
 	}
 
 	private int emitSpecialChain(@NotNull List<IrStmt> statements, int index) {
@@ -2930,7 +3399,6 @@ public final class IrLoweringEngine {
 		return start == null || !instructionTracker.hasInstructionBetween(start, defaultStart) ? defaultStart : start;
 	}
 
-
 	/**
 	 * A DEX frontend may split one protected source sequence after every
 	 * throwing instruction.  When all intervening emitted blocks are part of
@@ -3151,6 +3619,7 @@ public final class IrLoweringEngine {
 	private void emitSkippedBlockAliases() {
 		List<Map.Entry<IrBlock, Label>> aliases = new ArrayList<>();
 		for (IrBlock block : method.blocks()) {
+			if (inlineThrowBlocks.contains(block)) continue;
 			boolean transparent = policy.aggressiveCleanup()
 					? layoutTransparentBlocks.contains(block) : isTransparentBlock(block);
 			if (emittedBlockLabels.contains(block)
@@ -3284,7 +3753,8 @@ public final class IrLoweringEngine {
 
 	private boolean hasEmittedProtectedCode(@NotNull IrBlock block) {
 		if (skippedHandlerTailBlocks.contains(block) || deferredNormalTailBlocks.contains(block)
-				|| deferredNullThrowBlocks.contains(block) || fullyInlinedReturnBlocks.contains(block)) return false;
+				|| deferredNullThrowBlocks.contains(block) || fullyInlinedReturnBlocks.contains(block)
+				|| inlineThrowBlocks.contains(block)) return false;
 		if (isTransparentBlock(block)) return false;
 		if (hasEmittableStatements(block)) return true;
 		return block.terminator() != null;
@@ -3630,6 +4100,15 @@ public final class IrLoweringEngine {
 		IrBlock falseTarget = block.successors().stream().filter(successor -> successor != trueTarget).findFirst().orElse(null);
 		if (trueTarget == null)
 			throw new IllegalStateException("Malformed branch successors");
+		InlineThrowDecision inlineThrow = inlineThrowDecisions.get(block);
+		if (inlineThrow != null && inlineThrow.successTarget() == (inlineThrow.failureTarget() == trueTarget
+				? falseTarget : trueTarget) && inlineThrow.failureTarget() != inlineThrow.successTarget()) {
+			boolean successOnTrue = inlineThrow.successTarget() == trueTarget;
+			emitIfCondition(terminator, instruction.opcode(), left, right,
+					branchTargetLabel(inlineThrow.successTarget()), !successOnTrue);
+			emitInlineThrowDecision(inlineThrow);
+			return;
+		}
 		if (fullyInlinedReturnBlocks.contains(trueTarget) || fullyInlinedReturnBlocks.contains(falseTarget)) {
 			Label trueEdge = new Label();
 			emitIfCondition(terminator, instruction.opcode(), left, right, trueEdge, false);
@@ -3670,6 +4149,46 @@ public final class IrLoweringEngine {
 		emitEdgeGoto(block, falseTarget);
 		mv.visitLabel(trueEdge);
 		emitEdgeGoto(block, trueTarget);
+	}
+
+	private void emitInlineThrowDecision(@NotNull InlineThrowDecision inlineThrow) {
+		IrTerminator terminator = inlineThrow.decision().terminator();
+		if (terminator == null || terminator.kind() != IrTerminatorKind.IF
+				|| !(terminator.payload() instanceof BranchInstruction branch)) return;
+		IrValue left = terminator.inputs().get(0).canonical();
+		IrValue right = terminator.inputs().get(1).canonical();
+		Label falsePath = new Label();
+		IrBlock previousBlock = currentBlock;
+		for (IrBlock block : inlineThrow.blocks()) {
+			if (block == inlineThrow.decision()) break;
+			currentBlock = block;
+			blockEmitter.emitStatementsOnly(block, blockEmitterHost());
+		}
+		currentBlock = inlineThrow.decision();
+		emitIfCondition(terminator, branch.opcode(), left, right, falsePath, true);
+		emitInlineThrowPath(inlineThrow.truePath());
+		mv.visitLabel(falsePath);
+		emitInlineThrowPath(inlineThrow.falsePath());
+		currentBlock = previousBlock;
+	}
+
+	private void emitInlineThrowPath(@NotNull IrBlock entry) {
+		Set<IrBlock> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		IrBlock block = entry;
+		while (block != null && visited.add(block)) {
+			currentBlock = block;
+			blockEmitter.emitStatementsOnly(block, blockEmitterHost());
+			IrTerminator terminator = block.terminator();
+			if (terminator == null) return;
+			if (terminator.kind() == IrTerminatorKind.THROW) {
+				currentStatement = terminator;
+				emitTerminator(block);
+				currentStatement = null;
+				return;
+			}
+			if (terminator.kind() != IrTerminatorKind.GOTO || block.successors().size() != 1) return;
+			block = block.successors().getFirst();
+		}
 	}
 
 	private void emitIfZero(@NotNull IrBlock block, @NotNull IrTerminator terminator,
@@ -3745,8 +4264,6 @@ public final class IrLoweringEngine {
 		// blocks identified above.  The non-null successor must also dominate the
 		// current block, and phi inputs are followed because loop/header joins can
 		// carry the same InputStream under a different IR value.
-		if (deferredNullThrowBlocks.isEmpty())
-			return false;
 		for (IrBlock candidate : method.blocks()) {
 			IrTerminator terminator = candidate.terminator();
 			if (terminator == null || terminator.kind() != IrTerminatorKind.IF_ZERO
@@ -3754,10 +4271,22 @@ public final class IrLoweringEngine {
 					new HashSet<>()) || !dominates(candidate, block)) continue;
 			BranchZeroInstruction branch = (BranchZeroInstruction) terminator.payload();
 			IrBlock zeroTarget = blockByOffset.get(branch.label().position());
-			if (!deferredNullThrowBlocks.contains(zeroTarget)) continue;
+			if (!deferredNullThrowBlocks.contains(zeroTarget) && !isThrowOnlyPath(zeroTarget)) continue;
 			IrBlock nonNullTarget = candidate.successors().stream()
 					.filter(successor -> successor != zeroTarget).findFirst().orElse(null);
 			if (nonNullTarget != null && dominates(nonNullTarget, block)) return true;
+		}
+		return false;
+	}
+
+	private boolean isThrowOnlyPath(@Nullable IrBlock block) {
+		Set<IrBlock> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		while (block != null && visited.add(block)) {
+			IrTerminator terminator = block.terminator();
+			if (terminator == null) return false;
+			if (terminator.kind() == IrTerminatorKind.THROW) return true;
+			if (terminator.kind() != IrTerminatorKind.GOTO || block.successors().size() != 1) return false;
+			block = block.successors().getFirst();
 		}
 		return false;
 	}

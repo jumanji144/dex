@@ -15,6 +15,17 @@ import java.util.List;
  */
 final class IrBlockEmitter {
 	void emitBody(@NotNull IrBlock block, @NotNull Host host) {
+		emitStatements(block, host);
+		host.beforeTerminator(block);
+		host.setCurrentStatement(block.terminator());
+		host.emitTerminator(block);
+		host.setCurrentStatement(null);
+		if (host.hasUnconsumedOperandStackCarry(block))
+			throw new IllegalStateException("Operand-stack value was not consumed in " + block.debugName());
+		host.clearOperandStackCarry();
+	}
+
+	void emitStatements(@NotNull IrBlock block, @NotNull Host host) {
 		host.beginOperandStackCarry(block);
 		List<IrStmt> statements = block.statements();
 		for (int i = 0; i < statements.size(); i++) {
@@ -34,10 +45,10 @@ final class IrBlockEmitter {
 				host.markOperationEmitted(op);
 			host.setCurrentStatement(null);
 		}
-		host.beforeTerminator(block);
-		host.setCurrentStatement(block.terminator());
-		host.emitTerminator(block);
-		host.setCurrentStatement(null);
+	}
+
+	void emitStatementsOnly(@NotNull IrBlock block, @NotNull Host host) {
+		emitStatements(block, host);
 		if (host.hasUnconsumedOperandStackCarry(block))
 			throw new IllegalStateException("Operand-stack value was not consumed in " + block.debugName());
 		host.clearOperandStackCarry();

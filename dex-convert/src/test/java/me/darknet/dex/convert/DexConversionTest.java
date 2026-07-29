@@ -619,6 +619,60 @@ class DexConversionTest implements Opcodes {
          }
 
          @Test
+         void realFileTransferAggressiveReceiveOfferHasReadableResourceAndCleanupShape() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferService";
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+
+             DexConversionIr deterministicConversion = new DexConversionIr();
+             deterministicConversion.setJvmLoweringPolicy(JvmLoweringPolicy.DETERMINISTIC_LOCAL);
+             ConversionResult deterministic = deterministicConversion.toClasses(dex);
+             assertTrue(deterministic.errors().isEmpty(), deterministic.errors()::toString);
+
+             DexConversionIr aggressiveConversion = new DexConversionIr();
+             aggressiveConversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult aggressive = aggressiveConversion.toClasses(loadSampleDex("REAL-FileTransfer", "classes5.dex"));
+             assertTrue(aggressive.errors().isEmpty(), aggressive.errors()::toString);
+
+             byte[] aggressiveBytes = aggressive.classes().get(owner);
+             assertNotNull(aggressiveBytes);
+             Decompile.verify(aggressiveBytes);
+             String deterministicSource = Decompile.decompile(owner, deterministic.classes().get(owner));
+             String aggressiveSource = Decompile.decompile(owner, aggressiveBytes);
+             DecompilationQualityReport.MethodMetrics baseline = DecompilationQualityReport.capture(
+                     owner, "receiveOffer", deterministic.classes().get(owner), deterministicSource,
+                     deterministic.diagnostics().values().stream().flatMap(List::stream).toList());
+             DecompilationQualityReport.MethodMetrics candidate = DecompilationQualityReport.capture(
+                     owner, "receiveOffer", aggressiveBytes, aggressiveSource,
+                     aggressive.diagnostics().values().stream().flatMap(List::stream).toList());
+             String method = DecompilationQualityReport.extractMethod(aggressiveSource, "receiveOffer");
+
+             assertFalse(candidate.aggressiveFallback(),
+                     () -> "receiveOffer aggressive lowering unexpectedly fell back: " + candidate.diagnostics());
+             assertTrue(candidate.improvedOver(baseline),
+                     () -> "Expected receiveOffer aggressive output to improve over deterministic output.\n"
+                             + baseline.summary() + "\n" + candidate.summary() + "\n" + method);
+             assertTrue(candidate.failureMarkers().isEmpty(),
+                     () -> "receiveOffer retained CFR failure markers:\n" + method);
+             assertEquals(0, candidate.syntheticBlockCount(),
+                     () -> "receiveOffer retained synthetic block scaffolding:\n" + method);
+             assertEquals(0, candidate.syntheticLabelCount(),
+                     () -> "receiveOffer retained synthetic lbl scaffolding:\n" + method);
+             assertFalse(candidate.hasInfiniteLoop(),
+                     () -> "receiveOffer retained synthetic while(true) recovery:\n" + method);
+             assertTrue(method.contains("TransferProtocol.readData"), method);
+             assertTrue(method.contains(".write("), method);
+             assertTrue(method.contains("MessageDigest") && method.contains(".update(") && method.contains(".digest("), method);
+             assertTrue(method.contains(".close()") && method.contains("addSuppressed"), method);
+             assertTrue(method.contains(".renameTo("), method);
+             assertTrue(method.contains("TransferProtocol.writeFrame") && method.contains("TransferProtocol.transferId"), method);
+             assertTrue(method.contains(".delete()"), method);
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().contains("single-resource cleanup-finalizer")),
+                     () -> "Expected accepted receiveOffer cleanup-finalizer shaping diagnostic: "
+                             + candidate.diagnostics());
+         }
+
+         @Test
          void realFileTransferAggressiveHandleConnectionImprovesValidatedQuality() throws Exception {
              String owner = "com/example/imageserver/transfer/TransferService";
              DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
@@ -676,24 +730,66 @@ class DexConversionTest implements Opcodes {
                      () -> "Unexpected aggressive fallback diagnostic: " + candidate.diagnostics());
              String aggressiveHandleSource = DecompilationQualityReport.extractMethod(aggressiveSource, "handleConnection");
              String deterministicHandleSource = DecompilationQualityReport.extractMethod(deterministicSource, "handleConnection");
-             assertTrue(aggressiveHandleSource.matches("(?s).*DataInputStream\\s+\\w+\\s*=\\s*new DataInputStream\\s*\\(\\s*(?:socket|socket2)\\.getInputStream\\(\\)\\s*\\).*"),
+             assertFalse(aggressiveHandleSource.matches("(?s).*if\\s*\\([^)]*==\\s*null\\)\\s*\\{\\s*\\}\\s*.*containsKey.*"),
+                     () -> "Aggressive cleanup retained an empty nullable guard: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("if (string != null) {"),
+                     () -> "Expected nullable cleanup to decompile as a non-null short-circuit region: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("if (!this.cancelledTransfers.containsKey(string))"),
+                     () -> "Expected nullable cleanup to retain the cancellation-map test: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*DataInputStream\\s+\\w+\\s*=\\s*new DataInputStream\\s*\\(\\s*(?:socket|socket2|resource)\\.getInputStream\\(\\)\\s*\\).*"),
                      () -> "Expected canonical DataInputStream resource acquisition: " + aggressiveHandleSource);
-             assertTrue(aggressiveHandleSource.matches("(?s).*DataOutputStream\\s+\\w+\\s*=\\s*new DataOutputStream\\s*\\(\\s*(?:socket|socket2)\\.getOutputStream\\(\\)\\s*\\).*"),
+             assertTrue(aggressiveHandleSource.matches("(?s).*DataOutputStream\\s+\\w+\\s*=\\s*new DataOutputStream\\s*\\(\\s*(?:socket|socket2|resource)\\.getOutputStream\\(\\)\\s*\\).*"),
                      () -> "Expected canonical DataOutputStream resource acquisition: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("DataInputStream in = new DataInputStream"),
+                     () -> "Expected a stable debug identity for the input resource: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("DataOutputStream out = new DataOutputStream"),
+                     () -> "Expected a stable debug identity for the output resource: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*Socket\\s+(?:socket2|resource|connection)\\s*=\\s*socket\\s*;.*"),
+                     () -> "Expected the protected socket resource to retain a distinct resource identity: " + aggressiveHandleSource);
              assertTrue(aggressiveHandleSource.matches("(?s).*transferRequest\\s*==\\s*null\\s*\\?\\s*null\\s*:\\s*transferRequest\\.getId\\(\\).*"),
                      () -> "Expected direct null-conditional transfer-id derivation: " + aggressiveHandleSource);
              assertFalse(aggressiveHandleSource.matches("(?s).*\\(\\w+\\s*=\\s*transferRequest\\.getId\\(\\)\\).*"),
                      () -> "Aggressive output retained a relay local around request.getId(): " + aggressiveHandleSource);
              assertTrue(aggressiveHandleSource.contains("addSuppressed"),
                      () -> "Aggressive nested-resource output lost close-failure suppression: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*activeSockets\\.remove\\(string\\);\\s*this\\.cancelledTransfers\\.remove\\(string\\);\\s*return;\\s*}\\s*catch \\(Throwable.*"),
+                     () -> "Expected the complete normal cleanup tail before the failure handler: " + aggressiveHandleSource);
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().contains("outer cleanup range extension")),
+                     () -> "Expected paired outer cleanup range shaping: " + candidate.diagnostics());
              assertFalse(aggressiveHandleSource.contains("InputStream inputStream = socket.getInputStream()"),
                      () -> "Aggressive output retained the raw input acquisition temporary: " + aggressiveHandleSource);
              assertFalse(aggressiveHandleSource.contains("OutputStream outputStream = socket.getOutputStream()"),
                      () -> "Aggressive output retained the raw output acquisition temporary: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("publishProgress(new TransferProgress("),
+                     () -> "Aggressive output retained the one-use failure-progress constructor temporary: "
+                             + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.matches("(?s).*TransferProgress\\s+\\w+\\s*=\\s*new TransferProgress\\s*\\(.*"),
+                     () -> "Aggressive output retained a standalone failure-progress local: " + aggressiveHandleSource);
+             // Mixed-width constructor arguments remain local-materialized
+             // until a stack-aware proof can fuse them.  The important
+             // quality invariant here is that those locals are passed in the
+             // declared descriptor order, rather than being shifted into
+             // unrelated enum/string/long casts.
+             assertFalse(aggressiveHandleSource.contains("(String)TransferProgress.Direction"),
+                     () -> "Aggressive output has shifted TransferProgress constructor categories: "
+                             + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.contains("(Direction)transferRequest.getName()"),
+                     () -> "Aggressive output assigned the request name to the direction argument: "
+                             + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.contains("(State)string"),
+                     () -> "Aggressive output assigned the transfer id to the state argument: "
+                             + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.contains("new TransferProgress("),
+                     () -> "Expected direct failure-progress construction: " + aggressiveHandleSource);
              assertTrue(aggressiveHandleSource.matches("(?s).*generateCertificate\\s*\\(\\s*new ByteArrayInputStream\\s*\\(\\s*hello\\.certificate\\s*\\)\\s*\\).*"),
                      () -> "Aggressive output retained the one-use certificate input temporary: " + aggressiveHandleSource);
              assertFalse(aggressiveHandleSource.contains("ByteArrayInputStream byteArrayInputStream"),
                      () -> "Aggressive output retained a standalone certificate input local: " + aggressiveHandleSource);
+             assertFalse(aggressiveHandleSource.matches("(?s).*StringBuilder\\s+\\w+\\s*=.*Peer identity mismatch.*"),
+                     () -> "Aggressive output retained the one-use mismatch builder local: " + aggressiveHandleSource);
+             assertTrue(aggressiveHandleSource.matches("(?s).*Log\\.w[^;]*Peer identity mismatch id=.*calculatedFingerprint=.*"),
+                     () -> "Expected the mismatch builder chain to be emitted at its Log.w consumer: " + aggressiveHandleSource);
              assertTrue(aggressiveHandleSource.matches("(?s).*hello\\s*\\([^;]*this\\.identity\\.deviceId\\(\\).*"),
                      () -> "Expected the one-use device-id producer to be fused into hello: " + aggressiveHandleSource);
              assertFalse(aggressiveHandleSource.matches("(?s).*String\\s+\\w+\\s*=\\s*this\\.identity\\.deviceId\\(\\).*"),
@@ -722,8 +818,14 @@ class DexConversionTest implements Opcodes {
                              diagnostic.message().matches(".*[1-9][0-9]* shared normal cleanup tail.*")),
                      () -> "No shared normal cleanup tail was duplicated: " + candidate.diagnostics());
              assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
+                             diagnostic.message().matches(".*[1-9][0-9]* interleaved resource-close handler.*")),
+                     () -> "No resource-close handler was interleaved beside its protected close: "
+                             + candidate.diagnostics());
+             assertTrue(candidate.diagnostics().stream().anyMatch(diagnostic ->
                              diagnostic.message().matches(".*[1-9][0-9]* late expression slice.*")),
                      () -> "No post-layout expression slice was fused: " + candidate.diagnostics());
+             assertTrue(aggressiveHandleSource.matches("(?s).*pairings\\.isKnown\\([^;]+\\)\\s*&&\\s*!?\\s*this\\.pairings\\.isPaired\\([^;]+\\).*"),
+                     () -> "Expected the pairing validation to decompile as a short-circuit condition: " + aggressiveHandleSource);
          }
 
 
@@ -1145,6 +1247,29 @@ class DexConversionTest implements Opcodes {
          }
 
          @Test
+         void realFileTransferAggressiveCompareBytesRemainsStructured() throws Exception {
+             String owner = "com/example/imageserver/transfer/IdentityStore";
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(dex);
+             byte[] bytecode = result.classes().get(owner);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("private static int compareBytes");
+             int end = decompiled.indexOf("public static String hex", start + 1);
+             String method = decompiled.substring(start, end);
+             assertTrue(method.contains("for (int i = 0; i < Math.min")
+                             && method.contains("Byte.compare")
+                             && method.contains("return Integer.compare"), method);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("** GOTO")
+                             || method.contains("Exception decompiling")
+                             || method.contains("This method has failed to decompile")
+                             || method.contains("Decompilation failed"), method);
+         }
+
+         @Test
          void realFileTransferUniqueNameRecoversCountedLoop() throws Exception {
              String owner = "com/example/imageserver/transfer/TransferFiles";
              ClassDefinition cls = loadSampleClass("REAL-FileTransfer", "classes5.dex", owner);
@@ -1244,6 +1369,26 @@ class DexConversionTest implements Opcodes {
              String method = decompiled.substring(start, end);
              assertFalse(method.contains("Unable to fully structure code"),
                      () -> "displayName retained unstructured exception control flow:\n" + method);
+         }
+
+         @Test
+         void realFileTransferAggressiveDisplayNameRemainsStructured() throws Exception {
+             String owner = "com/example/imageserver/transfer/TransferFiles";
+             DexFile dex = loadSampleDex("REAL-FileTransfer", "classes5.dex");
+             DexConversionIr conversion = new DexConversionIr();
+             conversion.setJvmLoweringPolicy(JvmLoweringPolicy.AGGRESSIVE_OPTIMIZED);
+             ConversionResult result = conversion.toClasses(dex);
+             byte[] bytecode = result.classes().get(owner);
+             Decompile.verify(bytecode);
+             String decompiled = Decompile.decompile(owner, bytecode);
+             int start = decompiled.indexOf("public static String displayName");
+             int end = decompiled.indexOf("public static ", start + 1);
+             String method = decompiled.substring(start, end);
+             assertFalse(method.contains("Unable to fully structure code")
+                             || method.contains("** GOTO")
+                             || method.contains("Exception decompiling")
+                             || method.contains("This method has failed to decompile")
+                             || method.contains("Decompilation failed"), method);
          }
 
          @Test

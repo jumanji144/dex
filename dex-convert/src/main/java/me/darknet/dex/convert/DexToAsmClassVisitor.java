@@ -297,6 +297,7 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 				IrLoweringResult result = IrLowering.emitWithResult(irMethod, aggressive, loweringPolicy, lambdaMetadata);
 				int normalizedRanges = JvmLocalMaterializationCleanup.normalizeResourceRangeStarts(aggressive);
 				int normalizedConstructors = JvmLocalMaterializationCleanup.normalizeResourceConstructors(aggressive);
+				int preservedResourceAliases = JvmLocalMaterializationCleanup.preserveProtectedResourceParameterAlias(aggressive);
 				JvmMethodShapeValidator.Validation validation =
 						JvmMethodShapeValidator.validate(owner.getType().internalName(), aggressive);
 				if (validation.valid()) {
@@ -311,16 +312,24 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 					aggressive.accept(validatedAggressive);
 					int removedConstructorThrows = JvmLocalMaterializationCleanup.removeOneUseConstructorThrows(aggressive);
 					int removedConstructorSlices = JvmLocalMaterializationCleanup.removeOneUseConstructorCopies(aggressive);
+					int removedConstructedReceiverSlices = JvmLocalMaterializationCleanup.removeOneUseConstructedReceiverCopies(aggressive);
+					int removedConstructorArgumentSlices = JvmLocalMaterializationCleanup.removeOneUseConstructorArgumentCopies(aggressive);
+					int removedFluentBuilderSlices = JvmLocalMaterializationCleanup.removeOneUseFluentBuilderCopies(aggressive);
 					int removedStaticReceiverSlices = JvmLocalMaterializationCleanup.removeOneUseStaticReceiverCopies(aggressive);
 					int removedPairs = JvmLocalMaterializationCleanup.removeProvenMaterialization(aggressive, true);
 					int retargetedHandlerBridges = JvmLocalMaterializationCleanup.retargetEquivalentHandlerStoreBridges(aggressive);
 					removedConstructorSlices += JvmLocalMaterializationCleanup.removeOneUseConstructorCopies(aggressive);
+					removedConstructedReceiverSlices += JvmLocalMaterializationCleanup.removeOneUseConstructedReceiverCopies(aggressive);
+					removedConstructorArgumentSlices += JvmLocalMaterializationCleanup.removeOneUseConstructorArgumentCopies(aggressive);
+					int mergedConstructorJoinLocals = JvmLocalMaterializationCleanup.mergeConstructorTemporaryIntoJoinLocal(aggressive);
+					removedFluentBuilderSlices += JvmLocalMaterializationCleanup.removeOneUseFluentBuilderCopies(aggressive);
 					for (int pass = 0; pass < 16; pass++) {
 						int removed = JvmLocalMaterializationCleanup.removeOneUseConstructorThrows(aggressive);
 						if (removed == 0) break;
 						removedConstructorThrows += removed;
 					}
 					removedStaticReceiverSlices += JvmLocalMaterializationCleanup.removeOneUseStaticReceiverCopies(aggressive);
+					removedFluentBuilderSlices += JvmLocalMaterializationCleanup.removeOneUseFluentBuilderCopies(aggressive);
 					int relocatedProtectedThrows = JvmLocalMaterializationCleanup.relocateProtectedThrowBranches(aggressive);
 					int duplicatedCleanupTails = JvmLocalMaterializationCleanup.duplicateSharedNormalCleanupTails(aggressive);
 					int removedUnreachable = JvmLocalMaterializationCleanup.removeUnreachableInstructions(aggressive);
@@ -335,14 +344,21 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 						if (merged == 0) break;
 						mergedProtectedThrows += merged;
 					}
+					int normalizedShortCircuitThrows = 0;
+					for (int pass = 0; pass < 4; pass++) {
+						int normalized = JvmLocalMaterializationCleanup.normalizeShortCircuitThrowBlocks(aggressive);
+						if (normalized == 0) break;
+						normalizedShortCircuitThrows += normalized;
+					}
 					int retargetedCloseBoundaries = JvmLocalMaterializationCleanup.retargetNullCloseBoundaryBranches(aggressive);
 					int removedCloseBoundaryBridges = JvmLocalMaterializationCleanup.removeRangeEndCloseGotoBridges(aggressive);
 					int normalizedNullCloseRanges = JvmLocalMaterializationCleanup.normalizeNullCloseRangeEnds(aggressive);
 					int shapedCloseGuards = JvmLocalMaterializationCleanup.shapeCloseGuardConditionals(aggressive);
 					int restoredCloseJoins = JvmLocalMaterializationCleanup.restoreNullCloseJoinGotos(aggressive);
-					int preservedResourceAliases = JvmLocalMaterializationCleanup.preserveProtectedResourceParameterAlias(aggressive);
 					int widenedOuterResourceRanges = JvmLocalMaterializationCleanup.widenOuterRangesToResourceAlias(aggressive);
 					int decoupledCloseGuards = JvmLocalMaterializationCleanup.decoupleCloseGuardTargets(aggressive);
+					int normalizedNullableCleanupGuards = 0;
+					int joinedCleanupReturns = 0;
 					// Exception relocation and tail normalization can turn a previously
 					// non-inlineable producer/consumer pair into a same-profile pair.
 					// Re-run the bounded invocation proof after the authoritative layout
@@ -352,20 +368,47 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 					int extendedCatchFinallyRanges = JvmLocalMaterializationCleanup.extendCatchToFinallyRanges(aggressive);
 					int removedRedundantExceptionRanges = JvmLocalMaterializationCleanup.removeRedundantContainedExceptionRanges(aggressive);
 					int removedBooleanBranchStores = JvmLocalMaterializationCleanup.removeBooleanStoreLoadsBeforeBranches(aggressive);
+					normalizedNullableCleanupGuards += JvmLocalMaterializationCleanup.normalizeNullableCleanupGuards(aggressive);
 					int orderedNestedRanges = JvmLocalMaterializationCleanup.orderNestedExceptionRanges(aggressive);
+					int orderedFinallyTransferRanges = JvmLocalMaterializationCleanup.orderSharedFinallyTransferRanges(aggressive);
+					int protectedFinallyEntries = JvmLocalMaterializationCleanup.protectSharedFinallyEntries(aggressive);
+					int typedResourceCatchRanges = JvmLocalMaterializationCleanup.typeResourceCatchAllRangesAsThrowable(aggressive);
+					int interleavedResourceHandlers = JvmLocalMaterializationCleanup.interleaveResourceCloseHandlers(aggressive);
+					int extendedOuterCleanupRanges = JvmLocalMaterializationCleanup.extendPairedOuterRangesOverCleanup(aggressive);
 					removedConstructorThrows += JvmLocalMaterializationCleanup.removeOneUseConstructorThrows(aggressive);
-					int totalCleanup = removedPairs + removedConstructorThrows + removedConstructorSlices + removedStaticReceiverSlices
+					removedFluentBuilderSlices += JvmLocalMaterializationCleanup.removeOneUseFluentBuilderCopies(aggressive);
+					// Range normalization and late bridge removal can expose a
+					// constructor result whose sole consumer is in a handler tail.
+					// Run the same bounded proof after that layout work, before the
+					// final structural validation.  This remains stack-local to the
+					// consumer statement and never crosses a label or handler.
+					removedConstructedReceiverSlices += JvmLocalMaterializationCleanup.removeOneUseConstructedReceiverCopies(aggressive);
+					removedConstructorArgumentSlices += JvmLocalMaterializationCleanup.removeOneUseConstructorArgumentCopies(aggressive);
+					mergedConstructorJoinLocals += JvmLocalMaterializationCleanup.mergeConstructorTemporaryIntoJoinLocal(aggressive);
+					joinedCleanupReturns = JvmLocalMaterializationCleanup.joinEquivalentCleanupReturnPaths(aggressive);
+					int totalCleanup = removedPairs + removedConstructorThrows + removedConstructorSlices + removedConstructedReceiverSlices + removedStaticReceiverSlices
+							+ removedConstructorArgumentSlices
+							+ mergedConstructorJoinLocals
+							+ removedFluentBuilderSlices
 							+ retargetedHandlerBridges + duplicatedCleanupTails + relocatedProtectedThrows
 							+ mergedProtectedThrows + retargetedCloseBoundaries + removedCloseBoundaryBridges
+							+ normalizedShortCircuitThrows
 							+ normalizedNullCloseRanges + shapedCloseGuards + restoredCloseJoins
-							+ preservedResourceAliases
-							+ widenedOuterResourceRanges
-							+ decoupledCloseGuards + lateInvokeSlices
-							+ extendedCatchFinallyRanges
-							+ removedRedundantExceptionRanges
-							+ removedBooleanBranchStores
-							+ orderedNestedRanges
-							+ removedUnreachable;
+								+ widenedOuterResourceRanges
+								+ decoupledCloseGuards + lateInvokeSlices
+								+ normalizedNullableCleanupGuards
+								+ joinedCleanupReturns
+								+ extendedCatchFinallyRanges
+								+ removedRedundantExceptionRanges
+								+ removedBooleanBranchStores
+								+ orderedNestedRanges
+								+ orderedFinallyTransferRanges
+								+ protectedFinallyEntries
+								+ typedResourceCatchRanges
+								+ interleavedResourceHandlers
+								+ extendedOuterCleanupRanges
+								+ preservedResourceAliases
+								+ removedUnreachable;
 					if (totalCleanup > 0) {
 						validation = JvmMethodShapeValidator.validate(owner.getType().internalName(), aggressive);
 						if (!validation.valid()) {
@@ -400,6 +443,14 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 								ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION,
 								"Applied aggressive resource-constructor shaping: " + normalizedConstructors + " constructor(s)", null));
 					}
+					if (preservedResourceAliases > 0) {
+						int dexOffset = irMethod.blocks().stream().mapToInt(block -> block.startOffset()).min().orElse(-1);
+						diagnostics.add(new ConversionDiagnostic(
+								owner.getType().internalName(), irMethod.source().toString(), dexOffset,
+								ConversionDiagnostic.Severity.WARNING,
+								ConversionDiagnostic.Kind.UNSAFE_OPTIMIZATION,
+								"Applied aggressive protected-resource parameter aliasing: " + preservedResourceAliases + " alias(es)", null));
+					}
 					if (totalCleanup > 0) {
 						int dexOffset = irMethod.blocks().stream().mapToInt(block -> block.startOffset()).min().orElse(-1);
 						diagnostics.add(new ConversionDiagnostic(
@@ -410,24 +461,35 @@ public class DexToAsmClassVisitor extends DexClassVisitor {
 								+ removedPairs + " proven materialization(s) and "
 								+ removedConstructorThrows + " constructor-to-throw slice(s) and "
 								+ removedConstructorSlices + " constructor expression slice(s) and "
+								+ removedConstructedReceiverSlices + " constructed receiver slice(s) and "
+								+ removedConstructorArgumentSlices + " constructor argument slice(s) and "
+								+ mergedConstructorJoinLocals + " constructor join-local merge(s) and "
+								+ removedFluentBuilderSlices + " fluent builder slice(s) and "
 									+ removedStaticReceiverSlices + " static receiver slice(s) and "
 									+ retargetedHandlerBridges + " equivalent handler bridge(s) and "
 									+ duplicatedCleanupTails + " shared normal cleanup tail(s) and "
 									+ relocatedProtectedThrows + " protected throw branch(es) and "
-									+ mergedProtectedThrows + " merged protected throw block(s) and "
+								+ mergedProtectedThrows + " merged protected throw block(s) and "
+								+ normalizedShortCircuitThrows + " short-circuit throw guard(s) and "
 								+ retargetedCloseBoundaries + " close-boundary branch(es) and "
 								+ removedCloseBoundaryBridges + " close-boundary bridge(s) and "
 								+ normalizedNullCloseRanges + " null-close range end normalization(s) and "
 								+ shapedCloseGuards + " shaped close guard(s) and "
 								+ restoredCloseJoins + " restored close join(s) and "
-								+ preservedResourceAliases + " preserved resource alias(es) and "
 								+ widenedOuterResourceRanges + " widened outer resource range(s) and "
 								+ decoupledCloseGuards + " decoupled close guard(s) and "
+								+ normalizedNullableCleanupGuards + " nullable cleanup guard normalization(s) and "
+								+ joinedCleanupReturns + " joined cleanup return(s) and "
 								+ lateInvokeSlices + " late expression slice(s) and "
 								+ extendedCatchFinallyRanges + " catch-to-finally range extension(s) and "
 								+ removedRedundantExceptionRanges + " redundant contained exception range(s) and "
 								+ removedBooleanBranchStores + " boolean branch materialization(s) and "
 								+ orderedNestedRanges + " nested exception-range ordering pass(es) and "
+								+ orderedFinallyTransferRanges + " shared finally-transfer ordering pass(es) and "
+								+ protectedFinallyEntries + " protected finally-entry range(s) and "
+								+ typedResourceCatchRanges + " explicit Throwable resource range(s) and "
+								+ interleavedResourceHandlers + " interleaved resource-close handler(s) and "
+								+ extendedOuterCleanupRanges + " outer cleanup range extension(s) and "
 								+ removedUnreachable + " unreachable instruction(s)", null));
 					}
 					diagnosticSink.accept(List.copyOf(diagnostics));

@@ -23,6 +23,12 @@ final class JvmLiveness {
 
 	static @NotNull Map<IrValue, Interval> analyze(@NotNull IrMethod method) {
 		Map<IrValue, int[]> ranges = new IdentityHashMap<>();
+		Map<IrBlock, Integer> blockStarts = new IdentityHashMap<>();
+		int blockPosition = 0;
+		for (IrBlock block : method.blocks()) {
+			blockStarts.put(block, blockPosition);
+			blockPosition += block.statements().size() + (block.terminator() == null ? 0 : 1);
+		}
 		int position = 0;
 		for (IrBlock block : method.blocks()) {
 			if (block.exceptionValue() != null) touch(ranges, block.exceptionValue().canonical(), position);
@@ -44,8 +50,15 @@ final class JvmLiveness {
 			// handler has no explicit phi yet.
 			for (IrExceptionEdge edge : block.exceptionEdges()) {
 				IrValue[] state = block.exceptionalExitStates().get(edge);
-				if (state != null) for (IrValue value : state)
-					if (value != null) touch(ranges, value.canonical(), position);
+				if (state != null) {
+					// The exceptional state is consumed at handler entry, not at
+					// the throwing block's normal position.  Extending the interval
+					// to that entry prevents a slot from being reused for a value
+					// that the handler can still observe.
+					int handlerPosition = blockStarts.getOrDefault(edge.handlerBlock(), position);
+					for (IrValue value : state)
+						if (value != null) touch(ranges, value.canonical(), handlerPosition);
+				}
 			}
 		}
 		Map<IrValue, Interval> result = new IdentityHashMap<>();

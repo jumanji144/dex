@@ -21,6 +21,60 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class JvmLocalMaterializationCleanupTest {
     @Test
+    void extendsPairedOuterRangesAcrossProvenCleanupTail() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "(Ljava/util/Map;Ljava/lang/String;)V", null, null);
+        LabelNode bodyStart = new LabelNode();
+        LabelNode cleanupStart = new LabelNode();
+        LabelNode afterCleanup = new LabelNode();
+        LabelNode failureHandler = new LabelNode();
+        LabelNode finallyHandler = new LabelNode();
+        method.instructions.add(bodyStart);
+        method.instructions.add(new InsnNode(Opcodes.NOP));
+        method.instructions.add(cleanupStart);
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new JumpInsnNode(Opcodes.IFNULL, afterCleanup));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE,
+                "java/util/Map", "remove", "(Ljava/lang/Object;)Ljava/lang/Object;", true));
+        method.instructions.add(new InsnNode(Opcodes.POP));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE,
+                "java/util/Map", "remove", "(Ljava/lang/Object;)Ljava/lang/Object;", true));
+        method.instructions.add(new InsnNode(Opcodes.POP));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+        method.instructions.add(afterCleanup);
+        method.instructions.add(failureHandler);
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 2));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC,
+                "android/util/Log", "w", "(Ljava/lang/String;)I", false));
+        method.instructions.add(new InsnNode(Opcodes.POP));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+        method.instructions.add(finallyHandler);
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 3));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE,
+                "java/util/Map", "remove", "(Ljava/lang/Object;)Ljava/lang/Object;", true));
+        method.instructions.add(new InsnNode(Opcodes.POP));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE,
+                "java/util/Map", "remove", "(Ljava/lang/Object;)Ljava/lang/Object;", true));
+        method.instructions.add(new InsnNode(Opcodes.POP));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        method.instructions.add(new InsnNode(Opcodes.ATHROW));
+        method.tryCatchBlocks.add(new TryCatchBlockNode(bodyStart, cleanupStart, failureHandler, null));
+        method.tryCatchBlocks.add(new TryCatchBlockNode(bodyStart, cleanupStart, finallyHandler, null));
+
+        assertEquals(2, JvmLocalMaterializationCleanup.extendPairedOuterRangesOverCleanup(method));
+        assertEquals(afterCleanup, method.tryCatchBlocks.get(0).end);
+        assertEquals(afterCleanup, method.tryCatchBlocks.get(1).end);
+    }
+
+    @Test
     void removesAStoreLoadSeparatedByMetadata() {
         MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
                 "run", "()V", null, null);
@@ -107,6 +161,152 @@ final class JvmLocalMaterializationCleanupTest {
                     && type.desc.equals("java/io/ByteArrayInputStream"))
                 hasByteArrayInputStream = true;
         assertTrue(hasByteArrayInputStream);
+    }
+
+    @Test
+    void reusesAJoinLocalForAConstructorAcrossAnArgumentBranch() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "(ZZ)V", null, null);
+        LabelNode alternate = new LabelNode();
+        LabelNode join = new LabelNode();
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "sample/Peer"));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 2));
+        method.instructions.add(new VarInsnNode(Opcodes.ILOAD, 0));
+        method.instructions.add(new JumpInsnNode(Opcodes.IFEQ, alternate));
+        method.instructions.add(new InsnNode(Opcodes.ICONST_1));
+        method.instructions.add(new JumpInsnNode(Opcodes.GOTO, join));
+        method.instructions.add(alternate);
+        method.instructions.add(new InsnNode(Opcodes.ICONST_2));
+        method.instructions.add(join);
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        method.instructions.add(new VarInsnNode(Opcodes.ILOAD, 1));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "sample/Peer", "<init>", "(I)V", false));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 3));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                "sample/Peer", "use", "()V", false));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+
+        assertEquals(1, JvmLocalMaterializationCleanup.mergeConstructorTemporaryIntoJoinLocal(method));
+        assertEquals(0, countLocalAccesses(method, 2));
+        assertEquals(3, countLocalAccesses(method, 3));
+    }
+
+    @Test
+    void fusesAConstructedValueIntoItsImmediateInstanceConsumer() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, 0,
+                "run", "()V", null, null);
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "sample/Progress"));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 4));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "sample/Progress", "<init>", "()V", false));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "sample/Owner", "publish", "(Lsample/Progress;)V", false));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+
+        assertEquals(1, JvmLocalMaterializationCleanup.removeOneUseConstructedReceiverCopies(method));
+        assertEquals(0, countLocalAccesses(method, 4));
+        assertEquals(1, countOpcode(method, Opcodes.DUP));
+        assertTrue(method.instructions.indexOf(method.instructions.getFirst())
+                < method.instructions.indexOf(method.instructions.getLast()));
+    }
+
+    @Test
+    void fusesAConstructedValueWhenItsArgumentsWereMaterializedBeforeInit() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, 0,
+                "run", "()V", null, null);
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "sample/Progress"));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 4));
+        method.instructions.add(new IntInsnNode(Opcodes.BIPUSH, 1));
+        method.instructions.add(new VarInsnNode(Opcodes.ISTORE, 5));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        method.instructions.add(new VarInsnNode(Opcodes.ILOAD, 5));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "sample/Progress", "<init>", "(I)V", false));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "sample/Owner", "publish", "(Lsample/Progress;)V", false));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+
+        assertEquals(1, JvmLocalMaterializationCleanup.removeOneUseConstructedReceiverCopies(method));
+        assertEquals(0, countLocalAccesses(method, 4));
+    }
+
+    @Test
+    void removesOneUseConstructorArgumentStoresFromAStackResidentObject() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "()V", null, null);
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "java/lang/IllegalStateException"));
+        method.instructions.add(new InsnNode(Opcodes.DUP));
+        method.instructions.add(new org.objectweb.asm.tree.LdcInsnNode("failure"));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 2));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "java/lang/IllegalStateException", "<init>", "(Ljava/lang/String;)V", false));
+        method.instructions.add(new InsnNode(Opcodes.ATHROW));
+
+        assertEquals(1, JvmLocalMaterializationCleanup.removeOneUseConstructorArgumentCopies(method));
+        assertEquals(0, countLocalAccesses(method, 2));
+        assertEquals(1, countOpcode(method, Opcodes.DUP));
+    }
+
+    @Test
+    void retainsMixedWidthConstructorArgumentsUntilStackProofIsAvailable() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "()V", null, null);
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "sample/Progress"));
+        method.instructions.add(new InsnNode(Opcodes.DUP));
+        method.instructions.add(new org.objectweb.asm.tree.LdcInsnNode("id"));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 2));
+        method.instructions.add(new InsnNode(Opcodes.LCONST_0));
+        method.instructions.add(new VarInsnNode(Opcodes.LSTORE, 3));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        method.instructions.add(new VarInsnNode(Opcodes.LLOAD, 3));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "sample/Progress", "<init>", "(Ljava/lang/String;J)V", false));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+
+        assertEquals(0, JvmLocalMaterializationCleanup.removeOneUseConstructorArgumentCopies(method));
+        assertEquals(2, countLocalAccesses(method, 2));
+        assertEquals(2, countLocalAccesses(method, 3));
+    }
+
+    @Test
+    void fusesAOneUseFluentBuilderIntoAStaticConsumer() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "()V", null, null);
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "java/lang/StringBuilder"));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 1));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "java/lang/StringBuilder", "<init>", "()V", false));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        method.instructions.add(new org.objectweb.asm.tree.LdcInsnNode("left"));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
+        method.instructions.add(new org.objectweb.asm.tree.LdcInsnNode("right"));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false));
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 2));
+        method.instructions.add(new org.objectweb.asm.tree.LdcInsnNode("TAG"));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC,
+                "android/util/Log", "w", "(Ljava/lang/String;Ljava/lang/String;)I", false));
+        method.instructions.add(new InsnNode(Opcodes.POP));
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+
+        assertEquals(1, JvmLocalMaterializationCleanup.removeOneUseFluentBuilderCopies(method));
+        assertEquals(0, countLocalAccesses(method, 1));
+        assertEquals(0, countLocalAccesses(method, 2));
+        assertEquals(1, countOpcode(method, Opcodes.DUP));
     }
 
     @Test
@@ -345,6 +545,108 @@ final class JvmLocalMaterializationCleanupTest {
     }
 
     @Test
+    void normalizesAConditionalThrowWithAForwardSkip() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "(Z)V", null, null);
+        LabelNode throwBlock = new LabelNode();
+        LabelNode join = new LabelNode();
+        JumpInsnNode branch = new JumpInsnNode(Opcodes.IFEQ, throwBlock);
+        method.instructions.add(new InsnNode(Opcodes.ICONST_0));
+        method.instructions.add(branch);
+        method.instructions.add(new JumpInsnNode(Opcodes.GOTO, join));
+        method.instructions.add(throwBlock);
+        method.instructions.add(new TypeInsnNode(Opcodes.NEW, "java/lang/IllegalStateException"));
+        method.instructions.add(new InsnNode(Opcodes.DUP));
+        method.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "java/lang/IllegalStateException", "<init>", "()V", false));
+        method.instructions.add(new InsnNode(Opcodes.ATHROW));
+        method.instructions.add(join);
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+
+        assertEquals(1, JvmLocalMaterializationCleanup.normalizeShortCircuitThrowBlocks(method));
+        assertEquals(Opcodes.IFNE, branch.getOpcode());
+        assertEquals(join, branch.label);
+        assertEquals(0, countOpcode(method, Opcodes.GOTO));
+    }
+
+    @Test
+    void ordersSharedFinallyRangeBeforeCatchTransfer() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "()V", null, null);
+        LabelNode body = new LabelNode();
+        LabelNode bodyEnd = new LabelNode();
+        LabelNode catchEntry = new LabelNode();
+        LabelNode catchEnd = new LabelNode();
+        LabelNode transferEnd = new LabelNode();
+        LabelNode finallyEntry = new LabelNode();
+        LabelNode finallyEnd = new LabelNode();
+        method.instructions.add(body);
+        method.instructions.add(new InsnNode(Opcodes.NOP));
+        method.instructions.add(bodyEnd);
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+        method.instructions.add(catchEntry);
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 1));
+        method.instructions.add(catchEnd);
+        method.instructions.add(new InsnNode(Opcodes.NOP));
+        method.instructions.add(transferEnd);
+        method.instructions.add(finallyEntry);
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 2));
+        method.instructions.add(finallyEnd);
+        method.instructions.add(new InsnNode(Opcodes.ATHROW));
+
+        TryCatchBlockNode outerCatch = new TryCatchBlockNode(body, bodyEnd, catchEntry, null);
+        TryCatchBlockNode transfer = new TryCatchBlockNode(catchEntry, transferEnd, finallyEntry, null);
+        TryCatchBlockNode outerFinally = new TryCatchBlockNode(body, bodyEnd, finallyEntry, null);
+        method.tryCatchBlocks.add(outerCatch);
+        method.tryCatchBlocks.add(transfer);
+        method.tryCatchBlocks.add(outerFinally);
+
+        assertEquals(1, JvmLocalMaterializationCleanup.orderSharedFinallyTransferRanges(method));
+        assertEquals(outerCatch, method.tryCatchBlocks.get(0));
+        assertEquals(outerFinally, method.tryCatchBlocks.get(1));
+        assertEquals(transfer, method.tryCatchBlocks.get(2));
+    }
+
+    @Test
+    void protectsSharedFinallyEntryUntilItsExceptionIsStored() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "()V", null, null);
+        LabelNode body = new LabelNode();
+        LabelNode bodyEnd = new LabelNode();
+        LabelNode catchEntry = new LabelNode();
+        LabelNode transferEnd = new LabelNode();
+        LabelNode finallyEntry = new LabelNode();
+        method.instructions.add(body);
+        method.instructions.add(new InsnNode(Opcodes.NOP));
+        method.instructions.add(bodyEnd);
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+        method.instructions.add(catchEntry);
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 1));
+        method.instructions.add(new JumpInsnNode(Opcodes.GOTO, finallyEntry));
+        method.instructions.add(transferEnd);
+        method.instructions.add(finallyEntry);
+        VarInsnNode finallyStore = new VarInsnNode(Opcodes.ASTORE, 2);
+        method.instructions.add(finallyStore);
+        method.instructions.add(new InsnNode(Opcodes.NOP));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        method.instructions.add(new InsnNode(Opcodes.ATHROW));
+
+        TryCatchBlockNode outerCatch = new TryCatchBlockNode(body, bodyEnd, catchEntry, null);
+        TryCatchBlockNode transfer = new TryCatchBlockNode(catchEntry, transferEnd, finallyEntry, null);
+        TryCatchBlockNode outerFinally = new TryCatchBlockNode(body, bodyEnd, finallyEntry, null);
+        method.tryCatchBlocks.add(outerCatch);
+        method.tryCatchBlocks.add(transfer);
+        method.tryCatchBlocks.add(outerFinally);
+
+        assertEquals(1, JvmLocalMaterializationCleanup.protectSharedFinallyEntries(method));
+        TryCatchBlockNode self = method.tryCatchBlocks.getLast();
+        assertEquals(finallyEntry, self.start);
+        assertEquals(finallyEntry, self.handler);
+        assertTrue(method.instructions.indexOf(self.end) > method.instructions.indexOf(finallyStore));
+        assertEquals(0, JvmLocalMaterializationCleanup.protectSharedFinallyEntries(method));
+    }
+
+    @Test
     void extendsCatchToFinallyThroughAProvenCleanupTail() {
         MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
                 "run", "(Ljava/util/Map;Ljava/lang/String;)V", null, null);
@@ -427,6 +729,25 @@ final class JvmLocalMaterializationCleanupTest {
 
         assertEquals(1, JvmLocalMaterializationCleanup.removeBooleanStoreLoadsBeforeBranches(method));
         assertEquals(0, countLocalAccesses(method, 1));
+    }
+
+    @Test
+    void retainsBooleanMaterializationWhenTheFallthroughReadsItAgain() {
+        MethodNode method = new MethodNode(Opcodes.ASM9, Opcodes.ACC_STATIC,
+                "run", "()I", null, null);
+        LabelNode done = new LabelNode();
+        method.instructions.add(new InsnNode(Opcodes.ICONST_1));
+        method.instructions.add(new VarInsnNode(Opcodes.ISTORE, 1));
+        method.instructions.add(new VarInsnNode(Opcodes.ILOAD, 1));
+        method.instructions.add(new JumpInsnNode(Opcodes.IFEQ, done));
+        method.instructions.add(new VarInsnNode(Opcodes.ILOAD, 1));
+        method.instructions.add(new InsnNode(Opcodes.IRETURN));
+        method.instructions.add(done);
+        method.instructions.add(new InsnNode(Opcodes.ICONST_0));
+        method.instructions.add(new InsnNode(Opcodes.IRETURN));
+
+        assertEquals(0, JvmLocalMaterializationCleanup.removeBooleanStoreLoadsBeforeBranches(method));
+        assertEquals(3, countLocalAccesses(method, 1));
     }
 
     @Test

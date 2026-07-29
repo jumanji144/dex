@@ -512,22 +512,25 @@ final class JvmOptimizationGuards {
 	                                      @NotNull JvmCleanupRegionPlan plan) {
 		if (region.protectedBlocks().isEmpty() || region.handlers().isEmpty()
 				|| !completeCleanupResource(plan)) return false;
-		for (IrBlock block : region.protectedBlocks())
-			if (!completeStatementSemantics(block)) return false;
 		return true;
 	}
 
 	private boolean completeCleanupResource(@NotNull JvmCleanupRegionPlan plan) {
-		if (!plan.hasMaterializedResource()) return false;
-		if (plan.acquisition() != null && !plan.acquisition().inputs().stream().allMatch(this::materialized)) return false;
-		if (plan.normalClose() == null || !plan.normalClose().inputs().stream().allMatch(this::materialized)) return false;
-		if (plan.primaryException() != null && !materialized(plan.primaryException())) return false;
-		if (plan.suppressedException() != null
-				&& !plan.suppressedException().inputs().stream().allMatch(this::materialized)) return false;
-		if (plan.rethrow() != null && !plan.rethrow().inputs().stream().allMatch(this::materialized)) return false;
+		if (!cleanupResourceMaterialized(plan.resource())) return false;
+		if (plan.normalClose() == null
+				|| !plan.normalClose().inputs().stream().allMatch(this::cleanupResourceMaterialized)) return false;
 		if (plan.nullResourceBlock() != null && plan.nullResourceBlock().terminator() != null
-				&& !plan.nullResourceBlock().terminator().inputs().stream().allMatch(this::materialized)) return false;
+				&& !plan.nullResourceBlock().terminator().inputs().stream()
+						.allMatch(this::cleanupResourceMaterialized)) return false;
 		return true;
+	}
+
+	private boolean cleanupResourceMaterialized(@NotNull IrValue value) {
+		IrValue canonical = value.canonical();
+		if (canonical instanceof IrParameter) return ConversionSupport.isReferenceType(canonical.type());
+		if (canonical instanceof IrUnknown || canonical.stackOnly()) return false;
+		if (!canonical.isImprecise()) return canonical.constantValue() != null || canonical.hasLocal();
+		return canonical.hasLocal() && ConversionSupport.isReferenceType(canonical.type());
 	}
 
 	private boolean completeStatementSemantics(@NotNull IrBlock block) {

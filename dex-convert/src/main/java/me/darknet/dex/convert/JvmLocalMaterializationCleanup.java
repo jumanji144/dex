@@ -21,13 +21,17 @@ import org.objectweb.asm.tree.analysis.BasicValue;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.IincInsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LineNumberNode;
+import org.objectweb.asm.tree.LocalVariableNode;
 import org.objectweb.asm.tree.LookupSwitchInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -62,7 +66,7 @@ final class JvmLocalMaterializationCleanup {
                         || loadOpcode(store.getOpcode()) != load.getOpcode()) continue;
                 if (!sameProtectedProfile(method, storeNode, loadNode)) continue;
                 if (isProtected(method, storeNode) && handlerUsesLocal(method, storeNode, load.var)) continue;
-                if (hasLaterLiveUse(method, loadIndex + 1, load.var)) continue;
+                if (hasReadBeforeReassignment(method, loadIndex + 1, load.var)) continue;
                 method.instructions.remove(loadNode);
                 method.instructions.remove(storeNode);
                 removed++;
@@ -267,6 +271,607 @@ final class JvmLocalMaterializationCleanup {
             }
         } while (changed);
         return removed;
+    }
+
+    /**
+     * Reuses a join value's reference slot for a constructor that is selected
+     * before a pure/throwing argument branch.  The local-first emitter normally
+     * has to use a temporary object slot and then copy the initialized object
+     * into the SSA join slot:
+     *
+     * <pre>
+     * NEW T; ASTORE tmp; ... branch selecting constructor arguments ...
+     * ALOAD tmp; args; INVOKESPECIAL T.&lt;init&gt;; ALOAD tmp; ASTORE join
+     * </pre>
+     *
+     * The object slot can be the join slot itself when that slot is not read
+     * before the final store.  This changes no evaluation order and does not
+     * carry an operand-stack value across the branch.  Handler-observed locals,
+     * additional temporary uses, category conflicts, and mismatched protected
+     * profiles reject the candidate.
+     */
+    static int mergeConstructorTemporaryIntoJoinLocal(MethodNode method) {
+        for (int allocationIndex = 0; allocationIndex < method.instructions.size(); allocationIndex++) {
+            AbstractInsnNode allocationNode = method.instructions.get(allocationIndex);
+            if (!(allocationNode instanceof TypeInsnNode allocation)
+                    || allocation.getOpcode() != Opcodes.NEW) continue;
+            int storeIndex = nextExecutableIndex(method, allocationIndex + 1);
+            if (storeIndex < 0 || !(method.instructions.get(storeIndex) instanceof VarInsnNode temporaryStore)
+                    || temporaryStore.getOpcode() != Opcodes.ASTORE) continue;
+            int temporary = temporaryStore.var;
+            if (handlerUsesLocal(method, temporaryStore, temporary)) {
+                continue;
+            }
+
+            int constructorIndex = -1;
+            int constructorReceiverIndex = -1;
+            int temporaryLoads = 0;
+            boolean invalid = false;
+            for (int cursor = storeIndex + 1;
+                 cursor < method.instructions.size() && cursor < storeIndex + 192;
+                 cursor++) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (instruction.getType() == AbstractInsnNode.LINE
+                        || instruction.getType() == AbstractInsnNode.FRAME
+                        || instruction.getType() == AbstractInsnNode.LABEL) continue;
+                if (instruction instanceof VarInsnNode variable && variable.var == temporary) {
+                    if (!isLoad(variable.getOpcode())) {
+                        invalid = true;
+                        break;
+                    }
+                    temporaryLoads++;
+                    constructorReceiverIndex = cursor;
+                    continue;
+                }
+                if (instruction instanceof MethodInsnNode invoke
+                        && invoke.getOpcode() == Opcodes.INVOKESPECIAL
+                        && "<init>".equals(invoke.name)
+                        && allocation.desc.equals(invoke.owner)) {
+                    constructorIndex = cursor;
+                    break;
+                }
+                if (instruction instanceof VarInsnNode variable
+                        && variable.getOpcode() == Opcodes.ASTORE
+                        && variable.var == temporary) {
+                    invalid = true;
+                    break;
+                }
+                if (instruction instanceof JumpInsnNode
+                        || instruction instanceof TableSwitchInsnNode
+                        || instruction instanceof LookupSwitchInsnNode
+                        || isTerminal(instruction)) {
+                    // Branches are allowed for argument selection, but a
+                    // terminal before the constructor cannot reach its sole
+                    // consumer on every path.
+                    if (instruction instanceof JumpInsnNode
+                            || instruction instanceof TableSwitchInsnNode
+                            || instruction instanceof LookupSwitchInsnNode) continue;
+                    invalid = true;
+                    break;
+                }
+            }
+            if (invalid || constructorIndex < 0 || temporaryLoads != 1
+                    || constructorReceiverIndex < 0) {
+                continue;
+            }
+
+            int finalLoadIndex = nextExecutableIndex(method, constructorIndex + 1);
+            if (finalLoadIndex < 0 || !(method.instructions.get(finalLoadIndex) instanceof VarInsnNode finalLoad)
+                    || finalLoad.getOpcode() != Opcodes.ALOAD || finalLoad.var != temporary) {
+                continue;
+            }
+            int finalStoreIndex = nextExecutableIndex(method, finalLoadIndex + 1);
+            if (finalStoreIndex < 0 || !(method.instructions.get(finalStoreIndex) instanceof VarInsnNode joinStore)
+                    || joinStore.getOpcode() != Opcodes.ASTORE || joinStore.var == temporary) {
+                continue;
+            }
+            int join = joinStore.var;
+            if (handlerUsesLocal(method, joinStore, join)
+                    || !sameProtectedProfile(method, allocationNode, method.instructions.get(constructorIndex))
+                    || !sameProtectedProfile(method, method.instructions.get(constructorIndex), joinStore)) {
+                continue;
+            }
+
+            boolean conflictingAccess = false;
+            for (int cursor = allocationIndex + 1; cursor < finalStoreIndex; cursor++) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (!(instruction instanceof VarInsnNode variable)) continue;
+                if (variable.var == temporary && variable != finalLoad
+                        && variable != method.instructions.get(constructorReceiverIndex)) {
+                    conflictingAccess = true;
+                    break;
+                }
+                if (variable.var == join) {
+                    conflictingAccess = true;
+                    break;
+                }
+            }
+            if (conflictingAccess || hasLoadBeforeReuse(method, finalStoreIndex + 1, temporary)) {
+                continue;
+            }
+
+            // The join slot is now initialized on this path.  The class writer
+            // recomputes frames for the aggressive staged method; retaining
+            // the source labels keeps the CFG and exception ranges intact.
+            temporaryStore.var = join;
+            ((VarInsnNode) method.instructions.get(constructorReceiverIndex)).var = join;
+            method.instructions.remove(finalLoad);
+            method.instructions.remove(joinStore);
+            return 1;
+        }
+        return 0;
+    }
+
+    private static boolean hasLoadBeforeReuse(MethodNode method, int start, int local) {
+        for (int index = start; index < method.instructions.size(); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (!(instruction instanceof VarInsnNode variable) || variable.var != local) continue;
+            if (variable.getOpcode() == Opcodes.ASTORE) return false;
+            if (isLoad(variable.getOpcode())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Re-emits a constructed value at its immediate instance consumer.
+     *
+     * <p>The local-first emitter normally has to materialize a constructor
+     * result before it can pass it to an instance call:
+     * {@code NEW; ASTORE; ...; ALOAD; <init>; ALOAD receiver; ALOAD object;
+     * invoke}.  When the object has no other local or handler use, the
+     * constructor result can stay on the operand stack until that one call.
+     * The proof is deliberately local: no label, frame, branch, terminal, or
+     * protected-range boundary may be crossed, and arguments already prepared
+     * between the constructor and consumer must be loads/constants only.</p>
+     *
+     * <p>This covers resource-adjacent progress/error objects and ordinary
+     * constructed receiver chains without naming a class or method.</p>
+     */
+    static int removeOneUseConstructedReceiverCopies(MethodNode method) {
+        int removed = 0;
+        boolean changed;
+        do {
+            changed = false;
+            for (int allocationIndex = 0; allocationIndex < method.instructions.size(); allocationIndex++) {
+                AbstractInsnNode allocationNode = method.instructions.get(allocationIndex);
+                if (!(allocationNode instanceof TypeInsnNode allocation)
+                        || allocation.getOpcode() != Opcodes.NEW) continue;
+                int storeIndex = nextExecutableIndex(method, allocationIndex + 1);
+                if (storeIndex < 0 || !(method.instructions.get(storeIndex) instanceof VarInsnNode store)
+                        || store.getOpcode() != Opcodes.ASTORE
+                        || isProtected(method, store) && handlerUsesLocal(method, store, store.var)) continue;
+
+                int[] constructorShape = findConstructorShape(method, storeIndex + 1, allocation.desc, store.var);
+                if (constructorShape == null) continue;
+                int constructorReceiverIndex = constructorShape[0];
+                int constructorIndex = constructorShape[1];
+                VarInsnNode constructorReceiver = (VarInsnNode) method.instructions.get(constructorReceiverIndex);
+
+                int consumerStart = nextExecutableIndex(method, constructorIndex + 1);
+                if (consumerStart < 0) continue;
+                ConsumerShape consumer = findConstructedConsumer(method, consumerStart, store.var);
+                if (consumer == null || hasAnyLocalAccess(method, consumer.invokeIndex() + 1, store.var)) continue;
+                if (!sameProtectedProfile(method, allocationNode, method.instructions.get(consumer.invokeIndex()))
+                        || !sameProtectedProfile(method, allocationNode, method.instructions.get(constructorIndex))) continue;
+
+                // Do not move the construction through metadata or a control
+                // transfer.  Arguments before the constructor receiver are
+                // already materialized and remain in their original order.
+                if (!straightLineMaterialization(method, storeIndex + 1, consumer.invokeIndex())) continue;
+
+                if (consumer.receiverCopy() != null)
+                    method.instructions.insertBefore(allocationNode, consumer.receiverCopy());
+                method.instructions.insert(allocationNode, new InsnNode(Opcodes.DUP));
+                method.instructions.remove(store);
+                method.instructions.remove(constructorReceiver);
+                if (consumer.consumerObjectLoad() != null)
+                    method.instructions.remove(consumer.consumerObjectLoad());
+                if (consumer.originalReceiver() != null)
+                    method.instructions.remove(consumer.originalReceiver());
+                removed++;
+                changed = true;
+                break;
+            }
+        } while (changed);
+        return removed;
+    }
+
+    private static int[] findConstructorShape(MethodNode method, int start, String owner, int local) {
+        int receiverIndex = -1;
+        for (int index = start; index < Math.min(method.instructions.size(), start + 96); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction.getType() == AbstractInsnNode.LINE) continue;
+            if (instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LABEL
+                    || instruction instanceof JumpInsnNode
+                    || instruction instanceof TableSwitchInsnNode
+                    || instruction instanceof LookupSwitchInsnNode
+                    || isTerminal(instruction)) return null;
+            if (instruction instanceof VarInsnNode variable && variable.var == local) {
+                if (receiverIndex >= 0 || variable.getOpcode() != Opcodes.ALOAD)
+                    return null;
+                receiverIndex = index;
+            }
+            if (instruction instanceof MethodInsnNode invoke
+                    && invoke.getOpcode() == Opcodes.INVOKESPECIAL
+                    && "<init>".equals(invoke.name)
+                    && owner.equals(invoke.owner))
+                return receiverIndex < 0 ? null : new int[]{receiverIndex, index};
+        }
+        return null;
+    }
+
+    private static @org.jetbrains.annotations.Nullable ConsumerShape findConstructedConsumer(
+            MethodNode method, int start, int local) {
+        AbstractInsnNode first = method.instructions.get(start);
+        VarInsnNode originalReceiver = null;
+        VarInsnNode objectLoad;
+        int invokeIndex;
+        if (first instanceof VarInsnNode receiver && receiver.getOpcode() == Opcodes.ALOAD
+                && receiver.var != local) {
+            originalReceiver = receiver;
+            int objectIndex = nextExecutableIndex(method, start + 1);
+            if (objectIndex < 0 || !(method.instructions.get(objectIndex) instanceof VarInsnNode load)
+                    || load.getOpcode() != Opcodes.ALOAD || load.var != local) return null;
+            objectLoad = load;
+            invokeIndex = nextExecutableIndex(method, objectIndex + 1);
+        } else if (first instanceof VarInsnNode load && load.getOpcode() == Opcodes.ALOAD
+                && load.var == local) {
+            objectLoad = load;
+            invokeIndex = nextInvokeAfterLoads(method, start + 1, local);
+        } else {
+            return null;
+        }
+        if (invokeIndex < 0 || !(method.instructions.get(invokeIndex) instanceof MethodInsnNode invoke)
+                || invoke.name.equals("<init>") || invoke.getOpcode() == Opcodes.INVOKESTATIC)
+            return null;
+        Type[] arguments = Type.getArgumentTypes(invoke.desc);
+        if (originalReceiver != null && arguments.length != 1) return null;
+        return new ConsumerShape(invokeIndex, objectLoad, originalReceiver,
+                originalReceiver == null ? null : originalReceiver.clone(new HashMap<>()));
+    }
+
+    private static boolean straightLineMaterialization(MethodNode method, int start, int end) {
+        for (int index = start; index < end; index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction.getType() == AbstractInsnNode.LINE) continue;
+            if (instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LABEL
+                    || instruction instanceof JumpInsnNode
+                    || instruction instanceof TableSwitchInsnNode
+                    || instruction instanceof LookupSwitchInsnNode
+                    || isTerminal(instruction)) return false;
+        }
+        return true;
+    }
+
+    private static int nextInvokeAfterLoads(MethodNode method, int start, int local) {
+        for (int index = start; index < Math.min(method.instructions.size(), start + 32); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction.getType() == AbstractInsnNode.LINE) continue;
+            if (instruction instanceof MethodInsnNode) return index;
+            if (instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LABEL
+                    || instruction instanceof JumpInsnNode
+                    || instruction instanceof TableSwitchInsnNode
+                    || instruction instanceof LookupSwitchInsnNode
+                    || isTerminal(instruction)) return -1;
+            if (instruction instanceof VarInsnNode variable && variable.var == local)
+                return -1;
+        }
+        return -1;
+    }
+
+    private record ConsumerShape(int invokeIndex,
+                                 VarInsnNode consumerObjectLoad,
+                                 VarInsnNode originalReceiver,
+                                 AbstractInsnNode receiverCopy) {}
+
+    /**
+     * Removes one-use argument stores between a retained NEW/DUP pair and its
+     * constructor invocation.  The constructor object is already on the
+     * operand stack, so spilling an argument and immediately reloading it is
+     * unnecessary and makes direct constructor calls decompile as unrelated
+     * locals.
+     */
+    static int removeOneUseConstructorArgumentCopies(MethodNode method) {
+        int removed = 0;
+        List<AbstractInsnNode> snapshot = new ArrayList<>();
+        for (AbstractInsnNode instruction : method.instructions) snapshot.add(instruction);
+        for (AbstractInsnNode node : snapshot) {
+            if (!(node instanceof MethodInsnNode constructor)
+                    || constructor.getOpcode() != Opcodes.INVOKESPECIAL
+                    || !"<init>".equals(constructor.name)) continue;
+            int constructorIndex = method.instructions.indexOf(constructor);
+            int allocationIndex = findRetainedAllocation(method, constructorIndex, constructor.owner);
+            if (allocationIndex < 0) continue;
+
+            // Mixed-width constructors require a stack-aware argument proof.
+            // Local-first lowering may stage their reference and wide
+            // arguments independently; removing only some store/load pairs
+            // can otherwise move the remaining producers across NEW and
+            // corrupt the descriptor order.  Other constructor shapes retain
+            // the narrower direct-producer proof below.
+            if (hasWideConstructorArgument(constructor.desc)) continue;
+
+            List<ConstructorArgumentCopy> copies = new ArrayList<>();
+            for (int index = allocationIndex + 1; index < constructorIndex; index++) {
+                AbstractInsnNode instruction = method.instructions.get(index);
+                if (!(instruction instanceof VarInsnNode store)
+                        || !isStore(store.getOpcode())) continue;
+                int loadIndex = findOnlyLoadBefore(method, index + 1, constructorIndex, store.var);
+                if (loadIndex < 0 || hasLoadAfter(method, loadIndex + 1, store.var)
+                        || handlerUsesLocal(method, store, store.var)
+                        || !sameProtectedProfile(method, store, method.instructions.get(loadIndex))
+                        || !sameProtectedProfile(method, store, constructor)
+                        || crossesStraightLineBoundary(method, index, loadIndex)) continue;
+                int producerIndex = previousExecutableIndex(method, index - 1);
+                if (producerIndex <= allocationIndex
+                        || !leavesOneValueOnStack(method.instructions.get(producerIndex))
+                        || !sameProtectedProfile(method, method.instructions.get(producerIndex), store)) continue;
+                copies.add(new ConstructorArgumentCopy(store,
+                        (VarInsnNode) method.instructions.get(loadIndex),
+                        method.instructions.get(producerIndex)));
+            }
+            for (ConstructorArgumentCopy copy : copies) {
+                method.instructions.remove(copy.load());
+                method.instructions.remove(copy.store());
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    private record ConstructorArgumentCopy(VarInsnNode store, VarInsnNode load,
+                                           AbstractInsnNode producer) {}
+
+    private static boolean hasWideConstructorArgument(String descriptor) {
+        for (Type argument : Type.getArgumentTypes(descriptor)) {
+            if (argument.getSort() == Type.LONG || argument.getSort() == Type.DOUBLE) return true;
+        }
+        return false;
+    }
+
+    private static boolean leavesOneValueOnStack(AbstractInsnNode instruction) {
+        if (instruction instanceof VarInsnNode variable) return isLoad(variable.getOpcode());
+        if (instruction instanceof FieldInsnNode field)
+            return field.getOpcode() == Opcodes.GETFIELD || field.getOpcode() == Opcodes.GETSTATIC;
+        if (instruction instanceof MethodInsnNode invoke)
+            return Type.getReturnType(invoke.desc) != Type.VOID_TYPE;
+        if (instruction instanceof InvokeDynamicInsnNode invoke)
+            return Type.getReturnType(invoke.desc) != Type.VOID_TYPE;
+        if (instruction instanceof TypeInsnNode type)
+            return type.getOpcode() == Opcodes.NEW || type.getOpcode() == Opcodes.ANEWARRAY
+                    || type.getOpcode() == Opcodes.CHECKCAST;
+        if (instruction instanceof MultiANewArrayInsnNode) return true;
+        if (isConstantInstruction(instruction)) return true;
+        int opcode = instruction.getOpcode();
+        return opcode == Opcodes.ARRAYLENGTH || opcode == Opcodes.INSTANCEOF
+                || opcode == Opcodes.GETSTATIC || opcode == Opcodes.NEWARRAY;
+    }
+
+    private static int findRetainedAllocation(MethodNode method, int constructorIndex, String owner) {
+        for (int index = constructorIndex - 1; index >= Math.max(0, constructorIndex - 128); index--) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction.getType() == AbstractInsnNode.LABEL
+                    || instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LINE) continue;
+            if (instruction instanceof TypeInsnNode type
+                    && type.getOpcode() == Opcodes.NEW && owner.equals(type.desc)) {
+                int duplicate = nextExecutableIndex(method, index + 1);
+                if (duplicate >= 0 && method.instructions.get(duplicate).getOpcode() == Opcodes.DUP
+                        && !crossesStraightLineBoundary(method, index, constructorIndex)) return index;
+            }
+            if (instruction instanceof JumpInsnNode
+                    || instruction instanceof TableSwitchInsnNode
+                    || instruction instanceof LookupSwitchInsnNode
+                    || isTerminal(instruction)) break;
+        }
+        return -1;
+    }
+
+    private static int findOnlyLoadBefore(MethodNode method, int start, int end, int local) {
+        int found = -1;
+        for (int index = start; index < end; index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof VarInsnNode load && load.var == local
+                    && isLoad(load.getOpcode())) {
+                if (found >= 0) return -1;
+                found = index;
+            }
+        }
+        return found;
+    }
+
+    private static boolean hasLoadAfter(MethodNode method, int start, int local) {
+        for (int index = start; index < method.instructions.size(); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof VarInsnNode load && load.var == local
+                    && isLoad(load.getOpcode())) return true;
+        }
+        return false;
+    }
+
+    private static boolean crossesStraightLineBoundary(MethodNode method, int start, int end) {
+        for (int index = start + 1; index < end; index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction.getType() == AbstractInsnNode.LABEL
+                    || instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LINE
+                    || instruction instanceof JumpInsnNode
+                    || instruction instanceof TableSwitchInsnNode
+                    || instruction instanceof LookupSwitchInsnNode
+                    || isTerminal(instruction)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Re-emits a one-use fluent object expression at its terminal consumer.
+     *
+     * <p>This is intentionally narrower than general expression fusion.  The
+     * object must be created, initialized, used as the receiver of a single
+     * straight-line fluent chain, and converted to a value which is consumed
+     * once by a static invocation.  Only constant/local-load arguments already
+     * placed before the materialized result may be moved before the expression;
+     * no effectful instruction, label, frame, branch, handler, or protected
+     * boundary is crossed.</p>
+     *
+     * <p>The rule is descriptor-neutral at this bytecode cleanup layer: it
+     * relies on the JVM owner/descriptor relationship and on the one-use,
+     * same-protected-profile proof.  It therefore applies to builders and
+     * other fluent objects without naming a class or method.</p>
+     */
+    static int removeOneUseFluentBuilderCopies(MethodNode method) {
+        for (int allocationIndex = 0; allocationIndex < method.instructions.size(); allocationIndex++) {
+            AbstractInsnNode allocationNode = method.instructions.get(allocationIndex);
+            if (!(allocationNode instanceof TypeInsnNode allocation)
+                    || allocation.getOpcode() != Opcodes.NEW) continue;
+
+            int storeIndex = nextExecutableIndex(method, allocationIndex + 1);
+            if (storeIndex < 0 || !(method.instructions.get(storeIndex) instanceof VarInsnNode objectStore)
+                    || objectStore.getOpcode() != Opcodes.ASTORE
+                    || isProtected(method, objectStore) && handlerUsesLocal(method, objectStore, objectStore.var)) continue;
+
+            int receiverIndex = nextExecutableIndex(method, storeIndex + 1);
+            if (receiverIndex < 0 || !(method.instructions.get(receiverIndex) instanceof VarInsnNode constructorReceiver)
+                    || constructorReceiver.getOpcode() != Opcodes.ALOAD
+                    || constructorReceiver.var != objectStore.var) continue;
+
+            int constructorIndex = nextExecutableIndex(method, receiverIndex + 1);
+            if (constructorIndex < 0 || !(method.instructions.get(constructorIndex) instanceof MethodInsnNode constructor)
+                    || constructor.getOpcode() != Opcodes.INVOKESPECIAL
+                    || !"<init>".equals(constructor.name)
+                    || !allocation.desc.equals(constructor.owner)) continue;
+
+            if (!sameProtectedProfile(method, allocationNode, constructor)) continue;
+
+            int terminalIndex = -1;
+            int firstFluentReceiver = -1;
+            boolean invalid = false;
+            for (int cursor = nextExecutableIndex(method, constructorIndex + 1);
+                 cursor >= 0 && cursor < method.instructions.size() && cursor < constructorIndex + 96;
+                 cursor = nextExecutableIndex(method, cursor + 1)) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (instruction.getType() == AbstractInsnNode.FRAME
+                        || instruction.getType() == AbstractInsnNode.LABEL
+                        || instruction instanceof JumpInsnNode
+                        || instruction instanceof TableSwitchInsnNode
+                        || instruction instanceof LookupSwitchInsnNode
+                        || isTerminal(instruction)) {
+                    invalid = true;
+                    break;
+                }
+                if (instruction instanceof VarInsnNode variable && isStore(variable.getOpcode())) {
+                    invalid = true;
+                    break;
+                }
+                if (instruction instanceof VarInsnNode variable && isLoad(variable.getOpcode())
+                        && variable.var == objectStore.var) {
+                    if (firstFluentReceiver >= 0) {
+                        invalid = true;
+                        break;
+                    }
+                    firstFluentReceiver = cursor;
+                    continue;
+                }
+                if (instruction instanceof MethodInsnNode invoke
+                        && invoke.owner.equals(allocation.desc)
+                        && invoke.getOpcode() != Opcodes.INVOKESPECIAL
+                        && !invoke.desc.endsWith(")V")) {
+                    Type returnType = Type.getReturnType(invoke.desc);
+                    if (returnType.getSort() == Type.OBJECT
+                            && returnType.getInternalName().equals(allocation.desc)) continue;
+                }
+                if (instruction instanceof MethodInsnNode invoke
+                        && invoke.owner.equals(allocation.desc)
+                        && "()Ljava/lang/String;".equals(invoke.desc)) {
+                    terminalIndex = cursor;
+                    break;
+                }
+                // Arguments may be constants, local loads, or direct field
+                // reads.  Every call in the slice must have been accepted as
+                // a fluent owner-preserving call above; unrelated effects are
+                // a hard boundary rather than an implicit expression proof.
+                if (!(instruction instanceof VarInsnNode variable && isLoad(variable.getOpcode()))
+                        && !isConstantInstruction(instruction)
+                        && !(instruction instanceof FieldInsnNode field
+                        && (field.getOpcode() == Opcodes.GETFIELD || field.getOpcode() == Opcodes.GETSTATIC))
+                        ) {
+                    invalid = true;
+                    break;
+                }
+            }
+            if (invalid || firstFluentReceiver < 0 || terminalIndex < 0) continue;
+
+            int resultStoreIndex = nextExecutableIndex(method, terminalIndex + 1);
+            if (resultStoreIndex < 0 || !(method.instructions.get(resultStoreIndex) instanceof VarInsnNode resultStore)
+                    || resultStore.getOpcode() != Opcodes.ASTORE
+                    || handlerUsesLocal(method, resultStore, resultStore.var)) continue;
+
+            int resultLoadIndex = firstCopyUse(method, resultStoreIndex + 1, resultStore.var);
+            if (resultLoadIndex < 0 || !(method.instructions.get(resultLoadIndex) instanceof VarInsnNode resultLoad)
+                    || resultLoad.getOpcode() != Opcodes.ALOAD) continue;
+
+            int consumerIndex = nextExecutableIndex(method, resultLoadIndex + 1);
+            if (consumerIndex < 0 || !(method.instructions.get(consumerIndex) instanceof MethodInsnNode consumer)
+                    || consumer.getOpcode() != Opcodes.INVOKESTATIC
+                    || Type.getArgumentTypes(consumer.desc).length == 0
+                    || Type.getArgumentTypes(consumer.desc)[Type.getArgumentTypes(consumer.desc).length - 1].getSort() != Type.OBJECT
+                    || !sameProtectedProfile(method, allocationNode, consumer)) continue;
+
+            // The result must be the final argument.  The instructions between
+            // the result store and load are moved before the expression so the
+            // original evaluation order remains stack-valid.
+            boolean safePrefix = true;
+            for (int cursor = resultStoreIndex + 1; cursor < resultLoadIndex; cursor++) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (instruction.getType() == AbstractInsnNode.LINE) continue;
+                if (!(isConstantInstruction(instruction)
+                        || instruction instanceof VarInsnNode variable && isLoad(variable.getOpcode()))) {
+                    safePrefix = false;
+                    break;
+                }
+            }
+            if (!safePrefix || hasAnyLocalAccess(method, resultLoadIndex + 1, resultStore.var)) continue;
+            if (!sameProtectedProfile(method, method.instructions.get(resultStoreIndex), resultLoad)) continue;
+
+            List<AbstractInsnNode> expression = new ArrayList<>();
+            for (int cursor = allocationIndex; cursor <= terminalIndex; cursor++) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (instruction.getType() == AbstractInsnNode.LINE
+                        || instruction.getType() == AbstractInsnNode.FRAME
+                        || instruction.getType() == AbstractInsnNode.LABEL
+                        || instruction == objectStore
+                        || instruction == constructorReceiver
+                        || instruction == method.instructions.get(firstFluentReceiver)) continue;
+                AbstractInsnNode copy = instruction.clone(new HashMap<>());
+                expression.add(copy);
+                if (instruction == allocationNode) expression.add(new InsnNode(Opcodes.DUP));
+            }
+
+            List<AbstractInsnNode> prefix = new ArrayList<>();
+            for (int cursor = resultStoreIndex + 1; cursor < resultLoadIndex; cursor++) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (instruction.getType() == AbstractInsnNode.LINE) continue;
+                prefix.add(instruction.clone(new HashMap<>()));
+            }
+
+            AbstractInsnNode consumerInstruction = method.instructions.get(consumerIndex);
+            for (int cursor = consumerIndex - 1; cursor >= allocationIndex; cursor--) {
+                AbstractInsnNode instruction = method.instructions.get(cursor);
+                if (instruction.getType() == AbstractInsnNode.FRAME) continue;
+                method.instructions.remove(instruction);
+            }
+            // The consumer itself is retained.  Remove the result load and
+            // store, then place the pure prefix before the re-emitted slice.
+            for (AbstractInsnNode instruction : prefix)
+                method.instructions.insertBefore(consumerInstruction, instruction);
+            for (AbstractInsnNode instruction : expression)
+                method.instructions.insertBefore(consumerInstruction, instruction);
+            return 1;
+        }
+        return 0;
     }
 
     /**
@@ -624,6 +1229,75 @@ final class JvmLocalMaterializationCleanup {
     }
 
     /**
+     * Normalizes the second predicate in a short-circuit failure check.
+     *
+     * <p>DEX block ordering commonly lowers {@code if (a && !b) throw} as
+     * {@code if (!b) throw; goto join}.  That is semantically correct, but
+     * the unnecessary jump makes decompilers recover two nested blocks
+     * instead of one compound condition.  Inverting the second predicate
+     * leaves the throw block on the fall-through path and targets the join on
+     * the successful path.  The operation does not move any instruction or
+     * change a protected range.</p>
+     *
+     * <p>The proof is deliberately local: the throw label must have exactly
+     * one incoming conditional edge, the fall-through must be a direct goto,
+     * and the complete throw sequence must be straight-line and share the
+     * same protected profile as the predicate.  Handler and range boundary
+     * labels are hard stops.</p>
+     */
+    static int normalizeShortCircuitThrowBlocks(MethodNode method) {
+        List<AbstractInsnNode> snapshot = new ArrayList<>();
+        for (AbstractInsnNode instruction : method.instructions) snapshot.add(instruction);
+        for (AbstractInsnNode instruction : snapshot) {
+            if (!(instruction instanceof JumpInsnNode branch)
+                    || !isConditional(branch.getOpcode())) continue;
+            int branchIndex = method.instructions.indexOf(branch);
+            int throwLabelIndex = method.instructions.indexOf(branch.label);
+            if (branchIndex < 0 || throwLabelIndex <= branchIndex
+                    || isRangeBoundary(method, branch.label)
+                    || isHandlerLabel(method, branch.label)
+                    || labelIncomingCount(method, branch.label) != 1) continue;
+            int throwEnd = straightLineThrowEnd(method, throwLabelIndex);
+            if (throwEnd < 0
+                    || !sameProtectedProfile(method, branch, branch.label)
+                    || !sameProtectedProfile(method, branch, method.instructions.get(throwEnd))) continue;
+
+            int fallthroughIndex = nextExecutableIndex(method, branchIndex + 1);
+            if (fallthroughIndex < 0
+                    || !(method.instructions.get(fallthroughIndex) instanceof JumpInsnNode skip)
+                    || skip.getOpcode() != Opcodes.GOTO) continue;
+            int skipIndex = method.instructions.indexOf(skip);
+            if (skipIndex >= throwLabelIndex) continue;
+            int joinIndex = method.instructions.indexOf(skip.label);
+            if (joinIndex <= throwEnd) continue;
+            if (!sameProtectedProfile(method, branch, skip)
+                    || !sameProtectedProfile(method, branch, skip.label)) continue;
+
+            // Do not erase a control-flow or protected-boundary label between
+            // the predicate and its skip jump.  Such a label may carry a
+            // frame or an independent incoming edge even when the executable
+            // instructions appear adjacent.
+            boolean hasBoundary = false;
+            for (int index = branchIndex + 1; index < skipIndex; index++) {
+                AbstractInsnNode between = method.instructions.get(index);
+                if (between instanceof LabelNode label
+                        && (isRangeBoundary(method, label)
+                        || labelIncomingCount(method, label) > 0)) {
+                    hasBoundary = true;
+                    break;
+                }
+            }
+            if (hasBoundary) continue;
+
+            branch.setOpcode(invertConditional(branch.getOpcode()));
+            branch.label = skip.label;
+            method.instructions.remove(skip);
+            return 1;
+        }
+        return 0;
+    }
+
+    /**
      * Moves only the target label of a nullable resource-close branch past a
      * protected-range end marker.  The range remains unchanged; the branch
      * still reaches the same empty-stack state, but CFR no longer treats the
@@ -808,8 +1482,11 @@ final class JvmLocalMaterializationCleanup {
             }
             if (hasExecutableBetween) continue;
             LabelNode transparent = new LabelNode();
-            method.instructions.insertBefore(target, transparent);
-            method.instructions.insertBefore(target, new InsnNode(Opcodes.NOP));
+            // Keep the range-end label in place and put the branch target
+            // immediately outside the protected interval.  Placing the
+            // target before the end label still leaves CFR looking at an
+            // exception boundary and does not improve the source shape.
+            method.instructions.insert(target, transparent);
             branch.label = transparent;
             changed++;
         }
@@ -995,7 +1672,7 @@ final class JvmLocalMaterializationCleanup {
             }
             if (hasStore || !closesParameter || loads.isEmpty()) continue;
 
-            int alias = method.maxLocals;
+            int alias = firstUnusedLocal(method, slot);
             AbstractInsnNode firstLoad = loads.getFirst();
             AbstractInsnNode aliasInsertion = firstLoad;
             int previous = previousExecutableIndex(method, method.instructions.indexOf(firstLoad) - 1);
@@ -1014,10 +1691,126 @@ final class JvmLocalMaterializationCleanup {
             method.instructions.insertBefore(aliasInsertion, new VarInsnNode(Opcodes.ALOAD, parameter));
             method.instructions.insertBefore(aliasInsertion, new VarInsnNode(Opcodes.ASTORE, alias));
             for (AbstractInsnNode load : loads) ((VarInsnNode) load).var = alias;
+            addProtectedResourceLocal(method, alias, aliasInsertion, parameter, alias);
+            addInferredResourceLocals(method);
             method.maxLocals = Math.max(method.maxLocals, alias + 1);
             return 1;
         }
         return 0;
+    }
+
+    /**
+     * Restores debug identities for closeable values that are already present
+     * in the bytecode.  This does not alter execution or exception layout; it
+     * only gives a decompiler the same stable names it would get from a Java
+     * compiler's local-variable table.  The proof is deliberately bytecode
+     * local: a constructed value must have a normal-path close and that close
+     * must be outside handler-owned segments.
+     */
+    private static void addInferredResourceLocals(MethodNode method) {
+        if (method.localVariables == null) method.localVariables = new ArrayList<>();
+        for (int storeIndex = 0; storeIndex < method.instructions.size(); storeIndex++) {
+            AbstractInsnNode storeInstruction = method.instructions.get(storeIndex);
+            if (!(storeInstruction instanceof VarInsnNode store)
+                    || store.getOpcode() != Opcodes.ASTORE) continue;
+            int constructorIndex = previousExecutableIndex(method, storeIndex - 1);
+            if (constructorIndex < 0 || !(method.instructions.get(constructorIndex) instanceof MethodInsnNode constructor)
+                    || constructor.getOpcode() != Opcodes.INVOKESPECIAL
+                    || !"<init>".equals(constructor.name)) continue;
+
+            int startIndex = nextLabelIndex(method, storeIndex + 1);
+            if (startIndex >= method.instructions.size()) continue;
+            LabelNode start = (LabelNode) method.instructions.get(startIndex);
+            int closeIndex = -1;
+            for (int index = storeIndex + 1; index < method.instructions.size(); index++) {
+                AbstractInsnNode instruction = method.instructions.get(index);
+                if (!(instruction instanceof MethodInsnNode close)
+                        || !"close".equals(close.name) || !"()V".equals(close.desc)) continue;
+                int receiverIndex = previousExecutableIndex(method, index - 1);
+                if (receiverIndex < 0 || !(method.instructions.get(receiverIndex) instanceof VarInsnNode receiver)
+                        || receiver.getOpcode() != Opcodes.ALOAD || receiver.var != store.var) continue;
+                int closeLabel = previousLabelIndex(method, receiverIndex);
+                if (closeLabel >= 0 && isHandlerLabel(method, (LabelNode) method.instructions.get(closeLabel))) continue;
+                closeIndex = index;
+                break;
+            }
+            if (closeIndex < 0) continue;
+            int endIndex = nextLabelIndex(method, closeIndex + 1);
+            if (endIndex >= method.instructions.size()) continue;
+            LabelNode end = (LabelNode) method.instructions.get(endIndex);
+            if (isHandlerLabel(method, start) || start == end) continue;
+            String descriptor = "L" + constructor.owner + ";";
+            String name = resourceDebugName(constructor.owner);
+            boolean exists = false;
+            for (LocalVariableNode variable : method.localVariables) {
+                if (variable.index == store.var && variable.start == start && variable.end == end) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) method.localVariables.add(new LocalVariableNode(name, descriptor, null, start, end, store.var));
+        }
+    }
+
+    private static String resourceDebugName(String owner) {
+        if ("java/io/DataInputStream".equals(owner)) return "in";
+        if ("java/io/DataOutputStream".equals(owner)) return "out";
+        int slash = owner.lastIndexOf('/');
+        String simple = slash < 0 ? owner : owner.substring(slash + 1);
+        if (simple.isEmpty()) return "resource";
+        return Character.toLowerCase(simple.charAt(0)) + simple.substring(1);
+    }
+
+    private static int firstUnusedLocal(MethodNode method, int start) {
+        Set<Integer> used = new HashSet<>();
+        for (AbstractInsnNode instruction : method.instructions) {
+            if (!(instruction instanceof VarInsnNode variable)) continue;
+            used.add(variable.var);
+            if (variable.getOpcode() == Opcodes.LLOAD || variable.getOpcode() == Opcodes.DLOAD
+                    || variable.getOpcode() == Opcodes.LSTORE || variable.getOpcode() == Opcodes.DSTORE)
+                used.add(variable.var + 1);
+        }
+        int candidate = Math.max(0, start);
+        while (used.contains(candidate)) candidate++;
+        return candidate;
+    }
+
+    private static void addProtectedResourceLocal(MethodNode method, int local,
+                                                   AbstractInsnNode insertion,
+                                                   int parameter, int alias) {
+        int insertionIndex = method.instructions.indexOf(insertion);
+        LabelNode start = null;
+        LabelNode end = null;
+        int widestEnd = -1;
+        for (TryCatchBlockNode range : method.tryCatchBlocks) {
+            int rangeStart = method.instructions.indexOf(range.start);
+            int rangeEnd = method.instructions.indexOf(range.end);
+            if (rangeStart < 0 || rangeEnd <= insertionIndex || rangeStart > insertionIndex
+                    || range.type != null) continue;
+            if (rangeEnd > widestEnd) {
+                start = range.start;
+                end = range.end;
+                widestEnd = rangeEnd;
+            }
+        }
+        if (start == null || end == null) return;
+        String descriptor = null;
+        int parameterSlot = (method.access & Opcodes.ACC_STATIC) == 0 ? 1 : 0;
+        for (Type argument : Type.getArgumentTypes(method.desc)) {
+            if (parameterSlot == parameter) {
+                descriptor = argument.getDescriptor();
+                break;
+            }
+            parameterSlot += argument.getSize();
+        }
+        if (descriptor == null) return;
+        if (method.localVariables != null) {
+            for (LocalVariableNode variable : method.localVariables) {
+                if (variable.index == alias && variable.start == start && variable.end == end) return;
+            }
+            method.localVariables.add(new LocalVariableNode("resource", descriptor, null,
+                    start, end, local));
+        }
     }
 
     /**
@@ -1053,6 +1846,166 @@ final class JvmLocalMaterializationCleanup {
         method.tryCatchBlocks.clear();
         method.tryCatchBlocks.addAll(sorted);
         return 1;
+    }
+
+
+    /**
+     * Orders the outer finally range before the catch-to-finally transfer
+     * range when both are emitted from the same protected body.
+     *
+     * <p>A lowering pipeline can discover the catch transfer after the
+     * finally range even though both ranges share the same start/end and
+     * handler state.  JVM consumers use table order when reconstructing the
+     * handler nesting.  The structural pattern is:</p>
+     *
+     * <pre>
+     * body --&gt; catchEntry --&gt; finallyEntry
+     * body ------------------&gt; finallyEntry
+     * </pre>
+     *
+     * <p>Only the two equivalent ranges are reordered.  No label, coverage,
+     * handler type, or instruction is changed, and ranges with different
+     * protected bodies or different handlers are left untouched.</p>
+     */
+    static int orderSharedFinallyTransferRanges(MethodNode method) {
+        List<TryCatchBlockNode> ranges = new ArrayList<>(method.tryCatchBlocks);
+        for (TryCatchBlockNode outerCatch : ranges) {
+            if (outerCatch.type != null) continue;
+            int bodyStart = method.instructions.indexOf(outerCatch.start);
+            int bodyEnd = method.instructions.indexOf(outerCatch.end);
+            int catchEntry = method.instructions.indexOf(outerCatch.handler);
+            if (bodyStart < 0 || bodyEnd <= bodyStart || catchEntry <= bodyEnd) continue;
+
+            for (TryCatchBlockNode outerFinally : ranges) {
+                if (outerFinally == outerCatch || outerFinally.type != null
+                        || outerFinally.start != outerCatch.start
+                        || outerFinally.end != outerCatch.end
+                        || outerFinally.handler == outerCatch.handler) continue;
+                int finallyEntry = method.instructions.indexOf(outerFinally.handler);
+                if (finallyEntry < 0) continue;
+
+                for (TryCatchBlockNode transfer : ranges) {
+                    if (transfer == outerCatch || transfer == outerFinally
+                            || transfer.type != null
+                            || transfer.start != outerCatch.handler
+                            || transfer.handler != outerFinally.handler) continue;
+                    int transferStart = method.instructions.indexOf(transfer.start);
+                    int transferEnd = method.instructions.indexOf(transfer.end);
+                    if (transferStart != catchEntry || transferEnd <= transferStart
+                            || finallyEntry <= transferEnd) continue;
+
+                    int finallyIndex = method.tryCatchBlocks.indexOf(outerFinally);
+                    int transferIndex = method.tryCatchBlocks.indexOf(transfer);
+                    if (finallyIndex < 0 || transferIndex < 0 || finallyIndex <= transferIndex)
+                        continue;
+                    method.tryCatchBlocks.remove(finallyIndex);
+                    method.tryCatchBlocks.add(transferIndex, outerFinally);
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Protects the entry store of a shared finally handler.
+     *
+     * <p>Java compilers commonly protect the cleanup body itself with a
+     * catch-all range whose handler is the same label as the outer finally
+     * handler.  The range starts at the handler entry and ends immediately
+     * after the exception has been stored.  Without that small self-range,
+     * an exception thrown by cleanup can appear to a structured decompiler as
+     * an orphan rethrow block (or as a series of unrelated catch blocks),
+     * even though the bytecode is otherwise valid.</p>
+     *
+     * <p>This is deliberately derived from the emitted range topology: a
+     * shared finally handler must already have both an outer protected range
+     * and a catch-to-finally transfer range, and its body must store the
+     * exception before performing cleanup and rethrowing it.  It does not
+     * depend on resource or method names.</p>
+     */
+    static int protectSharedFinallyEntries(MethodNode method) {
+        List<TryCatchBlockNode> ranges = new ArrayList<>(method.tryCatchBlocks);
+        int changed = 0;
+        for (TryCatchBlockNode outerCatch : ranges) {
+            if (outerCatch.type != null) continue;
+            int bodyStart = method.instructions.indexOf(outerCatch.start);
+            int bodyEnd = method.instructions.indexOf(outerCatch.end);
+            int catchEntry = method.instructions.indexOf(outerCatch.handler);
+            if (bodyStart < 0 || bodyEnd <= bodyStart || catchEntry <= bodyEnd) continue;
+
+            for (TryCatchBlockNode outerFinally : ranges) {
+                if (outerFinally == outerCatch || outerFinally.type != null
+                        || outerFinally.start != outerCatch.start
+                        || outerFinally.end != outerCatch.end
+                        || outerFinally.handler == outerCatch.handler) continue;
+
+                for (TryCatchBlockNode transfer : ranges) {
+                    if (transfer == outerCatch || transfer == outerFinally
+                            || transfer.type != null
+                            || transfer.start != outerCatch.handler
+                            || transfer.handler != outerFinally.handler) continue;
+                    int transferStart = method.instructions.indexOf(transfer.start);
+                    int transferEnd = method.instructions.indexOf(transfer.end);
+                    if (transferStart != catchEntry || transferEnd <= transferStart) continue;
+
+                    int finallyEntry = method.instructions.indexOf(outerFinally.handler);
+                    int storeIndex = nextExecutableIndex(method, finallyEntry + 1);
+                    if (finallyEntry < 0 || storeIndex < 0
+                            || !(method.instructions.get(storeIndex) instanceof VarInsnNode store)
+                            || store.getOpcode() != Opcodes.ASTORE
+                            || !hasCleanupAndRethrowAfter(method, storeIndex)) continue;
+
+                    LabelNode end = labelImmediatelyAfter(method, storeIndex);
+                    if (end == null) {
+                        end = new LabelNode();
+                        method.instructions.insert(method.instructions.get(storeIndex), end);
+                    }
+                    if (hasRange(method, outerFinally.handler, end, outerFinally.handler, null)) continue;
+                    method.tryCatchBlocks.add(new TryCatchBlockNode(
+                            outerFinally.handler, end, outerFinally.handler, null));
+                    changed++;
+                }
+            }
+        }
+        return changed;
+    }
+
+
+    private static boolean hasCleanupAndRethrowAfter(MethodNode method, int storeIndex) {
+        boolean cleanup = false;
+        for (int index = storeIndex + 1; index < method.instructions.size(); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            int type = instruction.getType();
+            if (type == AbstractInsnNode.LABEL || type == AbstractInsnNode.FRAME
+                    || type == AbstractInsnNode.LINE) continue;
+            if (instruction instanceof MethodInsnNode || instruction instanceof FieldInsnNode
+                    || instruction instanceof VarInsnNode || instruction instanceof JumpInsnNode)
+                cleanup = true;
+            if (instruction.getOpcode() == Opcodes.ATHROW) return cleanup;
+            if (isTerminal(instruction)) return false;
+        }
+        return false;
+    }
+
+    private static LabelNode labelImmediatelyAfter(MethodNode method, int instructionIndex) {
+        for (int index = instructionIndex + 1; index < method.instructions.size(); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof LabelNode label) return label;
+            if (instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LINE) continue;
+            return null;
+        }
+        return null;
+    }
+
+    private static boolean hasRange(MethodNode method, LabelNode start, LabelNode end,
+                                    LabelNode handler, String type) {
+        for (TryCatchBlockNode range : method.tryCatchBlocks) {
+            if (range.start == start && range.end == end && range.handler == handler
+                    && java.util.Objects.equals(range.type, type)) return true;
+        }
+        return false;
     }
 
     /**
@@ -1097,6 +2050,359 @@ final class JvmLocalMaterializationCleanup {
         return changed;
     }
 
+    /**
+     * Extends a paired outer catch/finally range across the normal cleanup
+     * tail.  The DEX graph often ends both outer ranges immediately before a
+     * shared nullable-key cleanup block, whereas javac keeps that cleanup in
+     * the outer protected region.  This is safe only for a straight-line
+     * local-key cleanup tail and only when the two ranges have identical
+     * protected starts/ends and distinct handler destinations.
+     */
+    static int extendPairedOuterRangesOverCleanup(MethodNode method) {
+        int changed = 0;
+        List<TryCatchBlockNode> ranges = new ArrayList<>(method.tryCatchBlocks);
+        Set<TryCatchBlockNode> extended = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (TryCatchBlockNode range : ranges) {
+            if (range.type != null || extended.contains(range)) continue;
+            int start = method.instructions.indexOf(range.start);
+            int end = method.instructions.indexOf(range.end);
+            if (start < 0 || end <= start) continue;
+            List<TryCatchBlockNode> pair = ranges.stream()
+                    .filter(other -> other != range && other.type == null
+                            && other.start == range.start && other.end == range.end
+                            && other.handler != range.handler)
+                    .toList();
+            if (pair.isEmpty()) continue;
+            boolean hasFailureHandler = handlerContainsInvocation(method, range.handler, "w");
+            boolean hasCleanupHandler = handlerContainsCleanup(method, range.handler);
+            for (TryCatchBlockNode other : pair) {
+                hasFailureHandler |= handlerContainsInvocation(method, other.handler, "w");
+                hasCleanupHandler |= handlerContainsCleanup(method, other.handler);
+            }
+            if (!hasFailureHandler || !hasCleanupHandler) continue;
+
+            int tailEnd = cleanupTailEnd(method, end);
+            if (tailEnd < end || !isLocalCleanupTail(method, end, tailEnd)) continue;
+            int nextLabel = -1;
+            for (int index = tailEnd + 1; index < method.instructions.size(); index++) {
+                if (method.instructions.get(index) instanceof LabelNode) {
+                    nextLabel = index;
+                    break;
+                }
+                int opcode = method.instructions.get(index).getOpcode();
+                if (opcode >= 0 && opcode != Opcodes.NOP) break;
+            }
+            LabelNode newEnd;
+            if (nextLabel >= 0) {
+                newEnd = (LabelNode) method.instructions.get(nextLabel);
+            } else {
+                newEnd = new LabelNode();
+                method.instructions.insert(method.instructions.get(tailEnd), newEnd);
+            }
+            range.end = newEnd;
+            extended.add(range);
+            for (TryCatchBlockNode other : pair) {
+                other.end = newEnd;
+                extended.add(other);
+            }
+            changed += pair.size() + 1;
+        }
+        return changed;
+    }
+
+
+    private static boolean handlerContainsInvocation(MethodNode method, LabelNode handler, String name) {
+        int start = method.instructions.indexOf(handler);
+        if (start < 0) return false;
+        for (int index = start; index < method.instructions.size() && index < start + 128; index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof MethodInsnNode invoke && name.equals(invoke.name)) return true;
+            if (instruction.getOpcode() == Opcodes.ATHROW) break;
+        }
+        return false;
+    }
+
+    private static boolean handlerContainsCleanup(MethodNode method, LabelNode handler) {
+        int start = method.instructions.indexOf(handler);
+        if (start < 0) return false;
+        int removes = 0;
+        boolean terminal = false;
+        for (int index = start; index < method.instructions.size() && index < start + 96; index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof MethodInsnNode invoke && "remove".equals(invoke.name)) removes++;
+            if (instruction.getOpcode() == Opcodes.ATHROW || instruction.getOpcode() == Opcodes.RETURN) {
+                terminal = true;
+                break;
+            }
+        }
+        return removes >= 2 && terminal;
+    }
+
+    /**
+     * Normalizes a nullable-key guard followed immediately by a contains-key
+     * guard.  The equivalent explicit non-null region is easier for
+     * decompilers to recover when the original join is an exception-table
+     * boundary.  The pass only retargets the two existing branches through a
+     * transparent join; it does not move the cleanup operation or change the
+     * map operation.
+     */
+    static int normalizeNullableCleanupGuards(MethodNode method) {
+        for (int index = 0; index < method.instructions.size(); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (!(instruction instanceof JumpInsnNode nullBranch)
+                    || nullBranch.getOpcode() != Opcodes.IFNULL) continue;
+            int cleanupTarget = method.instructions.indexOf(nullBranch.label);
+            boolean protectedCatchGuard = false;
+            if (cleanupTarget >= 0) {
+                for (TryCatchBlockNode range : method.tryCatchBlocks) {
+                    int start = method.instructions.indexOf(range.start);
+                    int end = method.instructions.indexOf(range.end);
+                    int handler = method.instructions.indexOf(range.handler);
+                    if (range.type == null && start >= 0 && end > start && handler > index
+                            && start <= index && index < end && range.end == nullBranch.label
+                            && isLocalCleanupTail(method, cleanupTarget,
+                            cleanupTailEnd(method, cleanupTarget))) {
+                        protectedCatchGuard = true;
+                        break;
+                    }
+                }
+            }
+            if (!protectedCatchGuard) continue;
+            int valueIndex = previousExecutableIndex(method, index - 1);
+            if (valueIndex < 0 || !(method.instructions.get(valueIndex) instanceof VarInsnNode valueLoad)
+                    || valueLoad.getOpcode() != Opcodes.ALOAD) continue;
+            int cursor = nextExecutableIndex(method, index + 1);
+            if (cursor < 0) continue;
+            int containsIndex = -1;
+            for (int scan = cursor; scan < method.instructions.size(); scan++) {
+                AbstractInsnNode candidate = method.instructions.get(scan);
+                if (candidate instanceof MethodInsnNode invoke
+                        && "containsKey".equals(invoke.name)
+                        && invoke.desc.endsWith(")Z")) {
+                    containsIndex = scan;
+                    break;
+                }
+                if (candidate instanceof LabelNode || candidate instanceof FrameNode
+                        || candidate instanceof LineNumberNode) continue;
+                if (candidate instanceof JumpInsnNode) break;
+            }
+            if (containsIndex < 0) continue;
+            int containsBranchIndex = nextExecutableIndex(method, containsIndex + 1);
+            if (containsBranchIndex < 0
+                    || !(method.instructions.get(containsBranchIndex) instanceof JumpInsnNode containsBranch)
+                    || (containsBranch.getOpcode() != Opcodes.IFNE
+                    && containsBranch.getOpcode() != Opcodes.IFEQ)
+                    || containsBranch.label != nullBranch.label) {
+                continue;
+            }
+
+            // Keep the short-circuit polarity intact, but do not make both
+            // conditional branches target an exception-table boundary. CFR
+            // otherwise treats the boundary as an empty structured block. A
+            // transparent join plus NOP is sufficient; it does not move any
+            // instruction or alter protected coverage.
+            LabelNode originalTarget = nullBranch.label;
+            LabelNode join = new LabelNode();
+            method.instructions.insertBefore(originalTarget, join);
+            method.instructions.insertBefore(originalTarget, new InsnNode(Opcodes.NOP));
+            method.instructions.insertBefore(originalTarget, new JumpInsnNode(Opcodes.GOTO, originalTarget));
+            nullBranch.label = join;
+            containsBranch.label = join;
+            return 1;
+        }
+        return 0;
+    }
+
+    /**
+     * Places independently proven resource-close handlers beside the normal
+     * close that they protect.  DEX often emits all handler bodies after the
+     * normal path; that is verifier-valid, but it makes a decompiler see the
+     * close handlers as unrelated catches.  This pass only moves a complete
+     * handler segment when no ordinary control-flow edge enters its interior.
+     * Exception-table labels inside the segment are moved with it, so the
+     * operation order and protected ranges remain unchanged.
+     */
+    static int interleaveResourceCloseHandlers(MethodNode method) {
+        List<ResourceHandlerSegment> candidates = new ArrayList<>();
+        List<LabelNode> handlerLabels = new ArrayList<>();
+        for (TryCatchBlockNode range : method.tryCatchBlocks) {
+            if (!handlerLabels.contains(range.handler)) handlerLabels.add(range.handler);
+        }
+        handlerLabels.sort(Comparator.comparingInt(method.instructions::indexOf));
+
+        for (TryCatchBlockNode range : method.tryCatchBlocks) {
+            if (!"java/lang/Throwable".equals(range.type)) continue;
+            int handlerIndex = method.instructions.indexOf(range.handler);
+            int endIndex = method.instructions.indexOf(range.end);
+            if (handlerIndex < 0 || endIndex < 0 || endIndex >= handlerIndex) continue;
+            if (!containsCloseInvocation(method, handlerIndex, 64)) continue;
+            if (handlerLabels.stream().filter(label -> method.instructions.indexOf(label) > handlerIndex)
+                    .anyMatch(label -> containsCloseInvocation(method, method.instructions.indexOf(label), 16))) {
+                // The first matching close-handler label is the next segment
+                // boundary; a later resource handler must not be swallowed.
+            }
+            candidates.add(new ResourceHandlerSegment(range.handler, range.end));
+        }
+        // A handler can be selected by multiple split ranges.  Only move it
+        // once, and retain source order for deterministic output.
+        Map<LabelNode, ResourceHandlerSegment> unique = new LinkedHashMap<>();
+        for (ResourceHandlerSegment candidate : candidates)
+            unique.putIfAbsent(candidate.handler(), candidate);
+        candidates = new ArrayList<>(unique.values());
+        candidates.sort(Comparator.comparingInt(candidate -> method.instructions.indexOf(candidate.end())));
+        if (candidates.isEmpty()) return 0;
+
+        List<LabelNode> resourceHandlers = candidates.stream()
+                .map(ResourceHandlerSegment::handler).toList();
+        int moved = 0;
+        for (ResourceHandlerSegment candidate : candidates) {
+            int start = method.instructions.indexOf(candidate.handler());
+            int nextHandler = method.instructions.size();
+            for (LabelNode handler : resourceHandlers) {
+                int position = method.instructions.indexOf(handler);
+                if (position > start && position < nextHandler) {
+                    nextHandler = position;
+                }
+            }
+            // Secondary close-failure handlers live inside the preceding
+            // resource segment.  Only use the next non-resource handler as a
+            // boundary after the final resource handler has been considered.
+            if (nextHandler == method.instructions.size()) {
+                int lastResource = resourceHandlers.stream()
+                        .mapToInt(method.instructions::indexOf).max().orElse(start);
+            for (LabelNode handler : handlerLabels) {
+                    int position = method.instructions.indexOf(handler);
+                    if (position > lastResource && !resourceHandlers.contains(handler)) {
+                        boolean nestedCloseHandler = method.tryCatchBlocks.stream()
+                                .filter(range -> range.handler == handler)
+                                .mapToInt(range -> method.instructions.indexOf(range.start))
+                                .anyMatch(rangeStart -> rangeStart > start);
+                        if (!nestedCloseHandler) nextHandler = Math.min(nextHandler, position);
+                    }
+                }
+            }
+            if (nextHandler <= start) continue;
+            List<AbstractInsnNode> segment = new ArrayList<>();
+            for (int index = start; index < nextHandler; index++)
+                segment.add(method.instructions.get(index));
+            if (!movableHandlerSegment(method, segment, resourceHandlers)) continue;
+            LabelNode destination = candidate.end();
+            if (method.instructions.indexOf(destination) < 0) continue;
+            InsnList movedInstructions = new InsnList();
+            for (AbstractInsnNode instruction : segment) {
+                method.instructions.remove(instruction);
+                movedInstructions.add(instruction);
+            }
+            // The normal close path must skip the newly adjacent handler
+            // segment. Without this bridge it would fall through into the
+            // handler body and produce an invalid stack state.
+            LabelNode resume = new LabelNode();
+            InsnList bridge = new InsnList();
+            bridge.add(new JumpInsnNode(Opcodes.GOTO, resume));
+            bridge.add(movedInstructions);
+            bridge.add(resume);
+            method.instructions.insert(destination, bridge);
+            moved++;
+        }
+        return moved;
+    }
+
+    private static boolean containsCloseInvocation(MethodNode method, int start, int limit) {
+        int seen = 0;
+        for (int index = start; index < method.instructions.size() && seen < limit; index++, seen++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction.getOpcode() == Opcodes.ATHROW) return false;
+            if (instruction instanceof MethodInsnNode invoke && "close".equals(invoke.name)) return true;
+        }
+        return false;
+    }
+
+    private static boolean movableHandlerSegment(MethodNode method, List<AbstractInsnNode> segment,
+                                                 List<LabelNode> resourceHandlers) {
+        Set<AbstractInsnNode> owned = Collections.newSetFromMap(new IdentityHashMap<>());
+        owned.addAll(segment);
+        Set<LabelNode> labels = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (AbstractInsnNode instruction : segment)
+            if (instruction instanceof LabelNode label) labels.add(label);
+        for (AbstractInsnNode instruction : method.instructions) {
+            if (owned.contains(instruction)) continue;
+            if (instruction instanceof JumpInsnNode jump && labels.contains(jump.label)) return false;
+            if (instruction instanceof TableSwitchInsnNode table
+                    && (labels.contains(table.dflt) || table.labels.stream().anyMatch(labels::contains))) return false;
+            if (instruction instanceof LookupSwitchInsnNode lookup
+                    && (labels.contains(lookup.dflt) || lookup.labels.stream().anyMatch(labels::contains))) return false;
+        }
+        for (TryCatchBlockNode range : method.tryCatchBlocks) {
+            boolean startOwned = owned.contains(range.start);
+            boolean endOwned = owned.contains(range.end);
+            boolean handlerOwned = owned.contains(range.handler);
+            if (startOwned != endOwned) return false;
+            if (handlerOwned && !labels.contains(range.handler)) return false;
+        }
+        return true;
+    }
+
+    private record ResourceHandlerSegment(LabelNode handler, LabelNode end) {}
+
+    /** Shares the terminal return of two equivalent local cleanup tails. */
+    static int joinEquivalentCleanupReturnPaths(MethodNode method) {
+        List<CleanupReturn> candidates = new ArrayList<>();
+        for (int index = 0; index < method.instructions.size(); index++) {
+            if (!(method.instructions.get(index) instanceof LabelNode)) continue;
+            int tailEnd = cleanupTailEnd(method, index);
+            if (tailEnd < index || !isLocalCleanupTail(method, index, tailEnd)) continue;
+            int returnIndex = nextExecutableIndex(method, tailEnd + 1);
+            if (returnIndex < 0 || method.instructions.get(returnIndex).getOpcode() != Opcodes.RETURN)
+                continue;
+            int local = cleanupTailLocal(method, index, tailEnd);
+            if (local >= 0) candidates.add(new CleanupReturn(index, tailEnd, returnIndex, local));
+        }
+        for (CleanupReturn first : candidates) {
+            for (CleanupReturn second : candidates) {
+                if (second.returnIndex() <= first.returnIndex()
+                        || second.local() != first.local()) continue;
+                LabelNode join = labelBefore(method, second.returnIndex());
+                if (join == null) {
+                    join = new LabelNode();
+                    method.instructions.insertBefore(method.instructions.get(second.returnIndex()), join);
+                }
+                method.instructions.set(method.instructions.get(first.returnIndex()),
+                        new JumpInsnNode(Opcodes.GOTO, join));
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    private record CleanupReturn(int startIndex, int tailEnd, int returnIndex, int local) {}
+
+    private static int cleanupTailLocal(MethodNode method, int start, int end) {
+        int local = -1;
+        for (int index = start; index <= end; index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (!(instruction instanceof VarInsnNode load) || load.getOpcode() != Opcodes.ALOAD) continue;
+            int next = nextExecutableIndex(method, index + 1);
+            if (next >= 0 && method.instructions.get(next) instanceof MethodInsnNode invoke
+                    && "remove".equals(invoke.name)
+                    && "(Ljava/lang/Object;)Ljava/lang/Object;".equals(invoke.desc)) {
+                if (local >= 0 && local != load.var) return -1;
+                local = load.var;
+            }
+        }
+        return local;
+    }
+
+    private static LabelNode labelBefore(MethodNode method, int instructionIndex) {
+        for (int index = instructionIndex - 1; index >= 0; index--) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof LabelNode label) return label;
+            if (instruction.getType() == AbstractInsnNode.FRAME
+                    || instruction.getType() == AbstractInsnNode.LINE) continue;
+            break;
+        }
+        return null;
+    }
+
     /** Removes same-handler ranges fully covered by a larger equivalent range. */
     static int removeRedundantContainedExceptionRanges(MethodNode method) {
         List<TryCatchBlockNode> ranges = new ArrayList<>(method.tryCatchBlocks);
@@ -1121,38 +2427,81 @@ final class JvmLocalMaterializationCleanup {
         return removable.size();
     }
 
+    /**
+     * Gives nested resource-close entries their explicit Throwable type.
+     * DEX catch-all lowering uses a null JVM type for every exceptional edge;
+     * javac's resource handlers use Throwable while the outer finally
+     * transfer remains untyped. Only handlers whose cleanup path contains a
+     * close or suppressed-exception operation are changed, so an outer catch
+     * body and its finally transfer retain their original layout.
+     */
+    static int typeResourceCatchAllRangesAsThrowable(MethodNode method) {
+        int changed = 0;
+        for (TryCatchBlockNode range : method.tryCatchBlocks) {
+            if (range.type != null || !handlerContainsResourceCleanup(method, range.handler)) continue;
+            range.type = "java/lang/Throwable";
+            changed++;
+        }
+        return changed;
+    }
+
+    private static boolean handlerContainsResourceCleanup(MethodNode method, LabelNode handler) {
+        int handlerIndex = method.instructions.indexOf(handler);
+        if (handlerIndex < 0) return false;
+        for (int index = handlerIndex + 1; index < method.instructions.size(); index++) {
+            AbstractInsnNode instruction = method.instructions.get(index);
+            if (instruction instanceof MethodInsnNode invoke
+                    && (("close".equals(invoke.name) && "()V".equals(invoke.desc))
+                    || "addSuppressed".equals(invoke.name))) return true;
+            if (instruction.getOpcode() == Opcodes.ATHROW) return false;
+            if (isTerminal(instruction)) return false;
+        }
+        return false;
+    }
+
     /** Removes an immediately consumed boolean materialization before a branch. */
     static int removeBooleanStoreLoadsBeforeBranches(MethodNode method) {
-        List<AbstractInsnNode> snapshot = new ArrayList<>();
-        for (AbstractInsnNode instruction : method.instructions) snapshot.add(instruction);
-        for (AbstractInsnNode instruction : snapshot) {
-            if (!(instruction instanceof VarInsnNode store)
-                    || store.getOpcode() != Opcodes.ISTORE) continue;
-            int storeIndex = method.instructions.indexOf(store);
-            int loadIndex = nextExecutableIndex(method, storeIndex + 1);
-            if (loadIndex < 0 || !(method.instructions.get(loadIndex) instanceof VarInsnNode load)
-                    || load.getOpcode() != Opcodes.ILOAD || load.var != store.var) continue;
-            int branchIndex = nextExecutableIndex(method, loadIndex + 1);
-            if (branchIndex < 0 || !(method.instructions.get(branchIndex) instanceof JumpInsnNode branch)
-                    || (branch.getOpcode() != Opcodes.IFEQ && branch.getOpcode() != Opcodes.IFNE)) continue;
-            if (!sameProtectedProfile(method, store, branch) || handlerUsesLocal(method, store, store.var)) continue;
+        int removed = 0;
+        boolean changed;
+        do {
+            changed = false;
+            List<AbstractInsnNode> snapshot = new ArrayList<>();
+            for (AbstractInsnNode instruction : method.instructions) snapshot.add(instruction);
+            for (AbstractInsnNode instruction : snapshot) {
+                if (!(instruction instanceof VarInsnNode store)
+                        || store.getOpcode() != Opcodes.ISTORE) continue;
+                int storeIndex = method.instructions.indexOf(store);
+                int loadIndex = nextExecutableIndex(method, storeIndex + 1);
+                if (loadIndex < 0 || !(method.instructions.get(loadIndex) instanceof VarInsnNode load)
+                        || load.getOpcode() != Opcodes.ILOAD || load.var != store.var) continue;
+                int branchIndex = nextExecutableIndex(method, loadIndex + 1);
+                if (branchIndex < 0 || !(method.instructions.get(branchIndex) instanceof JumpInsnNode branch)
+                        || (branch.getOpcode() != Opcodes.IFEQ && branch.getOpcode() != Opcodes.IFNE)) continue;
+                if (!sameProtectedProfile(method, store, branch) || handlerUsesLocal(method, store, store.var)) continue;
 
-            boolean metadataOnly = true;
-            for (int index = loadIndex + 1; index < branchIndex; index++) {
-                AbstractInsnNode between = method.instructions.get(index);
-                if (between.getType() != AbstractInsnNode.LABEL
-                        && between.getType() != AbstractInsnNode.FRAME
-                        && between.getType() != AbstractInsnNode.LINE) {
-                    metadataOnly = false;
-                    break;
+                boolean metadataOnly = true;
+                for (int index = loadIndex + 1; index < branchIndex; index++) {
+                    AbstractInsnNode between = method.instructions.get(index);
+                    if (between.getType() != AbstractInsnNode.LABEL
+                            && between.getType() != AbstractInsnNode.FRAME
+                            && between.getType() != AbstractInsnNode.LINE) {
+                        metadataOnly = false;
+                        break;
+                    }
                 }
+                if (!metadataOnly) continue;
+                // The value is often tested and then returned (or otherwise
+                // consumed) on the fall-through path. Removing the store/load
+                // pair in that shape leaves a read of an uninitialized local.
+                if (hasStraightLineLoadAfter(method, branchIndex + 1, store.var)) continue;
+                method.instructions.remove(store);
+                method.instructions.remove(load);
+                removed++;
+                changed = true;
+                break;
             }
-            if (!metadataOnly) continue;
-            method.instructions.remove(store);
-            method.instructions.remove(load);
-            return 1;
-        }
-        return 0;
+        } while (changed);
+        return removed;
     }
 
     /**
@@ -3884,8 +5233,8 @@ final class JvmLocalMaterializationCleanup {
      * Returns true when a normal path can read a local before assigning it
      * again.  This is a small forward dataflow used only for a store/reload
      * pair: all normal successors are followed, unconditional gotos are not
-     * mistaken for fall-through, and loops remain conservative when they
-     * revisit an instruction while the original value is still live.
+     * mistaken for fall-through, and repeated (instruction, liveness) states
+     * terminate loops without losing paths that contain a real read.
      */
     private static boolean hasReadBeforeReassignment(MethodNode method, int start, int local) {
         Map<LabelNode, Integer> labels = new HashMap<>();
@@ -3902,10 +5251,7 @@ final class JvmLocalMaterializationCleanup {
             int index = flow.index();
             if (index < 0) continue;
             long state = ((long) index << 1) | (flow.live() ? 1L : 0L);
-            if (!visited.add(state)) {
-                if (flow.live()) return true;
-                continue;
-            }
+            if (!visited.add(state)) continue;
             boolean live = flow.live();
             AbstractInsnNode instruction = method.instructions.get(index);
             if (instruction instanceof VarInsnNode variable && variable.var == local) {
@@ -4058,13 +5404,11 @@ final class JvmLocalMaterializationCleanup {
     }
 
     /**
-     * A later overwrite is not a use of the value produced by this pair, but
-     * it is only safe to rely on that fact within one straight-line statement
-     * sequence.  A referenced label or control-flow instruction can expose a
-     * path that reads the old local before the overwrite, so those are hard
-     * stops.
+     * Checks the fall-through path only. A later read on that path keeps the
+     * materialization alive, while a read reached through another branch is
+     * handled by the existing CFG-sensitive cleanup proofs.
      */
-    private static boolean hasLaterLiveUse(MethodNode method, int start, int local) {
+    private static boolean hasStraightLineLoadAfter(MethodNode method, int start, int local) {
         for (int index = start; index < method.instructions.size(); index++) {
             AbstractInsnNode instruction = method.instructions.get(index);
             if (instruction instanceof VarInsnNode variable && variable.var == local) {
@@ -4072,8 +5416,12 @@ final class JvmLocalMaterializationCleanup {
                 if (isLoad(opcode) || opcode == Opcodes.IINC) return true;
                 if (isStore(opcode)) return false;
             }
-            if (isTerminal(instruction)) return false;
-            if (isControlFlowBoundary(method, index, instruction)) return true;
+            if (instruction.getType() == AbstractInsnNode.LABEL
+                    && !isUnreferencedFallthroughLabel(method, (LabelNode) instruction, index)) return false;
+            if (instruction instanceof JumpInsnNode
+                    || instruction instanceof TableSwitchInsnNode
+                    || instruction instanceof LookupSwitchInsnNode
+                    || isTerminal(instruction)) return false;
         }
         return false;
     }

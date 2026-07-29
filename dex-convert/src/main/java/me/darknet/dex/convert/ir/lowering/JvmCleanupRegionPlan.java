@@ -70,6 +70,7 @@ record JvmCleanupRegionPlan(
 		for (IrExceptionHandler handler : region.handlers()) {
 			IrBlock handlerBlock = handler.handlerBlock();
 			Set<IrValue> candidates = resourceCandidates(handlerBlock, region);
+			if (!hasNestedClosePaths(method) && findInvokeInHandler(handlerBlock, "addSuppressed") != null) continue;
 			// DEX try-with-resources lowering has two close families: the normal
 			// fall-through closes and the handler closes used when acquisition or
 			// body execution throws.  Use the handler-reachable close to identify

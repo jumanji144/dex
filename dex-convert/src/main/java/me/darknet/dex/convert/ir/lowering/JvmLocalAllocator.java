@@ -16,6 +16,7 @@ import me.darknet.dex.convert.ir.value.IrUnknown;
 import me.darknet.dex.file.instructions.Opcodes;
 import me.darknet.dex.tree.definitions.instructions.BinaryLiteralInstruction;
 import me.darknet.dex.tree.definitions.instructions.BinaryInstruction;
+import me.darknet.dex.tree.definitions.instructions.InvokeInstruction;
 import me.darknet.dex.tree.definitions.instructions.UnaryInstruction;
 import me.darknet.dex.tree.type.ClassType;
 import me.darknet.dex.tree.type.Types;
@@ -127,6 +128,7 @@ final class JvmLocalAllocator {
 		char category = localCategory(value.type());
 		ClassType referenceType = ConversionSupport.isReferenceType(value.type()) ? value.type() : null;
 		boolean preserveIdentity = preserveAllValueIdentity
+				&& !isSimpleFailureHandlerValue(value)
 				|| preserveValueIdentity && loopSensitiveValues.contains(value);
 		FreeSlot selected = preserveIdentity ? null : takeFreeSlot(size, category, referenceType);
 		int local;
@@ -138,6 +140,41 @@ final class JvmLocalAllocator {
 		}
 		value.local(local);
 		active.add(new ActiveSlot(value, interval.end(), local, size, category, referenceType));
+	}
+
+	/**
+	 * Values defined inside a non-resource exceptional handler may safely
+	 * participate in ordinary interval reuse.  Keeping every one of these
+	 * short-lived logging/progress temporaries distinct makes the outer failure
+	 * path look like a second SSA program, while reusing them does not affect
+	 * resource handlers: close/suppression handlers remain identity-preserved.
+	 */
+	private boolean isSimpleFailureHandlerValue(@NotNull IrValue value) {
+		if (value instanceof IrExceptionValue) return false;
+		IrValue canonical = value.canonical();
+		for (IrBlock block : method.blocks()) {
+			if (!isExceptionalHandler(block) || containsResourceCleanup(block)) continue;
+			for (IrPhi phi : block.phis())
+				if (phi.canonical() == canonical) return true;
+			for (IrStmt statement : block.statements()) {
+				if (statement instanceof IrOp op && op.canonical() == canonical) return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean isExceptionalHandler(@NotNull IrBlock block) {
+		if (block.exceptionValue() != null) return true;
+		return block.predecessors().stream().anyMatch(predecessor ->
+				predecessor.exceptionalSuccessors().contains(block));
+	}
+
+	private boolean containsResourceCleanup(@NotNull IrBlock block) {
+		for (IrStmt statement : block.statements()) {
+			if (!(statement instanceof IrOp op) || !(op.payload() instanceof InvokeInstruction invoke)) continue;
+			if ("close".equals(invoke.name()) || "addSuppressed".equals(invoke.name())) return true;
+		}
+		return false;
 	}
 
 	private @NotNull Set<IrValue> collectLoopSensitiveValues() {

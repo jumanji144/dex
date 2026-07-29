@@ -74,15 +74,15 @@ final class DecompilationQualityReport {
         Set<String> markers = semanticMarkers(source);
 
         List<String> failures = new ArrayList<>();
-        for (String marker : List.of("Decompilation failed", "Unable to fully structure code",
-                "Exception decompiling", "** GOTO")) {
+        for (String marker : List.of("Decompilation failed", "This method has failed to decompile",
+                "Unable to fully structure code", "Exception decompiling", "** GOTO")) {
             if (source.contains(marker)) failures.add(marker);
         }
 
         return new MethodMetrics(owner, methodName, sha256(classBytes), classBytes.length,
                 instructions, method.maxLocals, method.tryCatchBlocks.size(), loads, stores,
                 count(ALIAS, source), count(BLOCK, source), count(LABEL, source),
-                source.contains("while (true)"), Set.copyOf(markers), List.copyOf(failures),
+                hasSyntheticInfiniteLoop(source), Set.copyOf(markers), List.copyOf(failures),
                 rangesByHandler.size(), maxRangesPerHandler, fallback, List.copyOf(methodDiagnostics));
     }
 
@@ -145,6 +145,13 @@ final class DecompilationQualityReport {
         int count = 0;
         while (matcher.find()) count++;
         return count;
+    }
+
+    private static boolean hasSyntheticInfiniteLoop(String source) {
+        if (!source.contains("while (true)")) return false;
+        return source.contains("** GOTO") || source.contains("block") || source.contains("lbl")
+                || source.contains("Unable to fully structure code")
+                || source.contains("Exception decompiling");
     }
 
     private static String sha256(byte[] bytes) {
