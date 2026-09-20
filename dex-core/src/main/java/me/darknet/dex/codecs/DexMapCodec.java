@@ -12,6 +12,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,17 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
 
     private volatile WriteState writeState;
     private static final ItemCodec<?>[] CODECS;
+
+    /**
+     * Pools that items address by index, in the order their sections have to be read in. Every other
+     * section keeps its file order.
+     */
+    private static final List<Integer> POOL_SECTIONS = List.of(
+            TYPE_STRING_ID_ITEM, TYPE_TYPE_ID_ITEM, TYPE_PROTO_ID_ITEM, TYPE_FIELD_ID_ITEM, TYPE_METHOD_ID_ITEM,
+            TYPE_METHOD_HANDLE_ITEM, TYPE_CALL_SITE_ID_ITEM);
+
+    /** Sorts map entries so pools are decoded first; stable, so the file order of the rest survives. */
+    private static final Comparator<MapEntry> READ_ORDER = Comparator.comparingInt(entry -> readRank(entry.type));
 
     public Sections sections() {
         return state().sections();
@@ -47,6 +59,13 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
                 int offset = input.readInt();
                 entries.add(new MapEntry(type, amount, offset));
             }
+
+            // Read the pools before the sections that index into them. File order alone is not enough: the
+            // map list stores call_site_id_item (0x0007) ahead of method_handle_item (0x0008), while every
+            // call site indexes the method handle pool, so the handles have to be materialised first.
+            // Reading order is otherwise irrelevant, as items are read from their own slices and every
+            // reference into another section is resolved by slicing its offset when it is read.
+            entries.sort(READ_ORDER);
 
             for (int i = 0; i < entries.size(); i++) {
                 MapEntry entry = entries.get(i);
@@ -304,6 +323,26 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
 
     private static int index(int type) {
         return (type & 15) + 8 * (type >>> 12);
+    }
+
+    /**
+     * Read rank of a map entry type.
+     *
+     * <p>Items address a constant pool by index, and a pool gains its entries in the order its section is
+     * read, so a section can only be decoded once every pool it indexes into is complete. The pools are
+     * therefore read first, in the order they depend on each other; notably method handles precede call
+     * sites, even though the map list stores {@code call_site_id_item} (0x0007) ahead of
+     * {@code method_handle_item} (0x0008). Sections that define no pool share the last rank and keep their
+     * file order, as they are only ever reached through offsets.
+     *
+     * @param type
+     * 		Map entry type code.
+     *
+     * @return Rank of the section, lower ranks being read first.
+     */
+    private static int readRank(int type) {
+        int rank = POOL_SECTIONS.indexOf(type);
+        return rank < 0 ? POOL_SECTIONS.size() : rank;
     }
 
     static {
