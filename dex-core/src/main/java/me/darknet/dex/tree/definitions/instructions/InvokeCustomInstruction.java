@@ -163,7 +163,8 @@ public final class InvokeCustomInstruction implements Instruction {
         public @NotNull InvokeCustomInstruction map(@NotNull Format input, @NotNull InstructionContext<DexMap> context) {
             return switch (input) {
                 case FormatAGopBBBBFEDC(int op, int a, int b, int c, int d, int e, int f, int g) -> {
-                    CallSiteItem callSite = context.map().callSites().get(g);
+                    // 35c keeps the call-site index in BBBB and packs A registers into G|F|E|D|C.
+                    CallSiteItem callSite = context.map().callSites().get(b);
                     CallSiteDataItem data = callSite.data();
                     Handle handle = Handle.CODEC.map(data.handle().item(), context.map());
                     String name = data.name().string().string();
@@ -172,10 +173,13 @@ public final class InvokeCustomInstruction implements Instruction {
                     for (Value value : data.arguments()) {
                         arguments.add(Constant.CODEC.map(value, context.map()));
                     }
-                    yield new InvokeCustomInstruction(handle, name, type, arguments, a, b, c, d, e, f);
+                    int[] registers = new int[a];
+                    System.arraycopy(new int[] {c, d, e, f, g}, 0, registers, 0, a);
+                    yield new InvokeCustomInstruction(handle, name, type, arguments, registers);
                 }
                 case FormatAAopBBBBCCCC(int op, int a, int b, int c) -> {
-                    CallSiteItem callSite = context.map().callSites().get(c);
+                    // 3rc keeps the call-site index in BBBB and the first of A contiguous registers in CCCC.
+                    CallSiteItem callSite = context.map().callSites().get(b);
                     CallSiteDataItem data = callSite.data();
                     Handle handle = Handle.CODEC.map(data.handle().item(), context.map());
                     String name = data.name().string().string();
@@ -184,7 +188,8 @@ public final class InvokeCustomInstruction implements Instruction {
                     for (Value value : data.arguments()) {
                         arguments.add(Constant.CODEC.map(value, context.map()));
                     }
-                    yield new InvokeCustomInstruction(handle, name, type, arguments, a);
+                    // A counts the registers, which the range form reads as the run starting at CCCC.
+                    yield new InvokeCustomInstruction(handle, name, type, arguments, a, c);
                 }
                 default -> throw new IllegalArgumentException("Invalid format: " + input);
             };
@@ -194,11 +199,14 @@ public final class InvokeCustomInstruction implements Instruction {
         public @NotNull Format unmap(@NotNull InvokeCustomInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
             int callSiteIndex = context.map().addCallSite(output.handle, output.name, output.type, output.arguments);
             if (output.isRange()) {
-                return new FormatAGopBBBBFEDC(Opcodes.INVOKE_CUSTOM_RANGE, output.size(), callSiteIndex,
-                        output.first(), output.first() + 1, output.first() + 2, output.first() + 3, output.first() + 4);
-            } else {
-                return new FormatAAopBBBBCCCC(Opcodes.INVOKE_CUSTOM, output.size(), callSiteIndex, output.first());
+                return new FormatAAopBBBBCCCC(Opcodes.INVOKE_CUSTOM_RANGE, output.size(), callSiteIndex, output.first());
             }
+
+            // 35c takes its registers as four-bit nibbles, so pad the slots the instruction does not use.
+            int[] registers = new int[5];
+            System.arraycopy(output.argumentRegisters(), 0, registers, 0, output.size());
+            return new FormatAGopBBBBFEDC(Opcodes.INVOKE_CUSTOM, output.size(), callSiteIndex,
+                    registers[0], registers[1], registers[2], registers[3], registers[4]);
         }
     };
 
