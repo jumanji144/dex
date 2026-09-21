@@ -6,6 +6,7 @@ import me.darknet.dex.tree.definitions.FieldMember;
 import me.darknet.dex.tree.definitions.InnerClass;
 import me.darknet.dex.tree.definitions.MemberIdentifier;
 import me.darknet.dex.tree.definitions.MethodMember;
+import me.darknet.dex.tree.definitions.RecordComponent;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.code.Code;
@@ -67,6 +68,9 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 			Types.methodTypeFromDescriptor("(Loldpkg/Outer$Inner;)Loldpkg/Outer$Inner;");
 	private static final MethodType OLD_BOOTSTRAP_TYPE =
 			Types.methodTypeFromDescriptor("(Loldpkg/Outer$Inner;)V");
+	/** Prototype a signature polymorphic method is declared with, distinct from the call site prototype. */
+	private static final MethodType OLD_POLYMORPHIC_DECLARED_TYPE =
+			Types.methodTypeFromDescriptor("([Ljava/lang/Object;)Ljava/lang/Object;");
 	private static final String OLD_NESTED_SIGNATURE =
 			"Loldpkg/Box<Loldpkg/Outer$Inner;>.Holder<Loldpkg/Outer$Inner;>;";
 
@@ -138,6 +142,22 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 		assertEquals("newpkg/RenamedOuter", innerClass.outerClassName());
 		assertEquals("RenamedInner", innerClass.innerName());
 		assertEquals("newpkg/RenamedOuter$RenamedInner$RenamedMember", target.getMemberClasses().getFirst().internalName());
+		assertEquals("newpkg/RenamedOuter", target.getNestHost().internalName());
+		assertEquals("newpkg/RenamedOuter$RenamedInner$RenamedMember",
+				target.getNestMembers().getFirst().internalName());
+		assertEquals("newpkg/RenamedOuter$RenamedInner$RenamedMember",
+				target.getPermittedSubclasses().getFirst().internalName());
+
+		RecordComponent component = target.getRecordComponents().getFirst();
+		assertEquals("oldComponent", component.name());
+		assertEquals("newpkg/RenamedOuter$RenamedInner", ((InstanceType) component.type()).internalName());
+		assertEquals(OLD_NESTED_SIGNATURE.replace("oldpkg/Box", "newpkg/RenamedBox")
+						.replace(".Holder", ".RenamedHolder")
+						.replace("oldpkg/Outer$Inner", "newpkg/RenamedOuter$RenamedInner"),
+				component.signature());
+		assertEquals("newpkg/RenamedOuter$RenamedInner",
+				((MemberConstant) component.annotations().getFirst().annotation().element("field"))
+						.owner().internalName());
 
 		Annotation classAnnotation = target.getAnnotations().getFirst();
 		assertEquals("newpkg/RenamedAnno", classAnnotation.annotation().type().internalName());
@@ -175,6 +195,15 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 				method.getSignature());
 		assertEquals(List.of("newpkg/RenamedProblem"), method.getThrownTypes());
 
+		// The unannotated parameter keeps its slot, and the annotated one is mapped rather than copied.
+		assertEquals(2, method.getParameterAnnotations().size());
+		assertEquals("newpkg/RenamedOuter$RenamedInner",
+				((MemberConstant) method.getParameterAnnotations().getFirst().getFirst()
+						.annotation().element("field")).owner().internalName());
+		assertTrue(method.getParameterAnnotations().get(1).isEmpty());
+		assertEquals("newpkg/RenamedOuter$RenamedInner",
+				((InstanceType) ((TypeConstant) method.getDefaultValue()).type()).internalName());
+
 		Code code = method.getCode();
 		ConstTypeInstruction constTypeInstruction = findInstruction(code, ConstTypeInstruction.class);
 		assertEquals("newpkg/RenamedOuter$RenamedInner", ((InstanceType) constTypeInstruction.type()).internalName());
@@ -211,6 +240,18 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 		assertEquals("(Lnewpkg/RenamedOuter$RenamedInner;[Lnewpkg/RenamedOuter$RenamedInner;)Lnewpkg/RenamedOuter$RenamedInner;",
 				invokeInstruction.type().descriptor());
 		assertEquals("newpkg/RenamedOuter$RenamedInner", invokeInstruction.owner().internalName());
+
+		// The polymorphic copy has to keep both prototypes mapped: the call site one and the one the method
+		// was declared with. Reusing either for both would silently change the invocation.
+		InvokeInstruction polymorphicInstruction = code.getInstructions().stream()
+				.filter(InvokeInstruction.class::isInstance)
+				.map(InvokeInstruction.class::cast)
+				.filter(instruction -> instruction.opcode() == Invoke.POLYMORPHIC)
+				.findFirst()
+				.orElseThrow();
+		assertEquals("(Lnewpkg/RenamedOuter$RenamedInner;[Lnewpkg/RenamedOuter$RenamedInner;)Lnewpkg/RenamedOuter$RenamedInner;",
+				polymorphicInstruction.type().descriptor());
+		assertEquals("([Ljava/lang/Object;)Ljava/lang/Object;", polymorphicInstruction.methodType().descriptor());
 
 		InvokeCustomInstruction invokeCustomInstruction = findInstruction(code, InvokeCustomInstruction.class);
 		assertEquals("renamedDynamic", invokeCustomInstruction.name());
@@ -271,6 +312,15 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 		definition.setEnclosingMethod(new MemberIdentifier("factory", OLD_ENCLOSING_METHOD_TYPE));
 		definition.addInnerClass(new InnerClass(OLD_INNER.internalName(), OLD_OUTER.internalName(), "Inner", ACC_PUBLIC));
 		definition.addMemberClass(OLD_MEMBER);
+		definition.setNestHost(OLD_OUTER);
+		definition.addNestMember(OLD_MEMBER);
+		definition.addPermittedSubclass(OLD_MEMBER);
+		definition.addRecordComponent(new RecordComponent("oldComponent", OLD_INNER, OLD_NESTED_SIGNATURE, List.of(
+				new Annotation((byte) Annotation.VISIBILITY_RUNTIME, new AnnotationPart(
+						Types.instanceTypeFromInternalName("oldpkg/FieldAnno"),
+						Map.of("field", new MemberConstant(OLD_INNER, new MemberIdentifier("oldField", OLD_INNER)))
+				))
+		)));
 		definition.addAnnotation(new Annotation((byte) Annotation.VISIBILITY_RUNTIME, classAnnotationPart()));
 
 		FieldMember field = new FieldMember("oldField", OLD_INNER, ACC_PUBLIC | ACC_STATIC);
@@ -287,6 +337,15 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 				")Loldpkg/Box<Loldpkg/Outer$Inner;>.Holder<TE;>;^Loldpkg/Problem;");
 		method.addThrownType(OLD_PROBLEM.internalName());
 		method.setParameterNames(List.of("first", "second"));
+		// The second parameter carries no annotations, so an empty list has to survive the copy in its slot.
+		method.setParameterAnnotations(List.of(
+				List.of(new Annotation((byte) Annotation.VISIBILITY_RUNTIME, new AnnotationPart(
+						Types.instanceTypeFromInternalName("oldpkg/FieldAnno"),
+						Map.of("field", new MemberConstant(OLD_INNER, new MemberIdentifier("oldField", OLD_INNER)))
+				))),
+				List.of()
+		));
+		method.setDefaultValue(new TypeConstant(OLD_INNER));
 		method.addAnnotation(new Annotation((byte) Annotation.VISIBILITY_RUNTIME, new AnnotationPart(
 				Types.instanceTypeFromInternalName("oldpkg/MethodAnno"),
 				Map.of("type", new TypeConstant(OLD_INNER))
@@ -332,6 +391,9 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 		instructions.add(new StaticFieldInstruction(0, 0, OLD_INNER, "oldField", OLD_INNER));
 		instructions.add(new InstanceFieldInstruction(0, 0, 1, OLD_INNER, "oldField", OLD_INNER));
 		instructions.add(new InvokeInstruction(Invoke.VIRTUAL, OLD_INNER, "oldMethod", OLD_METHOD_TYPE, 0, 1));
+		// Signature polymorphic calls keep two prototypes, both of which have to survive the copy.
+		instructions.add(InvokeInstruction.polymorphic(OLD_INNER, "invokeExact", OLD_POLYMORPHIC_DECLARED_TYPE,
+				OLD_METHOD_TYPE, 0, 1));
 		instructions.add(new InvokeCustomInstruction(
 				new Handle(Handle.KIND_INVOKE_STATIC, OLD_INNER, "bootstrap", OLD_BOOTSTRAP_TYPE),
 				"oldDynamic",

@@ -9,9 +9,9 @@ import me.darknet.dex.tree.definitions.AccessFlags;
 import me.darknet.dex.tree.definitions.ClassDefinition;
 import me.darknet.dex.tree.definitions.MemberIdentifier;
 import me.darknet.dex.tree.definitions.MethodMember;
-import me.darknet.dex.tree.definitions.constant.AnnotationConstant;
+import me.darknet.dex.tree.definitions.RecordComponent;
+import me.darknet.dex.tree.definitions.constant.IntConstant;
 import me.darknet.dex.tree.definitions.constant.StringConstant;
-import me.darknet.dex.tree.definitions.constant.TypeConstant;
 import me.darknet.dex.tree.type.Types;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +21,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AnnotationProcessingTest implements AccessFlags {
@@ -46,20 +47,38 @@ class AnnotationProcessingTest implements AccessFlags {
     }
 
     @Test
-    void preservesUnsupportedClassSystemAnnotationsAsRawAnnotations() throws Exception {
+    void consumesAndReemitsNestMetadata() throws Exception {
+        ClassDefinition definition = newDefinition();
+        definition.setNestHost(Types.instanceTypeFromInternalName("example/Outer"));
+        definition.addNestMember(Types.instanceTypeFromInternalName("example/Outer$Sibling"));
+        definition.addPermittedSubclass(Types.instanceTypeFromInternalName("example/Outer$Impl"));
+
+        ClassDefinition roundTrippedDefinition = roundTrip(definition).definitions().getFirst();
+
+        assertEquals(definition.getNestHost(), roundTrippedDefinition.getNestHost());
+        assertEquals(definition.getNestMembers(), roundTrippedDefinition.getNestMembers());
+        assertEquals(definition.getPermittedSubclasses(), roundTrippedDefinition.getPermittedSubclasses());
+        // The metadata is carried by the model fields now, so it must not also linger as a raw annotation.
+        assertFalse(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/NestHost"));
+        assertFalse(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/NestMembers"));
+        assertFalse(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/PermittedSubclasses"));
+    }
+
+    @Test
+    void preservesUnrecognisedSystemAnnotationsAsRawAnnotations() throws Exception {
         ClassDefinition definition = newDefinition();
         definition.addAnnotation(new Annotation((byte) Annotation.VISIBILITY_SYSTEM, new AnnotationPart(
-                Types.instanceTypeFromInternalName("dalvik/annotation/NestHost"),
-                Map.of("value", new TypeConstant(Types.instanceTypeFromInternalName("example/Outer")))
+                Types.instanceTypeFromInternalName("dalvik/annotation/SourceDebugExtension"),
+                Map.of("value", new StringConstant("SMAP\n"))
         )));
 
         ClassDefinition roundTrippedDefinition = roundTrip(definition).definitions().getFirst();
 
-        assertTrue(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/NestHost"));
+        assertTrue(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/SourceDebugExtension"));
     }
 
     @Test
-    void consumesAndReemitsSupportedMethodMetadataWhilePreservingUnsupportedRawAnnotations() throws Exception {
+    void consumesAndReemitsSupportedMethodMetadataWhilePreservingUnrecognisedRawAnnotations() throws Exception {
         ClassDefinition definition = newDefinition();
         MethodMember method = new MethodMember("work", Types.methodTypeFromDescriptor("(Ljava/lang/String;I)V"), ACC_PUBLIC);
         method.setSignature("(Ljava/lang/String;I)V");
@@ -67,11 +86,8 @@ class AnnotationProcessingTest implements AccessFlags {
         method.setParameterNames(Arrays.asList("name", null));
         method.setParameterAccessFlags(List.of(ACC_FINAL, 0));
         method.addAnnotation(new Annotation((byte) Annotation.VISIBILITY_SYSTEM, new AnnotationPart(
-                Types.instanceTypeFromInternalName("dalvik/annotation/AnnotationDefault"),
-                Map.of("value", new AnnotationConstant(new AnnotationPart(
-                        Types.instanceTypeFromInternalName("example/Defaults"),
-                        Map.of("value", new StringConstant("x"))
-                )))
+                Types.instanceTypeFromInternalName("dalvik/annotation/SourceDebugExtension"),
+                Map.of("value", new StringConstant("SMAP\n"))
         )));
         definition.putMethod(method);
 
@@ -80,10 +96,96 @@ class AnnotationProcessingTest implements AccessFlags {
         assertEquals(List.of("java/io/IOException"), roundTrippedMethod.getThrownTypes());
         assertEquals(Arrays.asList("name", null), roundTrippedMethod.getParameterNames());
         assertEquals(List.of(ACC_FINAL, 0), roundTrippedMethod.getParameterAccessFlags());
-        assertTrue(hasAnnotation(roundTrippedMethod, "dalvik/annotation/AnnotationDefault"));
+        assertTrue(hasAnnotation(roundTrippedMethod, "dalvik/annotation/SourceDebugExtension"));
+        assertFalse(hasAnnotation(roundTrippedMethod, "dalvik/annotation/AnnotationDefault"));
         assertFalse(hasAnnotation(roundTrippedMethod, "dalvik/annotation/Throws"));
         assertFalse(hasAnnotation(roundTrippedMethod, "dalvik/annotation/MethodParameters"));
         assertFalse(hasAnnotation(roundTrippedMethod, "dalvik/annotation/Signature"));
+    }
+
+    @Test
+    void consumesAndReemitsAnnotationInterfaceDefaults() throws Exception {
+        ClassDefinition definition = newDefinition();
+        MethodMember named = new MethodMember("name", Types.methodTypeFromDescriptor("()Ljava/lang/String;"), ACC_PUBLIC);
+        named.setDefaultValue(new StringConstant("fallback"));
+        MethodMember counted = new MethodMember("count", Types.methodTypeFromDescriptor("()I"), ACC_PUBLIC);
+        counted.setDefaultValue(new IntConstant(7));
+        // An element without a default must not gain one.
+        MethodMember plain = new MethodMember("plain", Types.methodTypeFromDescriptor("()I"), ACC_PUBLIC);
+        definition.putMethod(named);
+        definition.putMethod(counted);
+        definition.putMethod(plain);
+
+        ClassDefinition roundTrippedDefinition = roundTrip(definition).definitions().getFirst();
+
+        assertEquals(new StringConstant("fallback"),
+                roundTrippedDefinition.getMethod("name", "()Ljava/lang/String;").getDefaultValue());
+        assertEquals(new IntConstant(7), roundTrippedDefinition.getMethod("count", "()I").getDefaultValue());
+        assertNull(roundTrippedDefinition.getMethod("plain", "()I").getDefaultValue());
+        assertFalse(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/AnnotationDefault"));
+    }
+
+    @Test
+    void roundTripsRecordComponentsWithSignaturesAndAnnotations() throws Exception {
+        ClassDefinition definition = newDefinition();
+        definition.addRecordComponent(new RecordComponent("name", Types.instanceTypeFromDescriptor("Ljava/lang/String;"),
+                null, List.of()));
+        definition.addRecordComponent(new RecordComponent("age", Types.INT, "TT;", List.of(
+                new Annotation((byte) Annotation.VISIBILITY_RUNTIME, new AnnotationPart(
+                        Types.instanceTypeFromInternalName("example/ComponentAnn"),
+                        Map.of("value", new IntConstant(3))
+                ))
+        )));
+
+        ClassDefinition roundTrippedDefinition = roundTrip(definition).definitions().getFirst();
+
+        assertEquals(definition.getRecordComponents(), roundTrippedDefinition.getRecordComponents());
+        assertFalse(hasAnnotation(roundTrippedDefinition, "dalvik/annotation/Record"));
+    }
+
+    @Test
+    void roundTripsParameterAnnotationsOnMethods() throws Exception {
+        ClassDefinition definition = newDefinition();
+        MethodMember method = new MethodMember("work", Types.methodTypeFromDescriptor("(Ljava/lang/String;I)V"), ACC_PUBLIC);
+        // Three parameters to prove unannotated ones keep their slot instead of collapsing the list.
+        MethodMember wide = new MethodMember("wide",
+                Types.methodTypeFromDescriptor("(Ljava/lang/String;ILjava/lang/Object;)V"), ACC_PUBLIC);
+        method.setParameterAnnotations(List.of(
+                List.of(new Annotation((byte) Annotation.VISIBILITY_RUNTIME, new AnnotationPart(
+                        Types.instanceTypeFromInternalName("example/ParamAnn"),
+                        Map.of("value", new IntConstant(1))
+                ))),
+                List.of()
+        ));
+        wide.setParameterAnnotations(List.of(
+                List.of(),
+                List.of(new Annotation((byte) Annotation.VISIBILITY_RUNTIME, new AnnotationPart(
+                        Types.instanceTypeFromInternalName("example/ParamAnn"),
+                        Map.of("value", new IntConstant(2))
+                ))),
+                List.of()
+        ));
+        definition.putMethod(method);
+        definition.putMethod(wide);
+
+        ClassDefinition roundTrippedDefinition = roundTrip(definition).definitions().getFirst();
+
+        assertEquals(method.getParameterAnnotations(),
+                roundTrippedDefinition.getMethod("work", "(Ljava/lang/String;I)V").getParameterAnnotations());
+        assertEquals(wide.getParameterAnnotations(),
+                roundTrippedDefinition.getMethod("wide",
+                        "(Ljava/lang/String;ILjava/lang/Object;)V").getParameterAnnotations());
+    }
+
+    @Test
+    void methodsWithoutParameterAnnotationsRoundTripUnchanged() throws Exception {
+        ClassDefinition definition = newDefinition();
+        definition.putMethod(new MethodMember("plain", Types.methodTypeFromDescriptor("(I)V"), ACC_PUBLIC));
+
+        ClassDefinition roundTrippedDefinition = roundTrip(definition).definitions().getFirst();
+
+        assertTrue(roundTrippedDefinition.getMethod("plain", "(I)V").getParameterAnnotations().isEmpty(),
+                "a method with no parameter annotations should not gain empty ones");
     }
 
     private static ClassDefinition newDefinition() {

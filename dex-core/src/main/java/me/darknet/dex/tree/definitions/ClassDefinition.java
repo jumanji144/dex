@@ -29,6 +29,10 @@ public non-sealed class ClassDefinition implements Typed<InstanceType>, Accessib
     private @Nullable List<InnerClass> innerClasses;
     private @Nullable String signature;
     private @Nullable List<InstanceType> memberClasses;
+    private @Nullable InstanceType nestHost;
+    private @Nullable List<InstanceType> nestMembers;
+    private @Nullable List<InstanceType> permittedSubclasses;
+    private @Nullable List<RecordComponent> recordComponents;
     private @Nullable List<Annotation> annotations;
     private @Nullable Map<MemberIdentifier, FieldMember> fields;
     private @Nullable Map<MemberIdentifier, MethodMember> methods;
@@ -137,6 +141,63 @@ public non-sealed class ClassDefinition implements Typed<InstanceType>, Accessib
         memberClasses.add(memberClass);
     }
 
+    /**
+     * @return Class whose nest this class belongs to, or {@code null} when the class is not part of a nest.
+     * 		The nest host is only annotated onto classes that are not themselves the host.
+     */
+    public @Nullable InstanceType getNestHost() {
+        return nestHost;
+    }
+
+    public void setNestHost(@Nullable InstanceType nestHost) {
+        this.nestHost = nestHost;
+    }
+
+    /**
+     * @return Classes that name this class as their nest host. Empty when this class hosts no nest.
+     */
+    public @NotNull List<InstanceType> getNestMembers() {
+        if (nestMembers == null)
+            return Collections.emptyList();
+        return nestMembers;
+    }
+
+    public void addNestMember(@NotNull InstanceType nestMember) {
+        if (nestMembers == null)
+            nestMembers = new ArrayList<>();
+        nestMembers.add(nestMember);
+    }
+
+    /**
+     * @return Classes that a sealed class permits as direct subclasses. Empty when the class is not sealed.
+     */
+    public @NotNull List<InstanceType> getPermittedSubclasses() {
+        if (permittedSubclasses == null)
+            return Collections.emptyList();
+        return permittedSubclasses;
+    }
+
+    public void addPermittedSubclass(@NotNull InstanceType permittedSubclass) {
+        if (permittedSubclasses == null)
+            permittedSubclasses = new ArrayList<>();
+        permittedSubclasses.add(permittedSubclass);
+    }
+
+    /**
+     * @return Components declared by a record class, in header order. Empty when the class is not a record.
+     */
+    public @NotNull List<RecordComponent> getRecordComponents() {
+        if (recordComponents == null)
+            return Collections.emptyList();
+        return recordComponents;
+    }
+
+    public void addRecordComponent(@NotNull RecordComponent component) {
+        if (recordComponents == null)
+            recordComponents = new ArrayList<>();
+        recordComponents.add(component);
+    }
+
     public @NotNull Map<MemberIdentifier, FieldMember> getFields() {
         if (fields == null)
             return Collections.emptyMap();
@@ -230,6 +291,10 @@ public non-sealed class ClassDefinition implements Typed<InstanceType>, Accessib
 				&& Objects.equals(innerClasses, that.innerClasses)
 				&& Objects.equals(signature, that.signature)
 				&& Objects.equals(memberClasses, that.memberClasses)
+				&& Objects.equals(nestHost, that.nestHost)
+				&& Objects.equals(nestMembers, that.nestMembers)
+				&& Objects.equals(permittedSubclasses, that.permittedSubclasses)
+				&& Objects.equals(recordComponents, that.recordComponents)
 				&& Objects.equals(annotations, that.annotations)
 				&& Objects.equals(fields, that.fields)
 				&& Objects.equals(methods, that.methods);
@@ -247,6 +312,10 @@ public non-sealed class ClassDefinition implements Typed<InstanceType>, Accessib
         result = 31 * result + Objects.hashCode(innerClasses);
         result = 31 * result + Objects.hashCode(signature);
         result = 31 * result + Objects.hashCode(memberClasses);
+        result = 31 * result + Objects.hashCode(nestHost);
+        result = 31 * result + Objects.hashCode(nestMembers);
+        result = 31 * result + Objects.hashCode(permittedSubclasses);
+        result = 31 * result + Objects.hashCode(recordComponents);
         result = 31 * result + Objects.hashCode(annotations);
         result = 31 * result + Objects.hashCode(fields);
         result = 31 * result + Objects.hashCode(methods);

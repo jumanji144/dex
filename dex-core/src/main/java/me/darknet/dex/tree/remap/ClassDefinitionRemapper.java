@@ -5,6 +5,7 @@ import me.darknet.dex.tree.definitions.FieldMember;
 import me.darknet.dex.tree.definitions.InnerClass;
 import me.darknet.dex.tree.definitions.MemberIdentifier;
 import me.darknet.dex.tree.definitions.MethodMember;
+import me.darknet.dex.tree.definitions.RecordComponent;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
 import me.darknet.dex.tree.definitions.code.Code;
@@ -88,6 +89,7 @@ import java.util.Objects;
 import static me.darknet.dex.tree.definitions.constant.Handle.*;
 import static me.darknet.dex.tree.definitions.instructions.InvokeInstruction.INVOKE_VIRTUAL;
 import static me.darknet.dex.tree.definitions.instructions.InvokeInstruction.INVOKE_VIRTUAL_RANGE;
+import static me.darknet.dex.tree.definitions.instructions.InvokeInstruction.POLYMORPHIC;
 
 /**
  * Utility class for remapping class definitions using a {@link DefinitionRemapper}.
@@ -151,6 +153,18 @@ public class ClassDefinitionRemapper {
 			for (InstanceType memberClass : source.getMemberClasses())
 				target.addMemberClass(TypeMapping.mapInstanceType(remapper, memberClass));
 
+			if (source.getNestHost() != null)
+				target.setNestHost(TypeMapping.mapInstanceType(remapper, source.getNestHost()));
+
+			for (InstanceType nestMember : source.getNestMembers())
+				target.addNestMember(TypeMapping.mapInstanceType(remapper, nestMember));
+
+			for (InstanceType permittedSubclass : source.getPermittedSubclasses())
+				target.addPermittedSubclass(TypeMapping.mapInstanceType(remapper, permittedSubclass));
+
+			for (RecordComponent component : source.getRecordComponents())
+				target.addRecordComponent(remapRecordComponent(component));
+
 			for (Annotation annotation : source.getAnnotations())
 				target.addAnnotation(remapAnnotation(annotation));
 
@@ -161,6 +175,15 @@ public class ClassDefinitionRemapper {
 				target.putMethod(remapMethod(source.getType(), method));
 
 			return target;
+		}
+
+		private @NotNull RecordComponent remapRecordComponent(@NotNull RecordComponent source) {
+			List<Annotation> annotations = new ArrayList<>(source.annotations().size());
+			for (Annotation annotation : source.annotations())
+				annotations.add(remapAnnotation(annotation));
+
+			return new RecordComponent(source.name(), TypeMapping.mapClassType(remapper, source.type()),
+					SignatureMapping.mapTypeSignature(remapper, source.signature()), annotations);
 		}
 
 		private @NotNull FieldMember remapField(@NotNull InstanceType owner, @NotNull FieldMember source) {
@@ -188,6 +211,20 @@ public class ClassDefinitionRemapper {
 			List<String> parameterNames = source.getParameterNames();
 			if (parameterNames != null)
 				target.setParameterNames(List.copyOf(parameterNames));
+
+			if (!source.getParameterAnnotations().isEmpty()) {
+				List<List<Annotation>> parameterAnnotations = new ArrayList<>(source.getParameterAnnotations().size());
+				for (List<Annotation> parameter : source.getParameterAnnotations()) {
+					List<Annotation> mapped = new ArrayList<>(parameter.size());
+					for (Annotation annotation : parameter)
+						mapped.add(remapAnnotation(annotation));
+					parameterAnnotations.add(mapped);
+				}
+				target.setParameterAnnotations(parameterAnnotations);
+			}
+
+			if (source.getDefaultValue() != null)
+				target.setDefaultValue(remapConstant(source.getDefaultValue()));
 
 			if (!source.getThrownTypes().isEmpty()) {
 				List<String> thrownTypes = new ArrayList<>(source.getThrownTypes().size());
@@ -476,9 +513,21 @@ public class ClassDefinitionRemapper {
 
 			private @NotNull InvokeInstruction remapInvokeInstruction(@NotNull InvokeInstruction source) {
 				ReferenceType mappedOwner = TypeMapping.mapReferenceType(remapper, source.owner());
-				String mappedName = TypeMapping.mapMethodName(remapper, source.owner(), source.name(), source.type());
+				// Method names are keyed by the prototype the method was declared with, which is the same as the
+				// invocation prototype for every family except invoke-polymorphic.
+				MethodType mappedMethodType = TypeMapping.mapMethodType(remapper, source.methodType());
+				String mappedName = TypeMapping.mapMethodName(remapper, source.owner(), source.name(), source.methodType());
 				MethodType mappedType = TypeMapping.mapMethodType(remapper, source.type());
 
+				if (source.opcode() == POLYMORPHIC) {
+					// Both prototypes survive the copy: the range offset of the other families would turn a range
+					// invoke-polymorphic into whichever opcode happens to sit six places further along.
+					if (source.isRange())
+						return InvokeInstruction.polymorphicRange(mappedOwner, mappedName, mappedMethodType, mappedType,
+								source.last() - source.first() + 1, source.first());
+					return InvokeInstruction.polymorphic(mappedOwner, mappedName, mappedMethodType, mappedType,
+							source.arguments().clone());
+				}
 				if (source.isRange())
 					return InvokeInstruction.range(source.opcode() + INVOKE_RANGE_OFFSET, mappedOwner, mappedName,
 							mappedType, source.last() - source.first() + 1, source.first());
