@@ -371,16 +371,6 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
 
     /**
      * Drops the sections that are rebuilt from the model and carry pool indices.
-     * <p>
-     *
-     *
-     *
-     *
-     *
-     *
-     *
-     *
-     *
      */
     public void resetDerivedSections() {
         // Instructions, MethodHandleItem (method handles) and call sites all store the indices of the
