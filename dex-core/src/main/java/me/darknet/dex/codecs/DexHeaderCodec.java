@@ -13,7 +13,6 @@ import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.zip.Adler32;
 
 public class DexHeaderCodec implements Codec<DexHeader> {
@@ -79,7 +78,7 @@ public class DexHeaderCodec implements Codec<DexHeader> {
 
     private void writeSectionInfo(@NotNull Output output, int offset, int size) throws IOException {
         output.writeInt(size);
-        output.writeInt(offset);
+        output.writeInt(size == 0 ? 0 : offset);
     }
 
     private byte[] computeSignature(@NotNull ByteBuffer buffer) {
@@ -99,13 +98,13 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         // neither do we know the file size until this is done
         // this will be filled with data by the map
         DexMapCodec dexMapCodec = new DexMapCodec();
-        dexMapCodec.write(value.map(), output);
+
+        // The map codec lays the whole file out, link data included, so that every section's size is known
+        // before the offsets and the file size are derived from it.
+        dexMapCodec.write(value.map(), value.link(), output);
 
         Sections sections = dexMapCodec.sections(); // chunked up version of data
-        Map<Object, Integer> offsets = dexMapCodec.offsets(); // offsets of sections
-        int linkPosition = sections.size();
-
-        sections.link().write(value.link());
+        int linkPosition = sections.offsetOf(sections.link());
 
         Output header = output.newOutput();
 
@@ -117,24 +116,30 @@ public class DexHeaderCodec implements Codec<DexHeader> {
         header.seek(4 + 20);
 
         // now that we have this we must work our way up to the header
-        header.writeInt(0x70 + sections.size()); // file size
-        header.writeInt(0x70); // header size
+        header.writeInt(sections.size()); // file size, including the padding between sections
+        header.writeInt(Sections.HEADER_SIZE); // header size
         header.writeInt(header.order() == ByteOrder.BIG_ENDIAN ? REVERSE_ENDIAN_CONSTANT : ENDIAN_CONSTANT);
         header.writeInt(value.link().length);
-        header.writeInt(linkPosition);
+        header.writeInt(value.link().length == 0 ? 0 : linkPosition);
 
-        header.writeInt(offsets.get(sections.map()));
+        header.writeInt(sections.offsetOf(sections.map()));
 
         // section data
         var map = value.map();
 
-        writeSectionInfo(header, offsets.get(sections.stringIds()), map.strings().size());
-        writeSectionInfo(header, offsets.get(sections.typeIds()), map.types().size());
-        writeSectionInfo(header, offsets.get(sections.protoIds()), map.protos().size());
-        writeSectionInfo(header, offsets.get(sections.fieldIds()), map.fields().size());
-        writeSectionInfo(header, offsets.get(sections.methodIds()), map.methods().size());
-        writeSectionInfo(header, offsets.get(sections.classDefs()), map.classes().size());
-        writeSectionInfo(header, offsets.get(sections.data()), sections.data().position());
+        writeSectionInfo(header, sections.offsetOf(sections.stringIds()), map.strings().size());
+        writeSectionInfo(header, sections.offsetOf(sections.typeIds()), map.types().size());
+        writeSectionInfo(header, sections.offsetOf(sections.protoIds()), map.protos().size());
+        writeSectionInfo(header, sections.offsetOf(sections.fieldIds()), map.fields().size());
+        writeSectionInfo(header, sections.offsetOf(sections.methodIds()), map.methods().size());
+        writeSectionInfo(header, sections.offsetOf(sections.classDefs()), map.classes().size());
+
+        // The hidden API data is an item of the data section, so the section has to span through it.
+        // Reporting only the data buffer would leave that item outside the bounds the header describes.
+        int dataEnd = sections.hiddenApi().position() == 0
+                ? sections.offsetOf(sections.data()) + sections.data().position()
+                : sections.offsetOf(sections.hiddenApi()) + sections.hiddenApi().position();
+        writeSectionInfo(header, sections.offsetOf(sections.data()), dataEnd - sections.offsetOf(sections.data()));
 
         sections.write(header);
 

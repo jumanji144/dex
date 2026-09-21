@@ -34,14 +34,32 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     /** Sorts map entries so pools are decoded first; stable, so the file order of the rest survives. */
     private static final Comparator<MapEntry> READ_ORDER = Comparator.comparingInt(entry -> readRank(entry.type));
 
+    /** Width of one map entry: type, unused, size and offset. */
+    private static final int MAP_ENTRY_SIZE = 12;
+
+    /**
+     * @return Sections of the last written dex file.
+     *
+     * @throws IllegalStateException
+     *         If no dex file has been written yet.
+     */
     public Sections sections() {
         return state().sections();
     }
 
+    /**
+     * @return Offsets of every section and every item in the last written dex file.
+     *
+     * @throws IllegalStateException
+     *         If no dex file has been written yet.
+     */
     public Map<Object, Integer> offsets() {
         return state().offsets();
     }
 
+    /**
+     * @return Offset of the data section in the last written dex file.
+     */
     public int dataOffset() {
         return state().dataOffset();
     }
@@ -103,28 +121,26 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         codec.write(item, output, context);
     }
 
-    private void writeMapEntry(@NotNull Output output, int type, int size, int offset) throws IOException {
-        if(size == 0) return;
-        output.writeShort(type);
-        output.writeShort(0);
-        output.writeInt(size);
-        output.writeInt(offset);
-    }
-
-    private <T> void writeMapEntry(@NotNull Output output, int type, @NotNull ConstantPool<T> objects,
-                                   @NotNull WriteContext context) throws IOException {
-        if(!objects.isEmpty()) {
-            writeMapEntry(output, type, objects.size(), context.offsets().get(objects.get(0)) + context.dataOffset());
-        }
-    }
-
-    private int putOffset(@NotNull Output section, @NotNull Map<Object, Integer> offsets, int offset) {
-        offsets.put(section, offset);
-        return offset + section.position();
-    }
-
     @Override
     public void write(@NotNull DexMap value, @NotNull Output output) throws IOException {
+        write(value, new byte[0], output);
+    }
+
+    /**
+     * Writes every section of a dex file and fixes their layout.
+     * 
+     *
+     * @param value
+     *         Map to write.
+     * @param link
+     *         Link data, which is empty for every unlinked dex.
+     * @param output
+     *         Output to write into.
+     *
+     * @throws IOException
+     *         If a section cannot be written.
+     */
+    public void write(@NotNull DexMap value, byte[] link, @NotNull Output output) throws IOException {
         Sections sections = new Sections(output);
         Map<Object, Integer> offsets = new HashMap<>();
         WriteContext context = createContext(value, offsets);
@@ -133,91 +149,212 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         writeAnnotations(value, sections, context);
         writeClasses(value, sections, context);
 
-        // compute offsets for sections
-        computeOffsets(sections, context);
+        // The link data is written here rather than by the header codec so that the layout below can see its
+        // size: a section whose size is still unknown when the layout is fixed would fall outside the file, and
+        // the header would then describe a file smaller than its own map list.
+        sections.link().writeBytes(link);
+
+        // The map list's own size is known before its contents are: every entry is the same width and the
+        // count only depends on which sections ended up non-empty. Reserving the space lets the layout count
+        // the map, even though the entries cannot be written until the layout has told them their offsets.
+        int mapSize = Integer.BYTES + MAP_ENTRY_SIZE * countMapEntries(value);
+        sections.map().position(mapSize);
+
+        layoutSections(sections, context);
 
         writeMap(value, sections, context);
+
+        // The map has to fill exactly the space that was reserved, or the file size and the map list's own
+        // offset would describe a file that does not exist.
+        if (sections.map().position() != mapSize) {
+            throw new IllegalStateException("Reserved " + mapSize + " bytes for the map list but wrote "
+                    + sections.map().position());
+        }
+
         writeState = new WriteState(sections, Map.copyOf(offsets), context.dataOffset());
     }
 
-    private int computeNumberItems(@NotNull DexMap map) {
-        int size = 2; // header item and map list
+    /**
+     * Counts the entries {@link #writeMap} will emit.
+     *
+     * @param map
+     *         Map to count entries for.
+     *
+     * @return Number of map entries the file will contain.
+     */
+    private int countMapEntries(@NotNull DexMap map) {
+        int size = 2; // header item and map list, which are always present
 
-        if(!map.strings().isEmpty()) size += 2; // string_id and string_data
-        if(!map.types().isEmpty()) size++;
-        if(!map.protos().isEmpty()) size++;
-        if(!map.fields().isEmpty()) size++;
-        if(!map.methods().isEmpty()) size++;
-        if(!map.callSites().isEmpty()) size++;
-        if(!map.methodHandles().isEmpty()) size++;
-        if(!map.typeLists().isEmpty()) size++;
-        if(!map.encodedArrays().isEmpty()) size++;
-        if(!map.annotations().isEmpty()) size++;
-        if(!map.annotationSets().isEmpty()) size++;
-        if(!map.annotationSetRefLists().isEmpty()) size++;
-        if(!map.annotationsDirectories().isEmpty()) size++;
-        if(map.hiddenApi() != null) size++;
-        if(!map.debugInfos().isEmpty()) size++;
-        if(!map.codes().isEmpty()) size++;
-        if(!map.classDatas().isEmpty()) size++;
-        if(!map.classes().isEmpty()) size++;
+        if (!map.strings().isEmpty()) size++;
+        if (!map.stringDatas().isEmpty()) size++;
+        if (!map.types().isEmpty()) size++;
+        if (!map.protos().isEmpty()) size++;
+        if (!map.fields().isEmpty()) size++;
+        if (!map.methods().isEmpty()) size++;
+        if (!map.callSites().isEmpty()) size++;
+        if (!map.methodHandles().isEmpty()) size++;
+        if (!map.typeLists().isEmpty()) size++;
+        // One entry covers both, since call site data is written inside the encoded array region.
+        if (!map.encodedArrays().isEmpty() || !map.callSites().isEmpty()) size++;
+        if (!map.annotations().isEmpty()) size++;
+        if (!map.annotationSets().isEmpty()) size++;
+        if (!map.annotationSetRefLists().isEmpty()) size++;
+        if (!map.annotationsDirectories().isEmpty()) size++;
+        if (map.hiddenApi() != null) size++;
+        if (!map.debugInfos().isEmpty()) size++;
+        if (!map.codes().isEmpty()) size++;
+        if (!map.classDatas().isEmpty()) size++;
+        if (!map.classes().isEmpty()) size++;
 
         return size;
     }
 
     private void writeMap(@NotNull DexMap value, @NotNull Sections sections, @NotNull WriteContext context) throws IOException {
         Output output = sections.map();
-        output.writeInt(computeNumberItems(value));
 
-        var offsets = context.offsets();
+        // The map list is required to be ordered by the offset each entry describes, which is not the same
+        // order the sections are written in: the data section holds several item kinds, and the order their
+        // writers happen to run in does not follow the type codes.
+        List<MapEntry> entries = new ArrayList<>();
+        entries.add(new MapEntry(TYPE_HEADER_ITEM, 1, 0));
 
-        writeMapEntry(output, TYPE_HEADER_ITEM, 1, 0);
-        writeMapEntry(output, TYPE_STRING_ID_ITEM, value.strings().size(), offsets.get(sections.stringIds()));
-        writeMapEntry(output, TYPE_TYPE_ID_ITEM, value.types().size(), offsets.get(sections.typeIds()));
-        writeMapEntry(output, TYPE_PROTO_ID_ITEM, value.protos().size(), offsets.get(sections.protoIds()));
-        writeMapEntry(output, TYPE_FIELD_ID_ITEM, value.fields().size(), offsets.get(sections.fieldIds()));
-        writeMapEntry(output, TYPE_METHOD_ID_ITEM, value.methods().size(), offsets.get(sections.methodIds()));
-        writeMapEntry(output, TYPE_CLASS_DEF_ITEM, value.classes().size(), offsets.get(sections.classDefs()));
-        writeMapEntry(output, TYPE_CALL_SITE_ID_ITEM, value.callSites().size(),
-                offsets.get(sections.callSiteIds()));
-        writeMapEntry(output, TYPE_METHOD_HANDLE_ITEM, value.methodHandles().size(),
-                offsets.get(sections.methodHandles()));
+        // Pool section entries
+        addMapEntry(entries, TYPE_STRING_ID_ITEM, value.strings().size(), sections.offsetOf(sections.stringIds()));
+        addMapEntry(entries, TYPE_TYPE_ID_ITEM, value.types().size(), sections.offsetOf(sections.typeIds()));
+        addMapEntry(entries, TYPE_PROTO_ID_ITEM, value.protos().size(), sections.offsetOf(sections.protoIds()));
+        addMapEntry(entries, TYPE_FIELD_ID_ITEM, value.fields().size(), sections.offsetOf(sections.fieldIds()));
+        addMapEntry(entries, TYPE_METHOD_ID_ITEM, value.methods().size(), sections.offsetOf(sections.methodIds()));
+        addMapEntry(entries, TYPE_CLASS_DEF_ITEM, value.classes().size(), sections.offsetOf(sections.classDefs()));
+        addMapEntry(entries, TYPE_CALL_SITE_ID_ITEM, value.callSites().size(), sections.offsetOf(sections.callSiteIds()));
+        addMapEntry(entries, TYPE_METHOD_HANDLE_ITEM, value.methodHandles().size(), sections.offsetOf(sections.methodHandles()));
 
-        // data section entries
-        writeMapEntry(output, TYPE_STRING_DATA_ITEM, value.stringDatas(), context);
-        writeMapEntry(output, TYPE_TYPE_LIST, value.typeLists(), context);
-        writeMapEntry(output, TYPE_ENCODED_ARRAY_ITEM, value.encodedArrays(), context);
-        writeMapEntry(output, TYPE_ANNOTATION_ITEM, value.annotations(), context);
-        writeMapEntry(output, TYPE_ANNOTATION_SET_ITEM, value.annotationSets(), context);
-        writeMapEntry(output, TYPE_ANNOTATION_SET_REF_LIST, value.annotationSetRefLists(), context);
-        writeMapEntry(output, TYPE_ANNOTATIONS_DIRECTORY_ITEM, value.annotationsDirectories(), context);
-        if (value.hiddenApi() != null) {
-            writeMapEntry(output, TYPE_HIDDENAPI_CLASS_DATA_ITEM, value.hiddenApi().itemCount(),
-                    offsets.get(sections.hiddenApi()));
+        // Data section entries
+        addMapEntry(entries, TYPE_STRING_DATA_ITEM, value.stringDatas(), context);
+        addMapEntry(entries, TYPE_TYPE_LIST, value.typeLists(), context);
+        addEncodedArrayEntry(entries, value, context);
+        addMapEntry(entries, TYPE_ANNOTATION_ITEM, value.annotations(), context);
+        addMapEntry(entries, TYPE_ANNOTATION_SET_ITEM, value.annotationSets(), context);
+        addMapEntry(entries, TYPE_ANNOTATION_SET_REF_LIST, value.annotationSetRefLists(), context);
+        addMapEntry(entries, TYPE_ANNOTATIONS_DIRECTORY_ITEM, value.annotationsDirectories(), context);
+        if (value.hiddenApi() != null) 
+            addMapEntry(entries, TYPE_HIDDENAPI_CLASS_DATA_ITEM, value.hiddenApi().itemCount(), sections.offsetOf(sections.hiddenApi()));
+        addMapEntry(entries, TYPE_DEBUG_INFO_ITEM, value.debugInfos(), context);
+        addMapEntry(entries, TYPE_CODE_ITEM, value.codes(), context);
+        addMapEntry(entries, TYPE_CLASS_DATA_ITEM, value.classDatas(), context);
+
+        // The map list itself is the last section, so its entry orders last once the list is sorted.
+        addMapEntry(entries, TYPE_MAP_LIST, 1, sections.offsetOf(sections.map()));
+
+        // Sort the entries by the offset they describe, and then by type code to keep the file order of sections that share an offset.
+        entries.sort(Comparator.comparingInt(MapEntry::offset).thenComparingInt(MapEntry::type));
+
+        // The space was reserved before the layout ran, so the entries are written from the start of it.
+        output.position(0);
+        output.writeInt(entries.size());
+        for (MapEntry entry : entries) {
+            output.writeShort(entry.type());
+            output.writeShort(0);
+            output.writeInt((int) entry.amount());
+            output.writeInt(entry.offset());
         }
-        writeMapEntry(output, TYPE_DEBUG_INFO_ITEM, value.debugInfos(), context);
-        writeMapEntry(output, TYPE_CODE_ITEM, value.codes(), context);
-        writeMapEntry(output, TYPE_CLASS_DATA_ITEM, value.classDatas(), context);
-
-        // write myself
-        writeMapEntry(output, TYPE_MAP_LIST, 1, offsets.get(sections.map()));
     }
 
-    private void computeOffsets(@NotNull Sections sections, @NotNull WriteContext context) {
-        var offsets = context.offsets();
-        int offset = 0x70;
+    /**
+     * Records the map entry covering the encoded array region, which also holds the call site data.
+     *
+     * @param entries
+     *         Entries to append to.
+     * @param value
+     *         Map being written.
+     * @param context
+     *         Write context holding the items' data-relative offsets.
+     */
+    private void addEncodedArrayEntry(@NotNull List<MapEntry> entries, @NotNull DexMap value,
+                                      @NotNull WriteContext context) {
+        int count = value.encodedArrays().size() + value.callSites().size();
+        if (count == 0) 
+            return;
 
-        offset = putOffset(sections.stringIds(), offsets, offset);
-        offset = putOffset(sections.typeIds(), offsets, offset);
-        offset = putOffset(sections.protoIds(), offsets, offset);
-        offset = putOffset(sections.fieldIds(), offsets, offset);
-        offset = putOffset(sections.methodIds(), offsets, offset);
-        offset = putOffset(sections.classDefs(), offsets, offset);
-        offset = putOffset(sections.callSiteIds(), offsets, offset);
-        offset = putOffset(sections.methodHandles(), offsets, offset);
-        offset = putOffset(sections.data(), offsets, offset);
-        offset = putOffset(sections.hiddenApi(), offsets, offset);
-        putOffset(sections.map(), offsets, offset);
+        // Whichever of the two the data section holds first decides where the region begins.
+        Object first = value.encodedArrays().isEmpty()
+                ? value.callSites().get(0).data()
+                : value.encodedArrays().get(0);
+        entries.add(new MapEntry(TYPE_ENCODED_ARRAY_ITEM, count, context.offsets().get(first) + context.dataOffset()));
+    }
+
+    /**
+     * Records a map entry for a section that starts at a fixed offset.
+     *
+     * @param entries
+     *         Entries to append to.
+     * @param type
+     *         Map entry type code.
+     * @param size
+     *         Number of items in the section, which must be non-zero for the entry to exist.
+     * @param offset
+     *         Offset the section starts at.
+     */
+    private void addMapEntry(@NotNull List<MapEntry> entries, int type, int size, int offset) {
+        if (size == 0) {
+            return;
+        }
+        entries.add(new MapEntry(type, size, offset));
+    }
+
+    /**
+     * Records a map entry for a pool of items written into the data section.
+     *
+     * @param entries
+     *         Entries to append to.
+     * @param type
+     *         Map entry type code.
+     * @param objects
+     *         Pool holding the section's items, which must be non-empty for the entry to exist.
+     * @param context
+     *         Write context holding the items' data-relative offsets.
+     */
+    private <T> void addMapEntry(@NotNull List<MapEntry> entries, int type, @NotNull ConstantPool<T> objects,
+                                 @NotNull WriteContext context) {
+        if (objects.isEmpty()) {
+            return;
+        }
+        addMapEntry(entries, type, objects.size(), context.offsets().get(objects.get(0)) + context.dataOffset());
+    }
+
+    /**
+     * Fixes the file layout once every section's contents are final, and checks that the data section landed
+     * where the write context predicted.
+     *
+     * @param sections
+     *         Sections to lay out.
+     * @param context
+     *         Write context that sized the data section up front from the pool counts.
+     */
+    private void layoutSections(@NotNull Sections sections, @NotNull WriteContext context) {
+        sections.layout(Sections.HEADER_SIZE);
+
+        // The context has to know the data section's start before any data item is written, because items
+        // address each other through offsets relative to it, so it derives that offset from the pool counts.
+        // Every section ahead of the data section holds fixed-width entries, so the two derivations must
+        // agree; if they ever do not, the counts and the written entries have drifted apart.
+        if (sections.offsetOf(sections.data()) != context.dataOffset()) {
+            throw new IllegalStateException("Data section starts at " + sections.offsetOf(sections.data())
+                    + " but the write context sized it at " + context.dataOffset());
+        }
+
+        // Keep the section starts reachable through the offsets map as well, since callers read them back.
+        var offsets = context.offsets();
+        offsets.put(sections.stringIds(), sections.offsetOf(sections.stringIds()));
+        offsets.put(sections.typeIds(), sections.offsetOf(sections.typeIds()));
+        offsets.put(sections.protoIds(), sections.offsetOf(sections.protoIds()));
+        offsets.put(sections.fieldIds(), sections.offsetOf(sections.fieldIds()));
+        offsets.put(sections.methodIds(), sections.offsetOf(sections.methodIds()));
+        offsets.put(sections.classDefs(), sections.offsetOf(sections.classDefs()));
+        offsets.put(sections.callSiteIds(), sections.offsetOf(sections.callSiteIds()));
+        offsets.put(sections.methodHandles(), sections.offsetOf(sections.methodHandles()));
+        offsets.put(sections.data(), sections.offsetOf(sections.data()));
+        offsets.put(sections.hiddenApi(), sections.offsetOf(sections.hiddenApi()));
+        offsets.put(sections.map(), sections.offsetOf(sections.map()));
     }
 
     private void writeBasic(@NotNull DexMap value, @NotNull Sections sections, @NotNull WriteContext context) throws IOException {
@@ -304,7 +441,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
     }
 
     private @NotNull WriteContext createContext(@NotNull DexMap value, @NotNull Map<Object, Integer> offsets) {
-        int offset = 0x70; // we are after the header
+        int offset = Sections.HEADER_SIZE; // we are after the header
         offset += value.strings().size() * 4; // string ids
         offset += value.types().size() * 4; // type ids
         offset += value.protos().size() * 12; // proto ids
@@ -313,6 +450,10 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
         offset += value.classes().size() * 32; // class defs
         offset += value.callSites().size() * 4; // call sites
         offset += value.methodHandles().size() * 8; // method handles
+
+        // The sections ahead of the data section all hold fixed-width entries, so they are already word
+        // aligned and this only guards against a future section that is not.
+        offset = Sections.align(offset, 4);
 
         return new WriteContext(value, offsets, offset);
     }
@@ -327,8 +468,8 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
 
     /**
      * Read rank of a map entry type.
-     *
-     * <p>Items address a constant pool by index, and a pool gains its entries in the order its section is
+     * <p>
+     * Items address a constant pool by index, and a pool gains its entries in the order its section is
      * read, so a section can only be decoded once every pool it indexes into is complete. The pools are
      * therefore read first, in the order they depend on each other; notably method handles precede call
      * sites, even though the map list stores {@code call_site_id_item} (0x0007) ahead of
@@ -336,7 +477,7 @@ public class DexMapCodec implements Codec<DexMap>, ItemTypes {
      * file order, as they are only ever reached through offsets.
      *
      * @param type
-     * 		Map entry type code.
+     *         Map entry type code.
      *
      * @return Rank of the section, lower ranks being read first.
      */

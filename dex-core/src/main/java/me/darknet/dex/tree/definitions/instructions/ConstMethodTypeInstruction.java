@@ -2,7 +2,7 @@ package me.darknet.dex.tree.definitions.instructions;
 
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
-import me.darknet.dex.file.items.TypeItem;
+import me.darknet.dex.file.items.ProtoItem;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.type.MethodType;
 import me.darknet.dex.file.instructions.FormatAAopBBBB;
@@ -24,15 +24,16 @@ public record ConstMethodTypeInstruction(int destination, MethodType type) imple
 
         @Override
         public @NotNull ConstMethodTypeInstruction map(@NotNull FormatAAopBBBB input, @NotNull InstructionContext<DexMap> context) {
-            TypeItem typeItem = context.map().types().get(input.b());
-            MethodType methodType = Types.methodTypeFromDescriptor(typeItem.descriptor().string());
-            return new ConstMethodTypeInstruction(input.a(), methodType);
+            // The operand indexes the prototype pool, not the type pool: the instruction carries a method
+            // prototype, which is what distinguishes it from const-class.
+            ProtoItem proto = context.map().protos().get(input.b());
+            return new ConstMethodTypeInstruction(input.a(), Types.methodType(proto));
         }
 
         @Override
         public @NotNull FormatAAopBBBB unmap(@NotNull ConstMethodTypeInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            int typeIndex = context.map().addType(output.type());
-            return new FormatAAopBBBB(CONST_METHOD_TYPE, output.destination(), typeIndex);
+            int protoIndex = context.map().addProto(output.type());
+            return new FormatAAopBBBB(CONST_METHOD_TYPE, output.destination(), protoIndex);
         }
 
     };

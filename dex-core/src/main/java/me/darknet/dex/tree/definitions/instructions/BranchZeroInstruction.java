@@ -27,7 +27,14 @@ public record BranchZeroInstruction(int kind, int a, Label label) implements Ins
 
         @Override
         public @NotNull FormatAAopBBBB unmap(@NotNull BranchZeroInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-            return new FormatAAopBBBB(output.opcode(), output.a(), (short) context.labelOffset(output, output.label));
+            int offset = context.labelOffset(output, output.label);
+
+            // Like if-*, this form has no wider variant, so an out-of-range target must not be truncated.
+            if (offset < Short.MIN_VALUE || offset > Short.MAX_VALUE)
+                throw new IllegalStateException("Branch offset " + offset
+                        + " does not fit the signed 16-bit field of " + OpcodeNames.name(output.opcode()));
+
+            return new FormatAAopBBBB(output.opcode(), output.a(), (short) offset);
         }
     };
 

@@ -13,6 +13,7 @@ import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,10 @@ public record AnnotationPart(InstanceType type, Map<String, Constant> elements) 
                 Value value = Constant.CODEC.unmap(entry.getValue(), context);
                 elements.add(new AnnotationElement(name, value));
             }
+
+            // The format requires annotation elements to be ordered by the name index,
+            // not by the order the bindings happened to be written in.
+            elements.sort(Comparator.comparingInt(element -> context.strings().indexOf(element.name())));
             return new EncodedAnnotation(context.type(output.type()), elements);
         }
     };

@@ -39,7 +39,7 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
                 yield new EnumConstant(Types.instanceType(field.owner()), identifier);
             }
             case FloatValue(float value) -> new FloatConstant(value);
-            case MethodTypeValue(ProtoItem protoItem) -> new TypeConstant(Types.methodType(protoItem));
+            case MethodTypeValue(ProtoItem protoItem) -> new MethodTypeConstant(Types.methodType(protoItem));
             case MethodHandleValue(MethodHandleItem item) -> {
                 Handle handle = Handle.CODEC.map(item, context);
                 yield new HandleConstant(handle);
@@ -99,6 +99,7 @@ public class ConstantCodec implements TreeCodec<Constant, Value> {
                 TypeItem item = context.type(type);
                 yield new TypeValue(item);
             }
+            case MethodTypeConstant(MethodType type) -> new MethodTypeValue(context.proto(type));
             case MemberConstant(InstanceType owner, MemberIdentifier identifier) -> {
                 Type type = TypeParser.parse(identifier.descriptor());
                 if (type instanceof MethodType mt) {

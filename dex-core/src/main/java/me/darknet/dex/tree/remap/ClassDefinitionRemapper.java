@@ -25,6 +25,7 @@ import me.darknet.dex.tree.definitions.constant.HandleConstant;
 import me.darknet.dex.tree.definitions.constant.IntConstant;
 import me.darknet.dex.tree.definitions.constant.LongConstant;
 import me.darknet.dex.tree.definitions.constant.MemberConstant;
+import me.darknet.dex.tree.definitions.constant.MethodTypeConstant;
 import me.darknet.dex.tree.definitions.constant.NullConstant;
 import me.darknet.dex.tree.definitions.constant.ShortConstant;
 import me.darknet.dex.tree.definitions.constant.StringConstant;
@@ -259,8 +260,7 @@ public class ClassDefinitionRemapper {
 
 		private @NotNull Constant remapConstant(@NotNull Constant source) {
 			return switch (source) {
-				case AnnotationConstant annotationConstant ->
-						new AnnotationConstant(remapAnnotationPart(annotationConstant.annotation()));
+				case AnnotationConstant annotationConstant -> new AnnotationConstant(remapAnnotationPart(annotationConstant.annotation()));
 				case ArrayConstant arrayConstant -> {
 					List<Constant> constants = new ArrayList<>(arrayConstant.constants().size());
 					for (Constant constant : arrayConstant.constants()) {
@@ -285,6 +285,7 @@ public class ClassDefinitionRemapper {
 				case NullConstant ignored -> NullConstant.INSTANCE;
 				case ShortConstant shortConstant -> new ShortConstant(shortConstant.value());
 				case StringConstant stringConstant -> new StringConstant(stringConstant.value());
+				case MethodTypeConstant methodTypeConstant -> new MethodTypeConstant(TypeMapping.mapMethodType(remapper, methodTypeConstant.type()));
 				case TypeConstant typeConstant -> new TypeConstant(TypeMapping.mapType(remapper, typeConstant.type()));
 			};
 		}

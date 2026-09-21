@@ -35,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests the metadata encodings dex-core models as first-class fields.
- *
- * <p>The fixture under {@code test-data/samples/SYN-modern-metadata} is real {@code d8} output, so the
+ * <p>
+ * The fixture under {@code test-data/samples/SYN-modern-metadata} is real {@code d8} output, so the
  * assertions on it pin the reader to the wire format Android tooling actually writes. Encodings D8 does not
  * emit are written through the file layer here, which keeps those assertions independent of the tree export
  * path they are meant to check.

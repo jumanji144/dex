@@ -222,17 +222,13 @@ public class GrowingOutput implements Output {
     @Override
     public void writeChars(@NotNull String s) throws IOException {
         ensureCapacity(s.length() * 2);
-        for (int i = 0; i < s.length(); i++) {
+        for (int i = 0; i < s.length(); i++)
             writeChar(s.charAt(i));
-        }
     }
 
     @Override
     public void writeUTF(@NotNull String s) throws IOException {
-        // according to the dalvik executable format
-        writeULeb128(s.length());
-        writeBytes(s);
-        write(0);
+        Mutf8.write(this, s);
     }
 
     @Override

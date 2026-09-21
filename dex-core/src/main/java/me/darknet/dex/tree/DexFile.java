@@ -39,10 +39,26 @@ public record DexFile(int version, @NotNull List<ClassDefinition> definitions, b
         public @NotNull DexHeader unmap(@NotNull DexFile output, @NotNull DexMapBuilder context) {
             DexMapBuilder builder = new DexMapBuilder();
             builder.hiddenApi(output.hiddenApi());
+
+            // First pass: discover every pool entry the model references. Instructions encoded here carry
+            // provisional indices and are thrown away, but the discovery cannot drift from the real pass
+            // because it is the very same code.
+            for (ClassDefinition definition : output.definitions) {
+                ClassDefinition.CODEC.unmap(definition, builder);
+            }
+
+            // With every entry known, the pools can be put in the order readers binary search them. This
+            // invalidates the indices the pass above baked into instructions, so it has to happen here.
+            builder.assignPoolIndices();
+            builder.resetDerivedSections();
+
+            // Second pass: encode for real against the ordered pools, so every index written into an
+            // instruction is the one the reader will look it up under.
             for (ClassDefinition definition : output.definitions) {
                 ClassDefItem item = ClassDefinition.CODEC.unmap(definition, builder);
                 builder.classes().add(item);
             }
+
             return new DexHeader(output.version(), output.link(), builder.build());
         }
 

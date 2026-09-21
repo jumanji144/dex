@@ -21,6 +21,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -163,6 +164,11 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
     // tree helpers
 
     public @NotNull TypeItem type(@NotNull Type value) {
+        // A method prototype belongs to the prototype pool and its descriptor is not a type descriptor, so
+        // accepting one here would write a descriptor no reader can resolve as a type.
+        if (value instanceof MethodType) {
+            throw new IllegalArgumentException("Method type cannot be registered as a type: " + value.descriptor());
+        }
         TypeItem typeItem = new TypeItem(string(value.descriptor()));
         types.add(typeItem);
         return typeItem;
@@ -289,6 +295,8 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
             AnnotationItem item = annotation(annotation);
             items.add(new AnnotationOffItem(item));
         }
+        // An annotation set has to list its annotations in increasing type index order.
+        items.sort(Comparator.comparingInt(item -> types.indexOf(item.item().annotation().type())));
         AnnotationSetItem item = new AnnotationSetItem(items);
         annotationSets.add(item);
         return item;
@@ -306,6 +314,95 @@ public class DexMapBuilder implements Builder<DexMap>, DexMapAccess {
 
     public int addCallSite(@NotNull Handle handle, @NotNull String name, @NotNull MethodType type, @NotNull List<Constant> constants) {
         return callSites.add(callSite(handle, name, type, constants));
+    }
+
+    /**
+     * Puts the index-addressed pools into the order the format requires.
+     *
+     * @see #resetDerivedSections()
+     */
+    public void assignPoolIndices() {
+        // A dex addresses its pools by index and readers look entries up by binary search, so the pools are
+        // not free to sit in discovery order. Every index handed out before this call is invalidated, so the
+        // ordering has to be settled before anything encodes an index into an instruction.
+        //
+        // Callers discover the pools with one pass over the model, order them here, then run the encoding pass.
+        //
+        // Each pool's sort key is built from the indices of the pools it points at, so they are ordered in
+        // dependency order and a pool is only sorted once everything it references has been.
+        strings.sort(Comparator.comparing(StringItem::string));
+        types.sort(Comparator.comparingInt(type -> strings.indexOf(type.descriptor())));
+        protos.sort(Comparator
+                .comparingInt((ProtoItem proto) -> types.indexOf(proto.returnType()))
+                .thenComparing(this::compareParameters));
+        fields.sort(Comparator
+                .comparingInt((FieldItem field) -> types.indexOf(field.owner()))
+                .thenComparingInt(field -> strings.indexOf(field.name()))
+                .thenComparingInt(field -> types.indexOf(field.type())));
+        methods.sort(Comparator
+                .comparingInt((MethodItem method) -> types.indexOf(method.owner()))
+                .thenComparingInt(method -> strings.indexOf(method.name()))
+                .thenComparingInt(method -> protos.indexOf(method.proto())));
+    }
+
+    /**
+     * Compares two prototypes' parameter lists the way the format orders them: argument by argument on the
+     * type index, with a list that is a prefix of the other ordering first.
+     *
+     * @param left
+     * 		First prototype.
+     * @param right
+     * 		Second prototype.
+     *
+     * @return A negative value, zero, or a positive value as the first list orders before, with, or after
+     * 		the second.
+     */
+    private int compareParameters(@NotNull ProtoItem left, @NotNull ProtoItem right) {
+        List<TypeItem> leftParameters = left.parameters().types();
+        List<TypeItem> rightParameters = right.parameters().types();
+        int shared = Math.min(leftParameters.size(), rightParameters.size());
+        for (int i = 0; i < shared; i++) {
+            int compared = Integer.compare(types.indexOf(leftParameters.get(i)), types.indexOf(rightParameters.get(i)));
+            if (compared != 0)
+                return compared;
+        }
+        return Integer.compare(leftParameters.size(), rightParameters.size());
+    }
+
+    /**
+     * Drops the sections that are rebuilt from the model and carry pool indices.
+     * <p>
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     */
+    public void resetDerivedSections() {
+        // Instructions, MethodHandleItem (method handles) and call sites all store the indices of the
+        // entries they point at, so anything built before #assignPoolIndices() refers to entries by
+        // positions that no longer exist.
+        //
+        // A method handle holds the index of the field or method it names, so ordering the pools changes
+        // what an otherwise identical handle is equal to, and leaving the old ones in place makes the next
+        // pass add duplicates beside them rather than matching.
+        //
+        // The remaining pools hold references to other items rather than indices, so they are kept.
+        classes.clear();
+        classDatas.clear();
+        codes.clear();
+        debugInfos.clear();
+        annotations.clear();
+        annotationSets.clear();
+        annotationSetRefLists.clear();
+        encodedArrays.clear();
+        annotationsDirectories.clear();
+        methodHandles.clear();
+        callSites.clear();
     }
 
     @Override

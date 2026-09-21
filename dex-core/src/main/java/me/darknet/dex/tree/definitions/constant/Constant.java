@@ -5,7 +5,7 @@ import me.darknet.dex.tree.type.Type;
 
 public sealed interface Constant permits AnnotationConstant, ArrayConstant, BoolConstant, ByteConstant, CharConstant,
         DoubleConstant, EnumConstant, FloatConstant, HandleConstant, IntConstant, LongConstant, MemberConstant,
-        NullConstant, ShortConstant, StringConstant, TypeConstant {
+        MethodTypeConstant, NullConstant, ShortConstant, StringConstant, TypeConstant {
 
     ConstantCodec CODEC = new ConstantCodec();
 

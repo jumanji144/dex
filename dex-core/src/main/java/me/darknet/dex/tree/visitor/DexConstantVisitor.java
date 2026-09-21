@@ -13,6 +13,7 @@ import me.darknet.dex.tree.definitions.constant.HandleConstant;
 import me.darknet.dex.tree.definitions.constant.IntConstant;
 import me.darknet.dex.tree.definitions.constant.LongConstant;
 import me.darknet.dex.tree.definitions.constant.MemberConstant;
+import me.darknet.dex.tree.definitions.constant.MethodTypeConstant;
 import me.darknet.dex.tree.definitions.constant.NullConstant;
 import me.darknet.dex.tree.definitions.constant.ShortConstant;
 import me.darknet.dex.tree.definitions.constant.StringConstant;
@@ -111,6 +112,11 @@ public abstract class DexConstantVisitor {
     public void visitStringConstant(@NotNull StringConstant constant) {
         if (delegate != null)
             delegate.visitStringConstant(constant);
+    }
+
+    public void visitMethodTypeConstant(@NotNull MethodTypeConstant constant) {
+        if (delegate != null)
+            delegate.visitMethodTypeConstant(constant);
     }
 
     public void visitTypeConstant(@NotNull TypeConstant constant) {

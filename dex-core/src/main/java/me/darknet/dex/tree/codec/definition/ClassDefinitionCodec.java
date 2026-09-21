@@ -142,6 +142,14 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             }
         }
 
+        // The class data stores each list as index differences from the previous entry, so the lists have to
+        // be ordered by index. A list in model order encodes differences that go backwards, which a reader
+        // decodes into a different member than the one intended.
+        staticFields.sort(Comparator.comparingInt(field -> context.fields().indexOf(field.field())));
+        instanceFields.sort(Comparator.comparingInt(field -> context.fields().indexOf(field.field())));
+        directMethods.sort(Comparator.comparingInt(method -> context.methods().indexOf(method.method())));
+        virtualMethods.sort(Comparator.comparingInt(method -> context.methods().indexOf(method.method())));
+
         ClassDataItem data = null;
         if (!staticFields.isEmpty() || !instanceFields.isEmpty() || !directMethods.isEmpty()
                 || !virtualMethods.isEmpty())
@@ -173,6 +181,12 @@ public class ClassDefinitionCodec implements TreeCodec<ClassDefinition, ClassDef
             context.annotationSetRefLists().add(list);
             parameterAnnotations.add(new ParameterAnnotation(entry.getKey(), list));
         }
+
+        // The annotations directory records the annotated members in index order for the same reason the
+        // class data does, so these lists are ordered by the member they describe.
+        fieldAnnotations.sort(Comparator.comparingInt(entry -> context.fields().indexOf(entry.field())));
+        methodAnnotations.sort(Comparator.comparingInt(entry -> context.methods().indexOf(entry.method())));
+        parameterAnnotations.sort(Comparator.comparingInt(entry -> context.methods().indexOf(entry.method())));
 
         AnnotationsDirectoryItem directory = null;
 

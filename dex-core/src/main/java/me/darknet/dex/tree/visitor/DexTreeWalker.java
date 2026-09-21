@@ -22,6 +22,7 @@ import me.darknet.dex.tree.definitions.constant.HandleConstant;
 import me.darknet.dex.tree.definitions.constant.IntConstant;
 import me.darknet.dex.tree.definitions.constant.LongConstant;
 import me.darknet.dex.tree.definitions.constant.MemberConstant;
+import me.darknet.dex.tree.definitions.constant.MethodTypeConstant;
 import me.darknet.dex.tree.definitions.constant.NullConstant;
 import me.darknet.dex.tree.definitions.constant.ShortConstant;
 import me.darknet.dex.tree.definitions.constant.StringConstant;
@@ -228,6 +229,7 @@ public class DexTreeWalker {
             case IntConstant intConstant -> visitor.visitIntConstant(intConstant);
             case LongConstant longConstant -> visitor.visitLongConstant(longConstant);
             case MemberConstant memberConstant -> visitor.visitMemberConstant(memberConstant);
+            case MethodTypeConstant methodTypeConstant -> visitor.visitMethodTypeConstant(methodTypeConstant);
             case NullConstant nullConstant -> visitor.visitNullConstant(nullConstant);
             case ShortConstant shortConstant -> visitor.visitShortConstant(shortConstant);
             case StringConstant stringConstant -> visitor.visitStringConstant(stringConstant);

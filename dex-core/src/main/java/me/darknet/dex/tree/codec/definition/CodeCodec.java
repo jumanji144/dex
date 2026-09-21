@@ -21,6 +21,7 @@ import me.darknet.dex.tree.type.Types;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,12 @@ import java.util.Map;
 public class CodeCodec implements TreeCodec<Code, CodeItem> {
     // TODO: Temporary flag which allows disabling debug info parsing.
     public static boolean readDebug = true;
+
+    /**
+     * How many times the instruction layout may be recomputed before it is treated as unsettled. Widths only
+     * change when a branch crosses a size boundary, so a handful of passes is far more than convergence needs.
+     */
+    private static final int MAX_LAYOUT_ATTEMPTS = 8;
 
     @Override
     public @NotNull Code map(@NotNull CodeItem input, @NotNull DexMap context) {
@@ -110,7 +117,44 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
     @Override
     public @NotNull CodeItem unmap(@NotNull Code output, @NotNull DexMapBuilder context) {
-        List<Format> instructions = new ArrayList<>();
+        List<Instruction> model = output.getInstructions();
+
+        // Instruction widths and their encodings cannot be decided separately: a branch is written in the
+        // narrowest form that reaches its target, so its width depends on the distance to that target, and
+        // that distance depends on the widths of everything before it. Start from an estimate, encode against
+        // it, and re-measure what was actually produced until the two agree.
+        int[] widths = new int[model.size()];
+        for (int index = 0; index < model.size(); index++) {
+            widths[index] = encodedByteSize(model.get(index), context);
+        }
+
+        for (int attempt = 0; ; attempt++) {
+            Attempt layout = encode(output, context, widths);
+            if (layout.settled(widths)) {
+                return item(output, context, layout);
+            }
+            if (attempt >= MAX_LAYOUT_ATTEMPTS) {
+                throw new IllegalStateException("Code layout did not settle in " + MAX_LAYOUT_ATTEMPTS
+                        + " attempts; instruction widths and branch encodings keep disagreeing");
+            }
+            widths = layout.widths();
+        }
+    }
+
+    /**
+     * Lays the instructions out at the given widths and encodes each one against those positions.
+     *
+     * @param output
+     * 		Code to encode.
+     * @param context
+     * 		Pools the instructions reference.
+     * @param widths
+     * 		Assumed width of each instruction in code units, labels included as zero.
+     *
+     * @return The encoded instructions together with the widths they actually came to.
+     */
+    private @NotNull Attempt encode(@NotNull Code output, @NotNull DexMapBuilder context, int @NotNull [] widths) {
+        List<Instruction> model = output.getInstructions();
 
         Map<Integer, Label> labels = new HashMap<>();
         Map<FillArrayDataInstruction, Integer> filledArrayData = new HashMap<>();
@@ -119,10 +163,11 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
         // collect all data and build offsets
 
-        List<Integer> offsets = new ArrayList<>();
+        List<Integer> offsets = new ArrayList<>(model.size());
 
         int position = 0;
-        for (Instruction instruction : output.getInstructions()) {
+        for (int index = 0; index < model.size(); index++) {
+            Instruction instruction = model.get(index);
             // labels will have to be resolved
             if (instruction instanceof Label label) {
                 label.position(position);
@@ -130,16 +175,19 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
 
             offsets.add(position);
 
-            position += encodedByteSize(instruction, context);
+            position += widths[index];
         }
 
+        List<Format> instructions = new ArrayList<>(model.size());
         List<Format> extra = new ArrayList<>();
+        int[] produced = new int[model.size()];
 
-        InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(output.getInstructions(), offsets, context,
+        InstructionContext<DexMapBuilder> ctx = new InstructionContext<>(model, offsets, context,
                 labels, filledArrayData, packedSwitches, sparseSwitches);
 
         // now we need to create the formats and special data parts
-        for (Instruction instruction : output.getInstructions()) {
+        for (int index = 0; index < model.size(); index++) {
+            Instruction instruction = model.get(index);
             if (instruction instanceof Label)
                 continue;
 
@@ -191,16 +239,36 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                 }
                 default -> {}
             }
-            instructions.add(Instruction.CODEC.unmap(instruction, ctx));
+
+            Format format = Instruction.CODEC.unmap(instruction, ctx);
+            instructions.add(format);
+            produced[index] = format.size();
         }
 
         instructions.addAll(extra);
 
+        return new Attempt(instructions, ctx, produced);
+    }
+
+    /**
+     * Assembles the code item from a settled layout.
+     *
+     * @param output
+     * 		Code the layout was produced from.
+     * @param context
+     * 		Pools the code references.
+     * @param layout
+     * 		Settled layout to write out.
+     *
+     * @return The encoded code item.
+     */
+    private @NotNull CodeItem item(@NotNull Code output, @NotNull DexMapBuilder context, @NotNull Attempt layout) {
         DebugInfoItem debugInfo = output.getDebugInfo() == null
                 ? null
-                : new DebugStateMachine().compile(output.getDebugInfo(), ctx);
+                : new DebugStateMachine().compile(output.getDebugInfo(), layout.context());
         if (debugInfo != null)
             context.debugInfos().add(debugInfo);
+
         List<TryItem> tries = new ArrayList<>();
         List<EncodedTryCatchHandler> handlers = new ArrayList<>();
         for (TryCatch tryCatch : output.tryCatch()) {
@@ -221,10 +289,24 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             handlers.add(handler);
             tries.add(new TryItem(start.position(), end.position() - start.position(), handler));
         }
-        return new CodeItem(output.getRegisters(), output.getIn(), output.getOut(), debugInfo, instructions, List.of(),
-                tries, handlers);
+        return new CodeItem(output.getRegisters(), output.getIn(), output.getOut(), debugInfo,
+                layout.instructions(), List.of(), tries, handlers);
     }
 
+    /**
+     * Initial width estimate for one instruction, used only to start the layout off.
+     * <p>
+     * The estimate cannot be trusted as a final answer: for a branch it reflects the opcode the model
+     * happens to carry, while the encoding pass picks the opcode from the settled distance. Whatever this
+     * returns is corrected by re-measuring the encoded instructions.
+     *
+     * @param instruction
+     * 		Instruction to estimate.
+     * @param context
+     * 		Pools the instruction references.
+     *
+     * @return Estimated width in code units.
+     */
     private int encodedByteSize(@NotNull Instruction instruction, @NotNull DexMapBuilder context) {
         if (instruction instanceof ConstStringInstruction constStringInstruction) {
             int index = context.addString(constStringInstruction.string());
@@ -232,6 +314,31 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                 return 3;
         }
         return instruction.unitSize();
+    }
+
+    /**
+     * One pass over the instructions, holding the encoded forms and the widths they came to.
+     *
+     * @param instructions
+     * 		Encoded instructions, including any payloads appended after them.
+     * @param context
+     * 		Positions and labels the pass resolved against, which the final assembly needs for debug info.
+     * @param widths
+     * 		Width in code units of each instruction in the model, zero for labels.
+     */
+    private record Attempt(@NotNull List<Format> instructions,
+                           @NotNull InstructionContext<DexMapBuilder> context,
+                           int @NotNull [] widths) {
+
+        /**
+         * @param assumed
+         * 		Widths the layout was built from.
+         *
+         * @return Whether every instruction encoded to the width assumed for it, meaning the layout is fixed.
+         */
+        boolean settled(int @NotNull [] assumed) {
+            return Arrays.equals(widths, assumed);
+        }
     }
 
 }

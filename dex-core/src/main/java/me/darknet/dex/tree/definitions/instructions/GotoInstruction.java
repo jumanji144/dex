@@ -11,10 +11,22 @@ import org.jetbrains.annotations.NotNull;
 
 public record GotoInstruction(int opcode, Label jump) implements Instruction {
 
+    /**
+     * Picks the narrowest goto form that can hold the given branch offset.
+     *
+     * @param offset
+     * 		Signed offset to the target, in code units.
+     *
+     * @return Opcode of the narrowest form that can represent the offset.
+     */
     public static int op(int offset) {
-        if (offset <= 0xff)
+        // The offset fields are signed, so the 10t form can only reach [-128, 127].
+        //
+        // Comparing against an unsigned limit would let 128-255 through, and a negative
+        // offset always satisfies an unsigned comparison, so both directions would silently truncate on encode.
+        if (offset >= Byte.MIN_VALUE && offset <= Byte.MAX_VALUE)
             return GOTO;
-        if (offset <= 0xffff)
+        if (offset >= Short.MIN_VALUE && offset <= Short.MAX_VALUE)
             return GOTO_16;
         return GOTO_32;
     }

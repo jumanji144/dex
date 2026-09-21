@@ -44,8 +44,15 @@ public record BranchInstruction(int test, int a, int b, Label label) implements 
 
 		@Override
 		public @NotNull FormatBAopCCCC unmap(@NotNull BranchInstruction output, @NotNull InstructionContext<DexMapBuilder> context) {
-			return new FormatBAopCCCC(output.opcode(), output.a(), output.b(),
-					(short) context.labelOffset(output, output.label));
+			int offset = context.labelOffset(output, output.label);
+
+			// if-* has no wider form to widen into, so an unreachable target has to be reported rather than
+			// silently truncated into a branch somewhere else.
+			if (offset < Short.MIN_VALUE || offset > Short.MAX_VALUE)
+				throw new IllegalStateException("Branch offset " + offset
+						+ " does not fit the signed 16-bit field of " + OpcodeNames.name(output.opcode()));
+
+			return new FormatBAopCCCC(output.opcode(), output.a(), output.b(), (short) offset);
 		}
 	};
 
