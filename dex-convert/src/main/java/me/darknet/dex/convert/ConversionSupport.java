@@ -25,6 +25,7 @@ import me.darknet.dex.tree.definitions.constant.HandleConstant;
 import me.darknet.dex.tree.definitions.constant.IntConstant;
 import me.darknet.dex.tree.definitions.constant.LongConstant;
 import me.darknet.dex.tree.definitions.constant.MemberConstant;
+import me.darknet.dex.tree.definitions.constant.MethodTypeConstant;
 import me.darknet.dex.tree.definitions.constant.NullConstant;
 import me.darknet.dex.tree.definitions.constant.ShortConstant;
 import me.darknet.dex.tree.definitions.constant.StringConstant;
@@ -122,6 +123,7 @@ public final class ConversionSupport {
 			case HandleConstant ignored -> {}
 			case MemberConstant ignored -> {}
 			case NullConstant ignored -> {}
+			case MethodTypeConstant ignored -> {}
 		}
 	}
 
