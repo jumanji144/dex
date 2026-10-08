@@ -224,13 +224,14 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
                         extra.add(new Format00op(Opcodes.NOP));
                         position++;
                     }
-                    int[] keys = new int[insn.targets().size()];
-                    int[] targetOffsets = new int[insn.targets().size()];
-                    int i = 0;
-                    for (Map.Entry<Integer, Label> entry : insn.targets().entrySet()) {
+                    List<Map.Entry<Integer, Label>> sortedTargets = new ArrayList<>(insn.targets().entrySet());
+                    sortedTargets.sort(Map.Entry.comparingByKey());
+                    int[] keys = new int[sortedTargets.size()];
+                    int[] targetOffsets = new int[sortedTargets.size()];
+                    for (int i = 0; i < sortedTargets.size(); i++) {
+                        Map.Entry<Integer, Label> entry = sortedTargets.get(i);
                         keys[i] = entry.getKey();
                         targetOffsets[i] = ctx.labelOffset(instruction, entry.getValue());
-                        i++;
                     }
                     FormatSparseSwitch sparseSwitch = new FormatSparseSwitch(keys, targetOffsets);
                     sparseSwitches.put(insn, position);

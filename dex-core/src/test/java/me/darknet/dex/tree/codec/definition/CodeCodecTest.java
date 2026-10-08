@@ -4,6 +4,7 @@ import me.darknet.dex.file.DexHeader;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.instructions.Format;
 import me.darknet.dex.file.instructions.FormatAAopBBBB32;
+import me.darknet.dex.file.instructions.FormatSparseSwitch;
 import me.darknet.dex.file.items.CodeItem;
 import me.darknet.dex.io.Input;
 import me.darknet.dex.io.Output;
@@ -30,8 +31,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,11 +47,15 @@ class CodeCodecTest implements AccessFlags {
         Label end = label(2, 8, 30);
         Label handler = label(3, 10, 40);
 
+        Map<Integer, Label> sparseTargets = new LinkedHashMap<>();
+        sparseTargets.put(2, end);
+        sparseTargets.put(1, switchCase);
+
         Code code = new Code(1, 1, 2);
         code.addInstruction(start);
         code.addInstruction(new FillArrayDataInstruction(0, new byte[] {1, 2, 3, 4}, 1));
         code.addInstruction(new PackedSwitchInstruction(0, 7, List.of(switchCase, end)));
-        code.addInstruction(new SparseSwitchInstruction(0, new LinkedHashMap<>(java.util.Map.of(1, switchCase, 2, end))));
+        code.addInstruction(new SparseSwitchInstruction(0, sparseTargets));
         code.addInstruction(new GotoInstruction(end));
         code.addInstruction(switchCase);
         code.addInstruction(new GotoInstruction(end));
@@ -82,6 +89,7 @@ class CodeCodecTest implements AccessFlags {
         Output output = Output.wrap();
         DexHeader.CODEC.write(header, output);
         DexHeader roundTrippedHeader = DexHeader.CODEC.read(Input.wrap(output.buffer()));
+        assertArrayEquals(new int[] {1, 2}, sparseSwitchKeys(roundTrippedHeader));
         DexFile roundTripped = DexFile.CODEC.map(roundTrippedHeader, roundTrippedHeader.map());
 
         MethodMember roundTrippedMethod = roundTripped.definitions().getFirst().getMethods().values().iterator().next();
@@ -113,6 +121,17 @@ class CodeCodecTest implements AccessFlags {
         Label label = new Label(index, position);
         label.lineNumber(lineNumber);
         return label;
+    }
+
+    private static int[] sparseSwitchKeys(DexHeader header) {
+        for (CodeItem codeItem : header.map().codes()) {
+            for (Format format : codeItem.instructions()) {
+                if (format instanceof FormatSparseSwitch sparseSwitch) {
+                    return sparseSwitch.keys();
+                }
+            }
+        }
+        throw new AssertionError("No sparse-switch payload found");
     }
 
     private static boolean hasJumboConstString(DexHeader header) {
