@@ -84,7 +84,7 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
         // execute debug code
         if (input.debug() != null && readDebug) {
             DebugStateMachine debugStateMachine = new DebugStateMachine();
-            DebugInformation debugInfo = debugStateMachine.execute(input.debug(), ctx);
+            DebugInformation debugInfo = debugStateMachine.execute(input.debug(), ctx, lastInstructionEnd);
             code.setDebugInfo(debugInfo);
         }
 
@@ -105,9 +105,11 @@ public class CodeCodec implements TreeCodec<Code, CodeItem> {
             finalInstructions.addFirst(new Label(0, 0));
         }
 
-        // if there isn't a label at the end, add one
+        // if there isn't a label at the end, add one. It is the shared code-end label, which debug locals also reference,
+        // so the encoder keeps their end positions current.
         if (!(finalInstructions.getLast() instanceof Label)) {
-            finalInstructions.add(new Label(finalInstructions.size(), lastInstructionEnd));
+            finalInstructions.add(ctx.labels().computeIfAbsent(lastInstructionEnd,
+                    o -> new Label(finalInstructions.size(), o)));
         }
 
         code.addInstructions(finalInstructions);

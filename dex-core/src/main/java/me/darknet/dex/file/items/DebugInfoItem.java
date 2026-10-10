@@ -21,9 +21,12 @@ public record DebugInfoItem(int lineStart, List<StringItem> parameterNames, List
             int parametersSize = input.readULeb128();
             List<StringItem> parameterNames = new ArrayList<>(parametersSize);
             for (int i = 0; i < parametersSize; i++) {
+                // NO_INDEX means the parameter is unnamed.
+                //
+                // ART rejects a stream whose parameter count differs from the method signature,
+                // so dropping the slot would discard every local in the method.
                 int nameIndex = input.readULeb128p1();
-                if(nameIndex == -1) continue;
-                parameterNames.add(context.strings().get(nameIndex));
+                parameterNames.add(nameIndex == -1 ? null : context.strings().get(nameIndex));
             }
             List<DebugInstruction> bytecode = new ArrayList<>();
             int opcode = input.readUnsignedByte();
@@ -41,7 +44,7 @@ public record DebugInfoItem(int lineStart, List<StringItem> parameterNames, List
             output.writeULeb128(value.lineStart);
             output.writeULeb128(value.parameterNames.size());
             for (StringItem parameterName : value.parameterNames) {
-                output.writeULeb128p1(context.index().strings().indexOf(parameterName));
+                output.writeULeb128p1(parameterName == null ? -1 : context.index().strings().indexOf(parameterName));
             }
             for (DebugInstruction instruction : value.bytecode) {
                 DebugInstruction.CODEC.write(instruction, output, context);
