@@ -4,6 +4,7 @@ package me.darknet.dex.tree.definitions.debug;
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.DexMapBuilder;
 import me.darknet.dex.file.debug.*;
+import me.darknet.dex.file.instructions.PseudoFormat;
 import me.darknet.dex.file.items.DebugInfoItem;
 import me.darknet.dex.file.items.StringItem;
 import me.darknet.dex.file.items.TypeItem;
@@ -46,7 +47,7 @@ public class DebugStateMachine {
                         name.string(),
                         Types.typeFromDescriptor(type.descriptor().string()),
                         null,
-                        ctx.labelInexact(pc),
+                        instructionLabel(pc),
                         new Label()
                 );
                 activeLocals.put(registerNum, local);
@@ -57,7 +58,7 @@ public class DebugStateMachine {
                         name.string(),
                         Types.typeFromDescriptor(type.descriptor().string()),
                         signature.string(),
-                        ctx.labelInexact(pc),
+                        instructionLabel(pc),
                         new Label()
                 );
                 activeLocals.put(registerNum, local);
@@ -79,7 +80,7 @@ public class DebugStateMachine {
                                 local.name(),
                                 local.type(),
                                 local.signature(),
-                                ctx.labelInexact(pc),
+                                instructionLabel(pc),
                                 new Label()
                         );
                         activeLocals.put(registerNum, newLocal);
@@ -109,8 +110,12 @@ public class DebugStateMachine {
     }
 
     /**
-     * Records a positions entry at the current pc, mirroring dexdump: the first entry past the method's last
-     * instruction ends position output, and an entry inside an instruction belongs to that instruction.
+     * Records a positions entry at the current pc. Mirrors dexdump's position output, from
+     * art/dexdump/dexdump.cc (dumpCode, positions block, and findLastInstructionAddress): the first entry past
+     * the method's last instruction start ends position output, and entries past it are dropped. Entries
+     * inside an instruction keep their line but are attached to that instruction, since our model holds only
+     * instruction labels; dexdump prints their raw pc. Dropping and re-attaching are lossy by design, so a
+     * round trip of such a method keeps its line table but not its original debug bytes.
      */
     private void readPosition(int line) {
         if (positionsEnded)
@@ -119,9 +124,24 @@ public class DebugStateMachine {
             positionsEnded = true;
             return;
         }
-        Label label = ctx.labelInexact(pc);
+        Label label = instructionLabel(pc);
         label.lineNumber(line);
         lineNumbers.add(new DebugInformation.LineNumber(label, line));
+    }
+
+    /**
+     * Label for the instruction containing {@code address}. A payload (switch or array data) has an offset but no
+     * instruction label: CodeCodec places labels only on real instructions, so an encoder that re-lays out the method
+     * would never update a payload label and would write the stale offset. A position inside payload data therefore
+     * attaches to the closest real instruction before it.
+     */
+    private Label instructionLabel(int address) {
+        Label label = ctx.labelInexact(address);
+        List<?> instructions = ctx.instructions();
+        int index = label.index();
+        while (index > 0 && instructions.get(index) instanceof PseudoFormat)
+            index--;
+        return index == label.index() ? label : ctx.labelInexact(ctx.offsets().get(index));
     }
 
     public DebugInformation execute(DebugInfoItem info, InstructionContext<DexMap> ctx) {

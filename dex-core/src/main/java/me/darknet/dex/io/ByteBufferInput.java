@@ -169,7 +169,8 @@ public record ByteBufferInput(@NotNull ByteBuffer buffer) implements Input {
             shift += 7;
         } while ((next & 0x80) != 0);
 
-        if (((shift < 64) && (next & 0x40) != 0)) {
+        // A 5-byte value already fills all 32 bits, and 1 << 35 would wrap in an int, so only extend shorter values.
+        if (((shift < 32) && (next & 0x40) != 0)) {
             value |= -(1 << shift);
         }
         return value;

@@ -2,8 +2,10 @@ package me.darknet.dex.tree.definitions.debug;
 
 import me.darknet.dex.file.DexMap;
 import me.darknet.dex.file.debug.DebugAdvanceLine;
+import me.darknet.dex.file.debug.DebugAdvancePc;
 import me.darknet.dex.file.debug.DebugInstruction;
 import me.darknet.dex.file.debug.DebugSpecial;
+import me.darknet.dex.file.instructions.FormatFilledArrayData;
 import me.darknet.dex.file.items.DebugInfoItem;
 import me.darknet.dex.tree.codec.definition.InstructionContext;
 import me.darknet.dex.tree.definitions.instructions.Label;
@@ -67,9 +69,34 @@ class DebugStateMachineTest {
         assertEquals(List.of(), positions(execute(item, List.of())));
     }
 
+    @Test
+    void positionInsidePayloadAttachesToThePrecedingInstruction() {
+        // Real instruction at 0, a 4-unit payload at 2 (covering 2..5), real instruction at 6. A position at
+        // pc 4 is inside the payload; payload offsets have no instruction label, so it attaches to offset 0.
+        List<Object> instructions = List.of("insn", new FormatFilledArrayData(1, new byte[] {0}), "insn");
+        DebugInfoItem item = new DebugInfoItem(1, List.of(), List.of(
+                new DebugSpecial(0x0e),
+                new DebugAdvancePc(4),
+                new DebugSpecial(0x0e),
+                new DebugAdvancePc(2),
+                new DebugSpecial(0x0e)));
+
+        DebugInformation info = execute(item, instructions, List.of(0, 2, 6));
+
+        assertEquals(List.of("0:1", "0:1", "6:1"), positions(info));
+    }
+
+    /** Real code items keep instructions and offsets parallel, so the test helper does too. */
     private static DebugInformation execute(DebugInfoItem item, List<Integer> offsets) {
+        List<String> instructions = new ArrayList<>();
+        for (int i = 0; i < offsets.size(); i++)
+            instructions.add("insn");
+        return execute(item, instructions, offsets);
+    }
+
+    private static DebugInformation execute(DebugInfoItem item, List<?> instructions, List<Integer> offsets) {
         InstructionContext<DexMap> ctx =
-                new InstructionContext<>(List.of(), offsets, null, new HashMap<>(), null, null, null);
+                new InstructionContext<>(instructions, offsets, null, new HashMap<>(), null, null, null);
         return new DebugStateMachine().execute(item, ctx);
     }
 

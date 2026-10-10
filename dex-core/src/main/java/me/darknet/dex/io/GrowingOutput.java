@@ -108,8 +108,26 @@ public class GrowingOutput implements Output {
         write(bytes, offset, length);
     }
 
+    /**
+     * Writes a signed LEB128 value. The loop stops only once the remaining value is pure sign extension of the
+     * last group's bit 6, so values such as 93 (whose final group has bit 6 set) keep their sign on read.
+     */
     @Override
     public void writeLeb128(int value) throws IOException {
+        ensureCapacity(5); // max size of leb128 is 5 bytes
+        while (true) {
+            byte next = (byte) (value & 0x7f);
+            value >>= 7;
+            boolean done = (value == 0 && (next & 0x40) == 0) || (value == -1 && (next & 0x40) != 0);
+            write(done ? next : (byte) (next | 0x80));
+            if (done) {
+                return;
+            }
+        }
+    }
+
+    @Override
+    public void writeULeb128(int value) throws IOException {
         ensureCapacity(5); // max size of leb128 is 5 bytes
         byte next;
         do {
@@ -120,11 +138,6 @@ public class GrowingOutput implements Output {
             }
             write(next);
         } while (value != 0);
-    }
-
-    @Override
-    public void writeULeb128(int value) throws IOException {
-        writeLeb128(value);
     }
 
     @Override
