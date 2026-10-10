@@ -20,30 +20,33 @@ import java.util.Map;
 
 public class DebugStateMachine {
 
+    private static final int DBG_FIRST_SPECIAL = 0x0A;
+    private static final int DBG_LINE_BASE = -4;
+    private static final int DBG_LINE_RANGE = 15;
+
     private List<DebugInformation.LineNumber> lineNumbers = new ArrayList<>();
     private List<DebugInformation.LocalVariable> locals = new ArrayList<>();
     private InstructionContext<?> ctx;
     private int pc;
     private int currentLine;
+    /** Start of the method's last instruction (payloads included). Positions past it are not emitted. */
+    private int lastInstruction;
+    /** Set once a position past the last instruction is seen; like dexdump, no later positions are emitted. */
+    private boolean positionsEnded;
 
     private Map<Integer, DebugInformation.LocalVariable> activeLocals = new HashMap<>();
 
     private void execute(DebugInstruction instruction) {
         switch (instruction) {
             case DebugAdvancePc(int addrDiff) -> pc += addrDiff;
-            case DebugAdvanceLine(int lineDiff) -> {
-                currentLine += lineDiff;
-                Label label = ctx.label(pc);
-                label.lineNumber(currentLine);
-                lineNumbers.add(new DebugInformation.LineNumber(label, currentLine));
-            }
+            case DebugAdvanceLine(int lineDiff) -> currentLine += lineDiff; // advances the line only; emits no position
             case DebugStartLocal(int registerNum, StringItem name, TypeItem type) -> {
                 DebugInformation.LocalVariable local = new DebugInformation.LocalVariable(
                         registerNum,
                         name.string(),
                         Types.typeFromDescriptor(type.descriptor().string()),
                         null,
-                        ctx.label(pc),
+                        ctx.labelInexact(pc),
                         new Label()
                 );
                 activeLocals.put(registerNum, local);
@@ -54,7 +57,7 @@ public class DebugStateMachine {
                         name.string(),
                         Types.typeFromDescriptor(type.descriptor().string()),
                         signature.string(),
-                        ctx.label(pc),
+                        ctx.labelInexact(pc),
                         new Label()
                 );
                 activeLocals.put(registerNum, local);
@@ -76,7 +79,7 @@ public class DebugStateMachine {
                                 local.name(),
                                 local.type(),
                                 local.signature(),
-                                ctx.label(pc),
+                                ctx.labelInexact(pc),
                                 new Label()
                         );
                         activeLocals.put(registerNum, newLocal);
@@ -99,18 +102,35 @@ public class DebugStateMachine {
                 int addrDiff = adjustedOpcode / 15;
                 pc += addrDiff;
                 currentLine += lineDiff;
-                Label label = ctx.label(pc);
-                label.lineNumber(currentLine);
-                lineNumbers.add(new DebugInformation.LineNumber(label, currentLine));
+                readPosition(currentLine);
             }
             default -> throw new IllegalStateException("Unexpected value: " + instruction);
         }
+    }
+
+    /**
+     * Records a positions entry at the current pc, mirroring dexdump: the first entry past the method's last
+     * instruction ends position output, and an entry inside an instruction belongs to that instruction.
+     */
+    private void readPosition(int line) {
+        if (positionsEnded)
+            return;
+        if (pc > lastInstruction) {
+            positionsEnded = true;
+            return;
+        }
+        Label label = ctx.labelInexact(pc);
+        label.lineNumber(line);
+        lineNumbers.add(new DebugInformation.LineNumber(label, line));
     }
 
     public DebugInformation execute(DebugInfoItem info, InstructionContext<DexMap> ctx) {
         this.ctx = ctx;
         this.pc = 0;
         this.currentLine = info.lineStart();
+        List<Integer> offsets = ctx.offsets();
+        this.lastInstruction = offsets.isEmpty() ? -1 : offsets.get(offsets.size() - 1);
+        this.positionsEnded = false;
 
         for (DebugInstruction instruction : info.bytecode()) {
             execute(instruction);
@@ -175,9 +195,21 @@ public class DebugStateMachine {
         pc = targetPc;
     }
 
+    /**
+     * Emits a positions entry at the current pc, which advancePc has already moved to the entry's address.
+     * Only special opcodes produce positions; DBG_ADVANCE_LINE does not, so it is used only to reach a line
+     * delta that a special opcode cannot encode.
+     */
     private void emitLine(List<DebugInstruction> instructions, int targetLine) {
-        instructions.add(new DebugAdvanceLine(targetLine - currentLine));
+        int lineDiff = targetLine - currentLine;
         currentLine = targetLine;
+        if (lineDiff >= DBG_LINE_BASE && lineDiff < DBG_LINE_BASE + DBG_LINE_RANGE) {
+            // Address difference is zero, so the opcode encodes only the line difference.
+            instructions.add(new DebugSpecial(DBG_FIRST_SPECIAL + (lineDiff - DBG_LINE_BASE)));
+        } else {
+            instructions.add(new DebugAdvanceLine(lineDiff));
+            instructions.add(new DebugSpecial(DBG_FIRST_SPECIAL - DBG_LINE_BASE)); // zero address and line difference
+        }
     }
 
     private void emitLocalStart(List<DebugInstruction> instructions, InstructionContext<DexMapBuilder> ctx,
