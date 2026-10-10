@@ -592,6 +592,7 @@ class DexTreeVisitorTest {
         )));
         code.setDebugInfo(new DebugInformation(
                 List.of(new DebugInformation.LineNumber(start, 42)),
+                List.of(),
                 List.of("ignored"),
                 List.of(new DebugInformation.LocalVariable(0, "value", Types.INT, null, start, end))
         ));

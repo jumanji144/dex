@@ -52,6 +52,7 @@ public class IrBuilder {
 		if (code == null)
 			throw new DexIrException("lift", method, "Method has no code");
 
+		ConversionSupport.ensureLabelPositions(code);
 		IrGraph graph = pruneGraph ?
 				graphBuilder.buildPrunedGraph() :
 				graphBuilder.buildGraph();

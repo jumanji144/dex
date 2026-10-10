@@ -11,6 +11,7 @@ import me.darknet.dex.tree.definitions.ClassDefinition;
 import me.darknet.dex.tree.definitions.FieldMember;
 import me.darknet.dex.tree.definitions.annotation.Annotation;
 import me.darknet.dex.tree.definitions.annotation.AnnotationPart;
+import me.darknet.dex.tree.definitions.code.Code;
 import me.darknet.dex.tree.definitions.constant.AnnotationConstant;
 import me.darknet.dex.tree.definitions.constant.ArrayConstant;
 import me.darknet.dex.tree.definitions.constant.BoolConstant;
@@ -33,6 +34,7 @@ import me.darknet.dex.tree.definitions.constant.TypeConstant;
 import me.darknet.dex.tree.definitions.instructions.ConstInstruction;
 import me.darknet.dex.tree.definitions.instructions.ConstWideInstruction;
 import me.darknet.dex.tree.definitions.instructions.Instruction;
+import me.darknet.dex.tree.definitions.instructions.Label;
 import me.darknet.dex.tree.definitions.instructions.Invoke;
 import me.darknet.dex.tree.definitions.instructions.StaticFieldInstruction;
 import me.darknet.dex.tree.type.ArrayType;
@@ -61,6 +63,64 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public final class ConversionSupport {
 	private ConversionSupport() {
+	}
+
+	/**
+	 * Assigns missing code-unit positions to labels in an in-memory code model.
+	 * <p>
+	 * DEX decoding and encoding populate label positions, but assembled or otherwise constructed code may reach
+	 * conversion before either codec has run. Control-flow conversion uses those positions to resolve branch
+	 * targets, so leaving multiple labels at {@link Label#UNASSIGNED} collapses them onto the same graph block.
+	 * <p>
+	 * Existing instruction offsets and label positions are retained where available, missing labels are placed
+	 * using the surrounding instruction offsets or the model instruction widths.
+	 *
+	 * @param code
+	 * 		Code whose labels may be unpositioned.
+	 */
+	public static void ensureLabelPositions(@NotNull Code code) {
+		List<Instruction> instructions = code.getInstructions();
+		boolean hasUnpositionedLabel = false;
+		for (Instruction instruction : instructions) {
+			if (instruction instanceof Label label && label.position() == Label.UNASSIGNED) {
+				hasUnpositionedLabel = true;
+				break;
+			}
+		}
+		if (!hasUnpositionedLabel)
+			return;
+
+		// Use exact offsets from the next instruction where they exist. Walking backwards also handles runs of
+		// labels in one pass instead of repeatedly searching forward through the instruction list.
+		int nextPosition = Label.UNASSIGNED;
+		for (int index = instructions.size() - 1; index >= 0; index--) {
+			Instruction instruction = instructions.get(index);
+			if (instruction instanceof Label label) {
+				if (label.position() == Label.UNASSIGNED) {
+					if (nextPosition != Label.UNASSIGNED)
+						label.position(nextPosition);
+				} else {
+					nextPosition = label.position();
+				}
+			} else {
+				Integer instructionOffset = code.offsetOf(instruction);
+				nextPosition = instructionOffset == null ? Label.UNASSIGNED : instructionOffset;
+			}
+		}
+
+		int offset = 0;
+		for (Instruction instruction : instructions) {
+			if (instruction instanceof Label label) {
+				if (label.position() == Label.UNASSIGNED)
+					label.position(offset);
+				offset = label.position();
+			} else {
+				Integer instructionOffset = code.offsetOf(instruction);
+				if (instructionOffset != null)
+					offset = instructionOffset;
+				offset += instruction.unitSize();
+			}
+		}
 	}
 
 	/**

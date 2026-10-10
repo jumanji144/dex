@@ -185,6 +185,7 @@ public class DexConversionSimple extends AbstractDexConversion {
 		Code code = method.getCode();
 		if (code == null) return;
 
+		ConversionSupport.ensureLabelPositions(code);
 		mv.visitCode();
 
 		// First pass to assign labels to all label instructions and try-catch boundaries

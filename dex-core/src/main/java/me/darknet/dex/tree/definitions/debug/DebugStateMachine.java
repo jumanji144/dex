@@ -50,6 +50,7 @@ public class DebugStateMachine {
     private static final int DBG_LINE_RANGE = 15;
 
     private final List<DebugInformation.LineNumber> lineNumbers = new ArrayList<>();
+    private final List<DebugInformation.AddressLine> addressLines = new ArrayList<>();
     private final List<DebugInformation.LocalVariable> locals = new ArrayList<>();
     private InstructionContext<?> ctx;
     private int pc;
@@ -123,6 +124,7 @@ public class DebugStateMachine {
             positionsEnded = true;
             return;
         }
+        addressLines.add(new DebugInformation.AddressLine(pc, line));
         Label label = instructionLabel(pc);
         label.lineNumber(line);
         lineNumbers.add(new DebugInformation.LineNumber(label, line));
@@ -246,7 +248,7 @@ public class DebugStateMachine {
             parameterNames.add(param == null ? null : param.string());
         }
 
-        return new DebugInformation(lineNumbers, parameterNames, locals);
+        return new DebugInformation(lineNumbers, addressLines, parameterNames, locals);
     }
 
     public DebugInfoItem compile(DebugInformation info, InstructionContext<DexMapBuilder> ctx) {

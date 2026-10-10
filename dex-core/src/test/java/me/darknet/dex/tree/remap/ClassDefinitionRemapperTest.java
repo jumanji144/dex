@@ -436,6 +436,7 @@ class ClassDefinitionRemapperTest implements AccessFlags {
 						new DebugInformation.LineNumber(start, 10),
 						new DebugInformation.LineNumber(exit, 30)
 				),
+				List.of(),
 				List.of("first", "second"),
 				List.of(new DebugInformation.LocalVariable(0, "local", OLD_INNER, OLD_NESTED_SIGNATURE, start, exit))
 		));

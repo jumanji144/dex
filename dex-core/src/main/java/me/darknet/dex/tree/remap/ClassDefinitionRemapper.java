@@ -413,7 +413,8 @@ public class ClassDefinitionRemapper {
 					}
 				}
 
-				return new DebugInformation(lineNumbers, parameterNames, locals);
+				// Raw positions are addresses, not labels, so remapping leaves them unchanged.
+				return new DebugInformation(lineNumbers, source.addressLines(), parameterNames, locals);
 			}
 
 			private @NotNull Instruction remapInstruction(@NotNull Instruction source) {

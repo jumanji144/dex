@@ -64,6 +64,30 @@ class DebugStateMachineTest {
     }
 
     @Test
+    void lineAtIgnoresPositionsInsideAnInstruction() {
+        // The instruction at 0 is on line 1
+        // The positions at pcs 1 and 2 are inside it and do not change its line, which is what ART's GetLineNumForPc returns for pc 0.
+        List<DebugInstruction> bytecode = new ArrayList<>();
+        bytecode.add(new DebugSpecial(0x0e));
+        for (int i = 0; i < 23; i++)
+            bytecode.add(new DebugSpecial(0x1e));
+        DebugInformation info = execute(new DebugInfoItem(1, List.of(), bytecode), List.of(0, 3), 4);
+
+        assertEquals(1, info.lineAt(0));
+        assertEquals(4, info.lineAt(3));
+    }
+
+    @Test
+    void lineAtIsNullBeforeTheFirstPosition() {
+        DebugInfoItem item = new DebugInfoItem(1, List.of(), List.of(new DebugAdvancePc(2), new DebugSpecial(0x0e)));
+
+        DebugInformation info = execute(item, List.of(0, 2), 3);
+
+        assertNull(info.lineAt(0));
+        assertEquals(1, info.lineAt(2));
+    }
+
+    @Test
     void writtenPositionsReadBackIncludingLargeLineJumps() {
         Label first = new Label(0, 0);
         Label second = new Label(1, 3);
@@ -72,7 +96,7 @@ class DebugStateMachineTest {
                 new DebugInformation.LineNumber(first, 1),
                 new DebugInformation.LineNumber(second, 40),
                 new DebugInformation.LineNumber(third, 41)
-        ), List.of(), List.of());
+        ), List.of(), List.of(), List.of());
 
         DebugInfoItem written = new DebugStateMachine().compile(original,
                 new InstructionContext<>(List.of(), List.of(0, 3, 8), null, new HashMap<>(), null, null, null));

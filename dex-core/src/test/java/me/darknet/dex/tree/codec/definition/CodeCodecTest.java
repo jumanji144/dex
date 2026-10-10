@@ -70,6 +70,7 @@ class CodeCodecTest implements AccessFlags {
                         new DebugInformation.LineNumber(switchCase, 20),
                         new DebugInformation.LineNumber(end, 30)
                 ),
+                List.of(),
                 List.of("arg0"),
                 List.of(new DebugInformation.LocalVariable(0, "local", Types.INT, null, start, end))
         ));
